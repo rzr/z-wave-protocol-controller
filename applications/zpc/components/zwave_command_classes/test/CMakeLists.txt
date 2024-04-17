@@ -150,6 +150,22 @@ target_add_unittest(
   uic_dotdot_mqtt_mock
 )
 
+# User credential test
+target_add_unittest(
+  zwave_command_classes
+  NAME
+  zwave_command_class_user_credential_test
+  SOURCES
+  zwave_command_class_user_credential_test.cpp
+  DEPENDS
+  zpc_attribute_store_test_helper
+  zwave_controller
+  zwave_command_handler_mock
+  uic_attribute_resolver_mock
+  zpc_attribute_resolver_mock
+  uic_dotdot_mqtt_mock
+  zwave_network_management_mock)
+
 # Wake Up Command Class
 target_add_unittest(
   zwave_command_classes
@@ -857,7 +873,7 @@ target_add_unittest(
   zpc_attribute_resolver_mock
   uic_dotdot_mqtt_mock)
 
-# Humidity Control SetPoint test
+# CRC16 test
 target_add_unittest(
   zwave_command_classes
   NAME
