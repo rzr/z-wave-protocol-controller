@@ -68,6 +68,18 @@
  */
 
 /////////////////////////////////////////////////////////////////////////////
+// Preemptive declarations
+/////////////////////////////////////////////////////////////////////////////
+/**
+ * @brief Trigger an User Get for given user_id
+ * 
+ * @param endpoint_node Endpoint node
+ * @param user_id       User ID. Can be set to 0 to discover users
+*/
+void trigger_get_user(attribute_store_node_t endpoint_node,
+                      user_credential_user_unique_id_t user_id);
+
+/////////////////////////////////////////////////////////////////////////////
 // Data struct
 /////////////////////////////////////////////////////////////////////////////
 
@@ -1494,6 +1506,29 @@ void on_notification_event(attribute_store_node_t endpoint_node,
                                                  ATTRIBUTE(CREDENTIAL_DATA),
                                                  0));
       }
+    } break;
+    // All user deleted
+    case 0x25: {
+      sl_log_debug(LOG_TAG, "Notification : All User Deleted");
+
+      // Delete all user nodes
+      auto user_node_count = attribute_store_get_node_child_count_by_type(
+        endpoint_node,
+        ATTRIBUTE(USER_UNIQUE_ID));
+
+      for (size_t i = 0; i < user_node_count; i++) {
+        attribute_store_node_t user_node
+          = attribute_store_get_node_child_by_type(
+            endpoint_node,
+            ATTRIBUTE(USER_UNIQUE_ID),
+            0);  // 0 not i here since user will be deleted
+        attribute_store_delete_node(user_node);
+      }
+      sl_log_info(LOG_TAG, "All credentials deleted.");
+
+      sl_log_debug(LOG_TAG,
+                   "Interview users again to make sure they are not any left.");
+      trigger_get_user(endpoint_node, 0);
     } break;
     default:
       break;
@@ -3394,6 +3429,27 @@ sl_status_t zwave_command_class_user_credential_delete_credential(
                "Delete credential slot %d (credential type %d, user id %d)",
                credential_slot,
                credential_type,
+               user_id);
+  return SL_STATUS_OK;
+}
+
+sl_status_t zwave_command_class_user_credential_delete_all_users(
+  attribute_store_node_t endpoint_node)
+{
+  // Send an User SET with user id = 0
+  user_credential_user_unique_id_t user_id = 0;
+  attribute_store_node_t user_id_node
+    = attribute_store_emplace(endpoint_node,
+                              ATTRIBUTE(USER_UNIQUE_ID),
+                              &user_id,
+                              sizeof(user_id));
+
+  // Finally set operation type delete
+  set_user_operation_type(user_id_node, USER_CREDENTIAL_OPERATION_TYPE_DELETE);
+
+  sl_log_debug(LOG_TAG,
+               "Delete all user operation received. Creating user with id %d "
+               "to send a User SET.",
                user_id);
   return SL_STATUS_OK;
 }

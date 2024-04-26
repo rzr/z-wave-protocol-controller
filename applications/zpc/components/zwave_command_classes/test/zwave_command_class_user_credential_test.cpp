@@ -3452,4 +3452,64 @@ void test_user_credential_credential_set_error_report_cred_security_rule_happy_c
 
 }
 
+
+void test_user_credential_remove_all_users_happy_case() {
+  
+  const zwave_cc_version_t version = 1;
+  attribute_store_set_child_reported(endpoint_id_node,
+                                     ATTRIBUTE(VERSION),
+                                     &version,
+                                     sizeof(version));
+
+  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
+                               "Notification callback should be defined");
+
+  std::vector<user_credential_user_unique_id_t> user_ids = {12,15,19};
+  for(auto user_id : user_ids) {
+    attribute_store_emplace(endpoint_id_node,
+                            ATTRIBUTE(USER_UNIQUE_ID),
+                            &user_id,
+                            user_id);
+  }
+
+  auto status
+    = zwave_command_class_user_credential_delete_all_users(endpoint_id_node);
+
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
+                            status,
+                            "Remove all users should have returned SL_STATUS_OK");
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    user_ids.size()
+      + 1,  // +1 because the remove all users will add an extra user to invoke the user SET command
+    attribute_store_get_node_child_count_by_type(endpoint_id_node,
+                                                 ATTRIBUTE(USER_UNIQUE_ID)),
+    "All users should have NOT have been removed yet");
+
+  // This will handle the deletion
+  notification_callback(endpoint_id_node,
+                        NOTIFICATION_ACCESS_CONTROL,
+                        0x25,  // All User deleted
+                        // No need to have arguments here
+                        std::vector<uint8_t>().data(),
+                        0);
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    1, // Should be one user left here with desired value of 0  
+    attribute_store_get_node_child_count_by_type(endpoint_id_node,
+                                                 ATTRIBUTE(USER_UNIQUE_ID)),
+    "All users should have been removed yet");
+
+  user_credential_user_unique_id_t user_id = 0;
+  auto user_node
+    = attribute_store_get_node_child_by_value(endpoint_id_node,
+                                              ATTRIBUTE(USER_UNIQUE_ID),
+                                              DESIRED_ATTRIBUTE,
+                                              (uint8_t*)&user_id,
+                                              sizeof(user_id),
+                                              0);
+
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(user_node),
+                           "Should be one user node with desired value of 0 to perform user interview");
+}
 }  // extern "C"
