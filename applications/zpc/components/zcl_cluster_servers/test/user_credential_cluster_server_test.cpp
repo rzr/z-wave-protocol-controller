@@ -75,6 +75,8 @@ uic_mqtt_dotdot_user_credential_modify_user_callback_t modify_user_command = NUL
 uic_mqtt_dotdot_user_credential_add_credential_callback_t add_credential_command = NULL;
 uic_mqtt_dotdot_user_credential_modify_credential_callback_t modify_credential_command = NULL;
 uic_mqtt_dotdot_user_credential_delete_credential_callback_t delete_credential_command = NULL;
+uic_mqtt_dotdot_user_credential_delete_all_users_callback_t delete_all_users_command = NULL;
+
 // clang-format on
 
 // Stub functions for intercepting callback registration.
@@ -116,6 +118,12 @@ void uic_mqtt_dotdot_user_credential_delete_credential_callback_set_stub(
   int cmock_num_calls)
 {
   delete_credential_command = callback;
+}
+void uic_mqtt_dotdot_user_credential_delete_all_users_callback_set_stub(
+  const uic_mqtt_dotdot_user_credential_delete_all_users_callback_t callback,
+  int cmock_num_calls)
+{
+  delete_all_users_command = callback;
 }
 
 /// Setup the test suite (called once before all test_xxx functions are called)
@@ -177,6 +185,8 @@ void setUp()
   uic_mqtt_dotdot_user_credential_add_credential_callback_set_Stub(&uic_mqtt_dotdot_user_credential_add_credential_callback_set_stub);
   uic_mqtt_dotdot_user_credential_modify_credential_callback_set_Stub(&uic_mqtt_dotdot_user_credential_modify_credential_callback_set_stub);
   uic_mqtt_dotdot_user_credential_delete_credential_callback_set_Stub(&uic_mqtt_dotdot_user_credential_delete_credential_callback_set_stub);
+  // Delete all
+  uic_mqtt_dotdot_user_credential_delete_all_users_callback_set_Stub(&uic_mqtt_dotdot_user_credential_delete_all_users_callback_set_stub);
   // clang-format on
 
   // Run the component init
@@ -1586,6 +1596,49 @@ void test_user_credential_cluster_delete_credential_happy_case()
   helper_test_operation_type(credential_slot_node,
                              USER_CREDENTIAL_OPERATION_TYPE_DELETE);
 }
+
+void test_user_credential_cluster_delete_all_users_happy_case()
+{
+  // Simulate user
+  user_credential_user_unique_id_t user_unique_id = 12;
+  UserTypeEnum user_type                  = ZCL_USER_TYPE_ENUM_EXPIRING_USER;
+  CredRule credential_rule                = ZCL_CRED_RULE_SINGLE;
+  bool user_active_state                  = true;
+  uint16_t expiring_timeout               = 50;
+  UserNameEncodingType user_name_encoding = ZCL_USER_NAME_ENCODING_TYPE_ASCII;
+  const char *user_name                   = "RIP JACKIE TUNNING";
+
+  helper_add_complete_user(user_unique_id,
+                           user_type,
+                           credential_rule,
+                           user_active_state,
+                           expiring_timeout,
+                           user_name_encoding,
+                           user_name);
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    delete_all_users_command(supporting_node_unid,
+                        endpoint_id,
+                        UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL),
+    "Should be able to setup attribute store for all user deletion");
+
+  
+ user_unique_id = 0;
+ auto deletion_user_node
+    = attribute_store_get_node_child_by_value(endpoint_id_node,
+                                              ATTRIBUTE(USER_UNIQUE_ID),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t*)&user_unique_id,
+                                              sizeof(user_unique_id),
+                                              0);
+
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(deletion_user_node),
+                           "Should be one user node with desired value of 0 to perform user interview");
+  helper_test_operation_type(deletion_user_node,
+                             USER_CREDENTIAL_OPERATION_TYPE_DELETE);
+}
+
 
 ///////////////////////////////////////////////////
 // Support tests

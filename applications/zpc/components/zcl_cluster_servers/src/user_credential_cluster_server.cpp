@@ -189,6 +189,7 @@ static sl_status_t
   return SL_STATUS_OK;
 }
 
+
 static sl_status_t
   delete_user_command(dotdot_unid_t unid,
                       dotdot_endpoint_id_t endpoint,
@@ -302,6 +303,26 @@ static sl_status_t
     credential_slot);
 }
 
+static sl_status_t delete_all_users_command(dotdot_unid_t unid,
+                                            dotdot_endpoint_id_t endpoint,
+                                            uic_mqtt_dotdot_callback_call_type_t call_type)
+{
+  attribute_store_node_t endpoint_node
+    = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
+
+  // Now that we know that the command is supported, return here if it is
+  // a support check type of call.
+  if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
+    attribute_store_node_t user_count_node
+      = attribute_store_get_first_child_by_type(endpoint_node,
+                                                ATTRIBUTE(NUMBER_OF_USERS));
+
+    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
+                                                        : SL_STATUS_FAIL;
+  }
+
+  return zwave_command_class_user_credential_delete_all_users(endpoint_node);
+}
 ///////////////////////////////////////////////////////////////////////////////
 // Helpers functions
 //////////////////////////////////////////////////////////////////////////////
@@ -709,6 +730,9 @@ sl_status_t user_credential_cluster_server_init()
     &modify_credential_command);
   uic_mqtt_dotdot_user_credential_delete_credential_callback_set(
     &delete_credential_command);
+  // Delete all
+  uic_mqtt_dotdot_user_credential_delete_all_users_callback_set(
+    &delete_all_users_command);
 
   return SL_STATUS_OK;
 }
