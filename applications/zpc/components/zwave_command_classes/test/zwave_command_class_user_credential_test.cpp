@@ -1127,10 +1127,7 @@ std::vector<uint8_t> helper_create_user_notification_report(
   user_credential_supported_credential_rules_t credential_rule,
   user_credential_expiring_timeout_minutes_t expiring_timeout_minutes)
 {
-  // FIXME: This will be changed
-  // https://github.com/Z-Wave-Alliance/z-wave-stack/issues/409
-  std::vector<uint8_t> report_frame
-    = {COMMAND_CLASS_USER_CREDENTIAL, USER_NOTIFICATION_REPORT};
+  std::vector<uint8_t> report_frame;
 
   report_frame.push_back(user_modifier_type);
 
