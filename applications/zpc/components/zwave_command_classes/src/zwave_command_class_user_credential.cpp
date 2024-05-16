@@ -958,13 +958,13 @@ namespace user
 {
 // Indexes
 // User Notification Report Frame
-constexpr uint8_t INDEX_USER_MODIFIER_TYPE            = 2;
-constexpr uint8_t INDEX_USER_MODIFIER_NODE_ID         = 3;
-constexpr uint8_t INDEX_USER_UNIQUE_ID                = 5;
-constexpr uint8_t INDEX_USER_TYPE                     = 7;
-constexpr uint8_t INDEX_USER_ACTIVE_STATE             = 8;
-constexpr uint8_t INDEX_USER_CREDENTIAL_RULE          = 9;
-constexpr uint8_t INDEX_USER_EXPIRING_TIMEOUT_MINUTES = 10;
+constexpr uint8_t INDEX_USER_MODIFIER_TYPE            = 0;
+constexpr uint8_t INDEX_USER_MODIFIER_NODE_ID         = 1;
+constexpr uint8_t INDEX_USER_UNIQUE_ID                = 3;
+constexpr uint8_t INDEX_USER_TYPE                     = 5;
+constexpr uint8_t INDEX_USER_ACTIVE_STATE             = 6;
+constexpr uint8_t INDEX_USER_CREDENTIAL_RULE          = 7;
+constexpr uint8_t INDEX_USER_EXPIRING_TIMEOUT_MINUTES = 8;
 constexpr uint8_t USER_NOTIFICATION_REPORT_FRAME_LENGTH
   = INDEX_USER_EXPIRING_TIMEOUT_MINUTES + 2;
 
@@ -1051,7 +1051,9 @@ void update_user_reported_values(attribute_store_node_t user_id_node,
 bool is_report_size_conform(uint8_t event_parameters_length)
 {
   if (event_parameters_length != USER_NOTIFICATION_REPORT_FRAME_LENGTH) {
-    sl_log_error(LOG_TAG, "Invalid User Notification Report size");
+    sl_log_error(LOG_TAG, "Invalid User Notification Report size got %d, expected %d",
+                 event_parameters_length,
+                 USER_NOTIFICATION_REPORT_FRAME_LENGTH);  
     return false;
   }
   return true;
