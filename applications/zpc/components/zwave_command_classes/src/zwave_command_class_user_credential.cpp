@@ -3326,6 +3326,30 @@ sl_status_t zwave_command_class_user_credential_add_new_credential(
   attribute_store_node_t credential_type_node = ATTRIBUTE_STORE_INVALID_NODE;
   attribute_store_node_t credential_slot_node = ATTRIBUTE_STORE_INVALID_NODE;
 
+  auto credential_type_nodes
+    = get_all_credential_type_nodes(endpoint_node, credential_type);
+  
+  // Credential type, Credential Node pair is Unique
+  for (auto &credential_type_node : credential_type_nodes) {
+    user_credential_type_t current_type;
+    attribute_store_get_reported(credential_type_node,
+                                 &current_type,
+                                 sizeof(current_type));
+    user_credential_slot_t current_slot;
+    attribute_store_get_child_reported(credential_type_node,
+                                       ATTRIBUTE(CREDENTIAL_SLOT),
+                                       &current_slot,
+                                       sizeof(current_slot));
+    if (current_slot == credential_slot && current_type == credential_type) {
+      sl_log_error(LOG_TAG,
+                   "Credential slot %d for Credential Type %d already exists. "
+                   "Not adding credentials.",
+                   credential_slot,
+                   credential_type);
+      return SL_STATUS_FAIL;
+    }
+  }
+
   // First check Credential Type existance
   get_credential_type_node(endpoint_node,
                            user_id,
@@ -3338,7 +3362,7 @@ sl_status_t zwave_command_class_user_credential_add_new_credential(
                              REPORTED_ATTRIBUTE,
                              credential_slot_node);
 
-    // If a Credential Slot already exists we can't add a ne  w one
+    // If a Credential Slot already exists we can't add a new one
     if (attribute_store_node_exists(credential_slot_node)) {
       sl_log_error(LOG_TAG,
                    "Credential slot %d for Credential Type %d already exists. "
