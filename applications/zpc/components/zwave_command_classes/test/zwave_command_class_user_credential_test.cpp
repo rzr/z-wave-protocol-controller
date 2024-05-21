@@ -2309,6 +2309,112 @@ void test_user_credential_notification_empty_parameters()
   }
 }
 
+void test_user_credential_add_credential_already_defined_cred_type_and_slot()
+{
+  // Initialize the notification callback
+  const zwave_cc_version_t version = 1;
+  attribute_store_set_child_reported(endpoint_id_node,
+                                     ATTRIBUTE(VERSION),
+                                     &version,
+                                     sizeof(version));
+
+  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
+                               "Notification callback should be defined");
+
+  user_credential_user_unique_id_t user_id = 12;
+  user_credential_type_t credential_type   = ZCL_CRED_TYPE_PIN_CODE;
+  user_credential_slot_t credential_slot   = 1;
+  std::string credential_data              = "12";
+  bool crb                                 = true;
+  user_credential_modifier_type_t credential_modifier_type       = 2;
+  user_credential_modifier_node_id_t credential_modifier_node_id = 1212;
+
+  // Simulate user
+  attribute_store_emplace(endpoint_id_node,
+                          ATTRIBUTE(USER_UNIQUE_ID),
+                          &user_id,
+                          sizeof(user_id));
+
+  // Se capabilities
+  uint8_t supported_credential_checksum = 1;
+  std::vector<user_credential_type_t> supported_credential_type
+    = {ZCL_CRED_TYPE_PIN_CODE};
+  std::vector<uint8_t> supported_cl                = {1};
+  std::vector<uint16_t> supported_credential_slots = {1};
+  std::vector<uint16_t> supported_cred_min_length  = {2};
+  std::vector<uint16_t> supported_cred_max_length  = {6};
+  helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                supported_credential_type,
+                                                supported_cl,
+                                                supported_credential_slots,
+                                                supported_cred_min_length,
+                                                supported_cred_max_length,
+                                                {1},
+                                                {1});
+
+  // Add credential
+  sl_status_t status = zwave_command_class_user_credential_add_new_credential(
+    endpoint_id_node,
+    user_id,
+    credential_type,
+    credential_slot,
+    credential_data.c_str());
+
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
+                            status,
+                            "Credential add should have returned SL_STATUS_OK");
+
+  // Simulate notification so that the credential is marked as reported
+  auto credential_notification_report
+    = helper_create_credential_notification_report(user_id,
+                                                   credential_type,
+                                                   credential_slot,
+                                                   crb,
+                                                   credential_data,
+                                                   credential_modifier_type,
+                                                   credential_modifier_node_id);
+
+  // Endpoint send User Add notification
+  notification_callback(endpoint_id_node,
+                        NOTIFICATION_ACCESS_CONTROL,
+                        0x2B,  // Credential added
+                        credential_notification_report.data(),
+                        credential_notification_report.size());
+
+  // Try to add same credential type and slot on same user but with different credential data
+  credential_data = "1234";
+  status          = zwave_command_class_user_credential_add_new_credential(
+    endpoint_id_node,
+    user_id,
+    credential_type,
+    credential_slot,
+    credential_data.c_str());
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_FAIL,
+    status,
+    "Credential add should have returned SL_STATUS_FAIL (trying to add same credential type/slot to same user).");
+
+  // Try to add same credential type/slot on other user
+  user_id      = 15;
+  attribute_store_emplace(endpoint_id_node,
+                          ATTRIBUTE(USER_UNIQUE_ID),
+                          &user_id,
+                          sizeof(user_id));
+
+  status = zwave_command_class_user_credential_add_new_credential(
+    endpoint_id_node,
+    user_id,
+    credential_type,
+    credential_slot,
+    credential_data.c_str());
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_FAIL,
+    status,
+    "Credential add should have returned SL_STATUS_FAIL (trying to add same credential type/slot to different user).");
+}
+
 void test_user_credential_user_notification_add_modify_delete_happy_case()
 {
   // Initialize the notification callback
@@ -3585,13 +3691,12 @@ void test_user_credential_remove_all_credentials_of_user()
 
   user_credential_user_unique_id_t user_to_delete = 12;
 
-
   std::vector<credential_structure_nodes> expected_nodes;
   // WARNING : All those vectors should be the same size
   std::vector<user_credential_user_unique_id_t> user_ids
     = {user_to_delete, user_to_delete, user_to_delete, 15, 19};
-  std::vector<user_credential_type_t> credential_types   = {1, 1, 2, 5, 1};
-  std::vector<user_credential_slot_t> credential_slots   = {1, 2, 2, 1, 3};
+  std::vector<user_credential_type_t> credential_types = {1, 1, 2, 5, 1};
+  std::vector<user_credential_slot_t> credential_slots = {1, 2, 2, 1, 3};
   // WARNING : Make sure that all the vector above have the same size
   const size_t expected_credential_count = user_ids.size();
   for (size_t i = 0; i < expected_credential_count; i++) {
@@ -3665,7 +3770,6 @@ void test_user_credential_remove_all_credentials_of_user()
                             "User 0 should not exists");
 }
 
-
 void test_user_credential_remove_all_credentials_of_user_by_type()
 {
   const zwave_cc_version_t version = 1;
@@ -3677,9 +3781,8 @@ void test_user_credential_remove_all_credentials_of_user_by_type()
   TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
                                "Notification callback should be defined");
 
-  user_credential_user_unique_id_t user_to_delete = 12;
+  user_credential_user_unique_id_t user_to_delete  = 12;
   user_credential_type_t credential_type_to_delete = 1;
-
 
   struct expected_node_data {
     credential_structure_nodes nodes;
@@ -3691,7 +3794,7 @@ void test_user_credential_remove_all_credentials_of_user_by_type()
     = {user_to_delete, user_to_delete, user_to_delete, 15, 19};
   std::vector<user_credential_type_t> credential_types
     = {credential_type_to_delete, credential_type_to_delete, 2, 5, 1};
-  std::vector<user_credential_slot_t> credential_slots   = {1, 2, 2, 1, 3};
+  std::vector<user_credential_slot_t> credential_slots = {1, 2, 2, 1, 3};
   // WARNING : Make sure that all the vector above have the same size
   const size_t expected_credential_count = user_ids.size();
   for (size_t i = 0; i < expected_credential_count; i++) {
@@ -3715,7 +3818,7 @@ void test_user_credential_remove_all_credentials_of_user_by_type()
     status,
     "Remove all credentials for user should have returned SL_STATUS_OK");
 
-  auto exploded_user_to_delete = explode_uint16(user_to_delete);
+  auto exploded_user_to_delete                 = explode_uint16(user_to_delete);
   std::vector<uint8_t> notification_parameters = {exploded_user_to_delete.msb,
                                                   exploded_user_to_delete.lsb,
                                                   credential_type_to_delete,
@@ -3733,7 +3836,7 @@ void test_user_credential_remove_all_credentials_of_user_by_type()
   attribute_store_log();
 
   for (auto &node_data: expected_nodes_data) {
-    auto nodes = node_data.nodes;
+    auto nodes            = node_data.nodes;
     auto should_not_exist = node_data.should_not_exist;
     printf("User node %d / Credential Type Node %d / Credential Slot Node %d\n",
            nodes.user_id_node,
@@ -3782,7 +3885,6 @@ void test_user_credential_remove_all_credentials_by_type()
                                "Notification callback should be defined");
 
   user_credential_type_t credential_type_to_delete = 1;
-
 
   struct expected_node_data {
     credential_structure_nodes nodes;
@@ -3833,7 +3935,7 @@ void test_user_credential_remove_all_credentials_by_type()
   attribute_store_log();
 
   for (auto &node_data: expected_nodes_data) {
-    auto nodes = node_data.nodes;
+    auto nodes            = node_data.nodes;
     auto should_not_exist = node_data.should_not_exist;
     printf("User node %d / Credential Type Node %d / Credential Slot Node %d\n",
            nodes.user_id_node,
