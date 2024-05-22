@@ -323,6 +323,107 @@ static sl_status_t delete_all_users_command(dotdot_unid_t unid,
 
   return zwave_command_class_user_credential_delete_all_users(endpoint_node);
 }
+
+static sl_status_t
+  delete_all_credentials(dotdot_unid_t unid,
+                         dotdot_endpoint_id_t endpoint,
+                         uic_mqtt_dotdot_callback_call_type_t call_type)
+{
+  attribute_store_node_t endpoint_node
+    = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
+
+  // Now that we know that the command is supported, return here if it is
+  // a support check type of call.
+  if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
+    attribute_store_node_t user_count_node
+      = attribute_store_get_first_child_by_type(endpoint_node,
+                                                ATTRIBUTE(NUMBER_OF_USERS));
+
+    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
+                                                        : SL_STATUS_FAIL;
+  }
+
+  return zwave_command_class_user_credential_delete_all_credentials(
+    endpoint_node);
+}
+
+static sl_status_t delete_all_credentials_by_type(
+  dotdot_unid_t unid,
+  dotdot_endpoint_id_t endpoint,
+  uic_mqtt_dotdot_callback_call_type_t call_type,
+  CredType credential_type)
+{
+  attribute_store_node_t endpoint_node
+    = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
+
+  // Now that we know that the command is supported, return here if it is
+  // a support check type of call.
+  if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
+    attribute_store_node_t user_count_node
+      = attribute_store_get_first_child_by_type(endpoint_node,
+                                                ATTRIBUTE(NUMBER_OF_USERS));
+
+    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
+                                                        : SL_STATUS_FAIL;
+  }
+
+  return zwave_command_class_user_credential_delete_all_credentials_by_type(
+    endpoint_node,
+    static_cast<user_credential_type_t>(credential_type));
+}
+
+static sl_status_t delete_all_credentials_for_user(
+  dotdot_unid_t unid,
+  dotdot_endpoint_id_t endpoint,
+  uic_mqtt_dotdot_callback_call_type_t call_type,
+  uint16_t user_unique_id)
+{
+  attribute_store_node_t endpoint_node
+    = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
+
+  // Now that we know that the command is supported, return here if it is
+  // a support check type of call.
+  if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
+    attribute_store_node_t user_count_node
+      = attribute_store_get_first_child_by_type(endpoint_node,
+                                                ATTRIBUTE(NUMBER_OF_USERS));
+
+    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
+                                                        : SL_STATUS_FAIL;
+  }
+
+  return zwave_command_class_user_credential_delete_all_credentials_for_user(
+    endpoint_node,
+    user_unique_id);
+}
+
+static sl_status_t delete_all_credentials_for_user_by_type(
+  dotdot_unid_t unid,
+  dotdot_endpoint_id_t endpoint,
+  uic_mqtt_dotdot_callback_call_type_t call_type,
+  uint16_t user_unique_id,
+  CredType credential_type)
+{
+  attribute_store_node_t endpoint_node
+    = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
+
+  // Now that we know that the command is supported, return here if it is
+  // a support check type of call.
+  if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
+    attribute_store_node_t user_count_node
+      = attribute_store_get_first_child_by_type(endpoint_node,
+                                                ATTRIBUTE(NUMBER_OF_USERS));
+
+    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
+                                                        : SL_STATUS_FAIL;
+  }
+
+  return zwave_command_class_user_credential_delete_all_credentials_for_user_by_type(
+    endpoint_node,
+    user_unique_id,
+    static_cast<user_credential_type_t>(credential_type));
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Helpers functions
 //////////////////////////////////////////////////////////////////////////////
@@ -733,6 +834,14 @@ sl_status_t user_credential_cluster_server_init()
   // Delete all
   uic_mqtt_dotdot_user_credential_delete_all_users_callback_set(
     &delete_all_users_command);
+  uic_mqtt_dotdot_user_credential_delete_all_credentials_callback_set(
+    &delete_all_credentials);
+  uic_mqtt_dotdot_user_credential_delete_all_credentials_by_type_callback_set(
+    &delete_all_credentials_by_type);
+  uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_callback_set(
+    &delete_all_credentials_for_user);
+  uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_by_type_callback_set(
+    &delete_all_credentials_for_user_by_type);
 
   return SL_STATUS_OK;
 }

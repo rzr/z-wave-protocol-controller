@@ -596,6 +596,67 @@ bool get_credential_type_node(attribute_store_node_t endpoint_node,
 }
 
 /**
+ * @brief Get ALL the credential type nodes.
+ * 
+ * By default it will return all the credential type nodes, but you can narrow
+ *  to a specific credential type with the credential_type parameter
+ * 
+ * @param endpoint_node     Endpoint point node
+ * @param credential_type   Credential type to find. If 0, will return all credential types
+ * 
+ * @return std::vector<attribute_store_node_t> List of credential type nodes
+*/
+std::vector<attribute_store_node_t>
+  get_all_credential_type_nodes(attribute_store_node_t endpoint_node,
+                                 user_credential_type_t credential_type = 0)
+{
+  std::vector<attribute_store_node_t> credential_type_nodes;
+
+  // Delete all user nodes
+  auto user_node_count
+    = attribute_store_get_node_child_count_by_type(endpoint_node,
+                                                   ATTRIBUTE(USER_UNIQUE_ID));
+
+  for (size_t user_id_index = 0; user_id_index < user_node_count;
+       user_id_index++) {
+    attribute_store_node_t user_node
+      = attribute_store_get_node_child_by_type(endpoint_node,
+                                               ATTRIBUTE(USER_UNIQUE_ID),
+                                               user_id_index);
+
+    auto credential_type_node_count
+      = attribute_store_get_node_child_count_by_type(
+        user_node,
+        ATTRIBUTE(CREDENTIAL_TYPE));
+
+    for (size_t credential_index = 0;
+         credential_index < credential_type_node_count;
+         credential_index++) {
+      attribute_store_node_t credential_type_node
+        = attribute_store_get_node_child_by_type(user_node,
+                                                 ATTRIBUTE(CREDENTIAL_TYPE),
+                                                 credential_index);
+      if (credential_type == 0) {
+        // If we haven't specify a node type we take them all
+        credential_type_nodes.push_back(credential_type_node);
+      } else {
+        // Otherwise we only take the ones that match
+        user_credential_type_t current_credential_type;
+        attribute_store_read_value(credential_type_node,
+                                   REPORTED_ATTRIBUTE,
+                                   &current_credential_type,
+                                   sizeof(current_credential_type));
+
+        if (current_credential_type == credential_type) {
+          credential_type_nodes.push_back(credential_type_node);
+        }
+      }
+    }
+  }
+
+  return credential_type_nodes;
+}
+/**
  * @brief Get credential slot node
  * 
  * @warning state can't be DESIRED_OR_REPORTED_ATTRIBUTE or it will not work
@@ -1092,6 +1153,18 @@ bool is_report_size_conform(uint8_t event_parameters_length)
   return true;
 };
 
+// Only have the first 3 parameters (user id, credential type, credential slot)
+// Permissive to some noise in the frame after the data we care about
+bool is_credential_deletion_size_conform(uint8_t event_parameters_length)
+{
+  if (event_parameters_length < 5) {
+    sl_log_error(LOG_TAG, "Invalid Credential Event Multiple Deletion size");
+    return false;
+  }
+
+  return true;
+};
+
 void update_credential_reported_values(
   attribute_store_node_t credential_slot_node, const uint8_t *event_parameters)
 {
@@ -1529,6 +1602,89 @@ void on_notification_event(attribute_store_node_t endpoint_node,
       sl_log_debug(LOG_TAG,
                    "Interview users again to make sure they are not any left.");
       trigger_get_user(endpoint_node, 0);
+    } break;
+    // Multiple credential deleted
+    case 0x26: {      
+      sl_log_debug(LOG_TAG, "Notification : Multiple credential deleted");
+      
+      if (!notification_handler::credential::is_credential_deletion_size_conform(
+            event_parameters_length)) {
+        return;
+      }
+
+      user_credential_user_unique_id_t user_id
+        = notification_handler::credential::get_user_id(event_parameters);
+      user_credential_type_t credential_type
+        = notification_handler::credential::get_credential_type(
+          event_parameters);
+
+      if (user_id != 0 && credential_type != 0) {
+        // Delete all slots for an credential type associated with user
+        sl_log_debug(LOG_TAG,
+                     "Delete all slots for credential type %d and user %d",
+                     credential_type,
+                     user_id);
+
+        auto cred_type_node = notification_handler::credential::get_credential_type_node(
+          endpoint_node,
+          event_parameters,
+          REPORTED_ATTRIBUTE);
+
+        if (!attribute_store_node_exists(cred_type_node)) {
+          sl_log_error(LOG_TAG,
+                       "Didn't find credential type %d associated with user %d. Can't delete credentials.",
+                       credential_type, user_id);
+          return;
+        }
+
+        attribute_store_delete_node(cred_type_node);
+
+        sl_log_info(LOG_TAG,
+                    "All credentials of type %d for user %d deleted.",
+                    credential_type,
+                    user_id);
+      } else if (user_id != 0) {
+        // Delete all credentials for a user
+        auto user_id_node = get_reported_user_id_node(endpoint_node, user_id);
+        if (!attribute_store_node_exists(user_id_node)) {
+          sl_log_error(LOG_TAG,
+                       "Didn't find user ID %d. Can't delete credentials.",
+                       user_id);
+          return;
+        }
+        // Delete all credential type nodes associated with this user
+        auto user_node_count = attribute_store_get_node_child_count_by_type(
+          user_id_node,
+          ATTRIBUTE(CREDENTIAL_TYPE));
+
+        for (size_t i = 0; i < user_node_count; i++) {
+          attribute_store_node_t credential_type_node
+            = attribute_store_get_node_child_by_type(
+              user_id_node,
+              ATTRIBUTE(CREDENTIAL_TYPE),
+              0);  // 0 not i here since user will be deleted
+          attribute_store_delete_node(credential_type_node);
+        }
+        sl_log_info(LOG_TAG, "All credentials for user %d deleted.", user_id);
+      } else if (credential_type != 0) {
+        // Delete all credentials of a type
+        auto credential_type_nodes = get_all_credential_type_nodes(endpoint_node, credential_type);
+        for(auto credential_type_node : credential_type_nodes) {
+          attribute_store_delete_node(credential_type_node);
+        }
+        sl_log_info(LOG_TAG, "Credential of type %d deleted", credential_type);
+      } else {
+        // Delete all credentials
+        auto credential_type_nodes = get_all_credential_type_nodes(endpoint_node);
+        for(auto credential_type_node : credential_type_nodes) {
+          attribute_store_delete_node(credential_type_node);
+        }
+        sl_log_info(LOG_TAG, "All credentials deleted.", user_id);
+      }
+
+      // Check if we still have a user 0 in the datastore, and remove it since it should not be here
+      auto user_0_node = get_reported_user_id_node(endpoint_node, 0);
+      attribute_store_delete_node(user_0_node);
     } break;
     default:
       break;
@@ -3451,6 +3607,92 @@ sl_status_t zwave_command_class_user_credential_delete_all_users(
                "Delete all user operation received. Creating user with id %d "
                "to send a User SET.",
                user_id);
+  return SL_STATUS_OK;
+}
+
+
+void trigger_credential_deletion(attribute_store_node_t endpoint_node,
+                                  user_credential_user_unique_id_t user_id,
+                                  user_credential_type_t credential_type,
+                                  user_credential_slot_t credential_slot)
+{
+  attribute_store_node_t user_id_node
+    = attribute_store_emplace(endpoint_node,
+                              ATTRIBUTE(USER_UNIQUE_ID),
+                              &user_id,
+                              sizeof(user_id));
+  attribute_store_node_t credential_type_node
+    = attribute_store_emplace(user_id_node,
+                              ATTRIBUTE(CREDENTIAL_TYPE),
+                              &credential_type,
+                              sizeof(credential_type));
+  attribute_store_node_t credential_slot_node
+    = attribute_store_emplace(credential_type_node,
+                              ATTRIBUTE(CREDENTIAL_SLOT),
+                              &credential_slot,
+                              sizeof(credential_slot));
+
+  // Finally set operation type delete
+  set_credential_operation_type(credential_slot_node,
+                                USER_CREDENTIAL_OPERATION_TYPE_DELETE);
+
+  sl_log_debug(LOG_TAG,
+               "Creating user with id %d, credential type %d and slot "
+               "both to %d to send a Credential SET.",
+               user_id,
+               credential_type,
+               credential_slot);
+}
+
+sl_status_t zwave_command_class_user_credential_delete_all_credentials(
+  attribute_store_node_t endpoint_node)
+{
+  sl_log_debug(LOG_TAG, "Delete all credential operation received");
+
+  trigger_credential_deletion(endpoint_node, 0, 0, 0);
+
+  return SL_STATUS_OK;
+}
+
+sl_status_t zwave_command_class_user_credential_delete_all_credentials_by_type(
+  attribute_store_node_t endpoint_node, user_credential_type_t credential_type)
+{
+  sl_log_debug(LOG_TAG,
+               "Delete all credential of type %d operation received",
+               credential_type);
+
+  trigger_credential_deletion(endpoint_node, 0, credential_type, 0);
+
+  return SL_STATUS_OK;
+}
+
+sl_status_t zwave_command_class_user_credential_delete_all_credentials_for_user(
+  attribute_store_node_t endpoint_node,
+  user_credential_user_unique_id_t user_id)
+{
+  sl_log_debug(LOG_TAG,
+               "Delete all credential for user %d operation received",
+               user_id);
+
+  trigger_credential_deletion(endpoint_node, user_id, 0, 0);
+
+  return SL_STATUS_OK;
+}
+
+sl_status_t
+  zwave_command_class_user_credential_delete_all_credentials_for_user_by_type(
+    attribute_store_node_t endpoint_node,
+    user_credential_user_unique_id_t user_id,
+    user_credential_type_t credential_type)
+{
+  sl_log_debug(LOG_TAG,
+               "Delete all credential for user %d and credential type %d "
+               "operation received",
+               user_id,
+               credential_type);
+
+  trigger_credential_deletion(endpoint_node, user_id, credential_type, 0);
+
   return SL_STATUS_OK;
 }
 

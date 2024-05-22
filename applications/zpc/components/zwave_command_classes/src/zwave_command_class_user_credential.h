@@ -176,17 +176,72 @@ sl_status_t zwave_command_class_user_credential_delete_credential(
 */
 sl_status_t zwave_command_class_user_credential_delete_all_users(
   attribute_store_node_t endpoint_node);
-  
-// sl_status_t zwave_command_class_user_credential_delete_all_credentials(
-//   attribute_store_node_t endpoint_node);
-// sl_status_t zwave_command_class_user_credential_delete_all_credentials_for_user(
-//   attribute_store_node_t endpoint_node,
-//   user_credential_user_unique_id_t user_id);
-// sl_status_t
-//   zwave_command_class_user_credential_delete_all_credentials_for_user_by_type(
-//     attribute_store_node_t endpoint_node,
-//     user_credential_user_unique_id_t user_id;
-//     user_credential_type_t credential_type);
+
+/**
+ * @brief Send a delete all credentials command (Credential SET) to the end device
+ * 
+ * It will send an Credential SET command with user_id, credential_type and credential_slot = 0 and operation type delete to remove all credentials.
+ * 
+ * @param endpoint_node The attribute store node of the endpoint where the user credential is located.
+ * 
+ * @return sl_status_t SL_STATUS_OK if the attribute store was updated successfully
+ * @return sl_status_t SL_STATUS_FAIL otherwise
+*/
+sl_status_t zwave_command_class_user_credential_delete_all_credentials(
+  attribute_store_node_t endpoint_node);
+
+/**
+ * @brief Send a delete all credentials by type command (Credential SET) to the end device
+ * 
+ * It will send an Credential SET command with user_id = 0 and operation type delete to remove all credentials of the specified type.
+ * 
+ * @param endpoint_node The attribute store node of the endpoint where the user credential is located.
+ * @param credential_type The type of the credential. Should exists. Cannot be 0.
+ * 
+ * @return sl_status_t SL_STATUS_OK if the attribute store was updated successfully
+ * @return sl_status_t SL_STATUS_FAIL otherwise
+*/
+sl_status_t
+  zwave_command_class_user_credential_delete_all_credentials_by_type(
+    attribute_store_node_t endpoint_node,
+    user_credential_type_t credential_type);
+
+/**
+ * @brief Send a delete all credentials for user command (Credential SET) to the end device
+ * 
+ * It will send an Credential SET command with credential_type and credential_slot = 0 and operation type delete to remove all credentials of the specified user.
+ * 
+ * @param endpoint_node The attribute store node of the endpoint where the user credential is located.
+ * @param user_id The unique ID of the user. Should exists. Cannot be 0.
+ * 
+ * @return sl_status_t SL_STATUS_OK if the attribute store was updated successfully
+ * @return sl_status_t SL_STATUS_FAIL otherwise
+ * 
+ * @note This function will not remove the user itself.
+ */
+sl_status_t zwave_command_class_user_credential_delete_all_credentials_for_user(
+  attribute_store_node_t endpoint_node,
+  user_credential_user_unique_id_t user_id);
+
+/**
+ * @brief Send a delete all credentials for user by type command (Credential SET) to the end device
+ * 
+ * It will send an Credential SET command with credential_slot = 0 and operation type delete to remove all credentials of the specified user and type.
+ * 
+ * @param endpoint_node The attribute store node of the endpoint where the user credential is located.
+ * @param user_id The unique ID of the user. Should exists. Cannot be 0.
+ * @param credential_type The type of the credential. Should exists. Cannot be 0.
+ * 
+ * @return sl_status_t SL_STATUS_OK if the attribute store was updated successfully
+ * @return sl_status_t SL_STATUS_FAIL otherwise
+ * 
+ * @note This function will not remove the user itself.
+*/
+sl_status_t
+  zwave_command_class_user_credential_delete_all_credentials_for_user_by_type(
+    attribute_store_node_t endpoint_node,
+    user_credential_user_unique_id_t user_id,
+    user_credential_type_t credential_type);
 
 sl_status_t zwave_command_class_user_credential_init();
 
