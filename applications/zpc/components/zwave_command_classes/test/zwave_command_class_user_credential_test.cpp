@@ -3281,11 +3281,10 @@ void test_user_credential_credential_set_error_report_cred_modify_happy_case()
   TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_user_node),
                            "Valid Credential type node should exist");
 
-  invalid_cred_slot_node
-    = attribute_store_emplace(valid_cred_type_node,
-                              ATTRIBUTE(CREDENTIAL_SLOT),
-                              &credential_slot,
-                              sizeof(credential_slot));
+  invalid_cred_slot_node = attribute_store_emplace(valid_cred_type_node,
+                                                   ATTRIBUTE(CREDENTIAL_SLOT),
+                                                   &credential_slot,
+                                                   sizeof(credential_slot));
 
   helper_simulate_credential_set_error_report(
     CREDENTIAL_SET_ERROR_REPORT_CREDENTIALMODIFYREJECTEDLOCATIONEMPTY,
@@ -3305,8 +3304,8 @@ void test_user_credential_credential_set_error_report_cred_modify_happy_case()
                            "Valid Credential type node should exist");
 }
 
-
-void test_user_credential_credential_set_error_report_cred_duplicate_happy_case() {
+void test_user_credential_credential_set_error_report_cred_duplicate_happy_case()
+{
   user_credential_user_unique_id_t user_id = 12;
   user_credential_type_t credential_type   = 1;
   user_credential_slot_t credential_slot   = 1;
@@ -3338,15 +3337,14 @@ void test_user_credential_credential_set_error_report_cred_duplicate_happy_case(
 
   // Here the Credential Report command should remove this not this report
   TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(invalid_cred_slot_node),
-                            "Invalid Credential Slot node SHOULD exist");
+                           "Invalid Credential Slot node SHOULD exist");
   TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_cred_type_node),
                            "Valid User node should exist");
   TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_user_node),
                            "Valid Credential type node should exist");
 
-
   // Now actually send the report
-  std::vector<uint8_t> cred_data = {1,2,3,4};
+  std::vector<uint8_t> cred_data = {1, 2, 3, 4};
   auto credential_report_frame
     = helper_create_credential_report_frame(user_id,
                                             credential_type,
@@ -3363,10 +3361,10 @@ void test_user_credential_credential_set_error_report_cred_duplicate_happy_case(
   info.remote.endpoint_id                 = endpoint_id;
   info.local.is_multicast                 = false;
   // Do the report
-  TEST_ASSERT_EQUAL(
-    SL_STATUS_OK,
-    handler.control_handler(&info, credential_report_frame.data(), credential_report_frame.size()));
-
+  TEST_ASSERT_EQUAL(SL_STATUS_OK,
+                    handler.control_handler(&info,
+                                            credential_report_frame.data(),
+                                            credential_report_frame.size()));
 
   // Now it should not exists
   TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(invalid_cred_slot_node),
@@ -3375,12 +3373,12 @@ void test_user_credential_credential_set_error_report_cred_duplicate_happy_case(
                            "Valid User node should exist");
   TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_user_node),
                            "Valid Credential type node should exist");
-
 }
 
 // Note : same as test_user_credential_credential_set_error_report_cred_duplicate_happy_case
 // but with CREDENTIAL_SET_ERROR_REPORT_MANUFACTURERSECURITYRULES in the report
-void test_user_credential_credential_set_error_report_cred_security_rule_happy_case() {
+void test_user_credential_credential_set_error_report_cred_security_rule_happy_case()
+{
   user_credential_user_unique_id_t user_id = 12;
   user_credential_type_t credential_type   = 1;
   user_credential_slot_t credential_slot   = 1;
@@ -3412,15 +3410,14 @@ void test_user_credential_credential_set_error_report_cred_security_rule_happy_c
 
   // Here the Credential Report command should remove this not this report
   TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(invalid_cred_slot_node),
-                            "Invalid Credential Slot node SHOULD exist");
+                           "Invalid Credential Slot node SHOULD exist");
   TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_cred_type_node),
                            "Valid User node should exist");
   TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_user_node),
                            "Valid Credential type node should exist");
 
-
   // Now actually send the report
-  std::vector<uint8_t> cred_data = {1,2,3,4};
+  std::vector<uint8_t> cred_data = {1, 2, 3, 4};
   auto credential_report_frame
     = helper_create_credential_report_frame(user_id,
                                             credential_type,
@@ -3437,10 +3434,10 @@ void test_user_credential_credential_set_error_report_cred_security_rule_happy_c
   info.remote.endpoint_id                 = endpoint_id;
   info.local.is_multicast                 = false;
   // Do the report
-  TEST_ASSERT_EQUAL(
-    SL_STATUS_OK,
-    handler.control_handler(&info, credential_report_frame.data(), credential_report_frame.size()));
-
+  TEST_ASSERT_EQUAL(SL_STATUS_OK,
+                    handler.control_handler(&info,
+                                            credential_report_frame.data(),
+                                            credential_report_frame.size()));
 
   // Now it should not exists
   TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(invalid_cred_slot_node),
@@ -3449,12 +3446,10 @@ void test_user_credential_credential_set_error_report_cred_security_rule_happy_c
                            "Valid User node should exist");
   TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_user_node),
                            "Valid Credential type node should exist");
-
 }
 
-
-void test_user_credential_remove_all_users_happy_case() {
-  
+void test_user_credential_remove_all_users_happy_case()
+{
   const zwave_cc_version_t version = 1;
   attribute_store_set_child_reported(endpoint_id_node,
                                      ATTRIBUTE(VERSION),
@@ -3464,8 +3459,8 @@ void test_user_credential_remove_all_users_happy_case() {
   TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
                                "Notification callback should be defined");
 
-  std::vector<user_credential_user_unique_id_t> user_ids = {12,15,19};
-  for(auto user_id : user_ids) {
+  std::vector<user_credential_user_unique_id_t> user_ids = {12, 15, 19};
+  for (auto user_id: user_ids) {
     attribute_store_emplace(endpoint_id_node,
                             ATTRIBUTE(USER_UNIQUE_ID),
                             &user_id,
@@ -3475,9 +3470,10 @@ void test_user_credential_remove_all_users_happy_case() {
   auto status
     = zwave_command_class_user_credential_delete_all_users(endpoint_id_node);
 
-  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
-                            status,
-                            "Remove all users should have returned SL_STATUS_OK");
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    status,
+    "Remove all users should have returned SL_STATUS_OK");
 
   TEST_ASSERT_EQUAL_MESSAGE(
     user_ids.size()
@@ -3495,7 +3491,7 @@ void test_user_credential_remove_all_users_happy_case() {
                         0);
 
   TEST_ASSERT_EQUAL_MESSAGE(
-    1, // Should be one user left here with desired value of 0  
+    1,  // Should be one user left here with desired value of 0
     attribute_store_get_node_child_count_by_type(endpoint_id_node,
                                                  ATTRIBUTE(USER_UNIQUE_ID)),
     "All users should have been removed yet");
@@ -3505,11 +3501,375 @@ void test_user_credential_remove_all_users_happy_case() {
     = attribute_store_get_node_child_by_value(endpoint_id_node,
                                               ATTRIBUTE(USER_UNIQUE_ID),
                                               DESIRED_ATTRIBUTE,
-                                              (uint8_t*)&user_id,
+                                              (uint8_t *)&user_id,
                                               sizeof(user_id),
                                               0);
 
   TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(user_node),
-                           "Should be one user node with desired value of 0 to perform user interview");
+                           "Should be one user node with desired value of 0 to "
+                           "perform user interview");
+}
+
+void test_user_credential_remove_all_credentials_happy_case()
+{
+  const zwave_cc_version_t version = 1;
+  attribute_store_set_child_reported(endpoint_id_node,
+                                     ATTRIBUTE(VERSION),
+                                     &version,
+                                     sizeof(version));
+
+  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
+                               "Notification callback should be defined");
+
+  std::vector<credential_structure_nodes> expected_nodes;
+  // WARNING : All those vectors should be the same size
+  std::vector<user_credential_user_unique_id_t> user_ids = {12, 12, 12, 15, 19};
+  std::vector<user_credential_type_t> credential_types   = {1, 1, 2, 5, 1};
+  std::vector<user_credential_slot_t> credential_slots   = {1, 2, 2, 1, 3};
+  // WARNING : Make sure that all the vector above have the same size
+  const size_t expected_credential_count = user_ids.size();
+  for (size_t i = 0; i < expected_credential_count; i++) {
+    expected_nodes.push_back(
+      helper_create_credential_structure(user_ids[i],
+                                         credential_types[i],
+                                         credential_slots[i],
+                                         REPORTED_ATTRIBUTE));
+  }
+
+  auto status = zwave_command_class_user_credential_delete_all_credentials(
+    endpoint_id_node);
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    status,
+    "Remove all credentials should have returned SL_STATUS_OK");
+
+  std::vector<uint8_t> notification_parameters = {0, 0, 0, 0, 0};
+  // This will handle the deletion
+  notification_callback(endpoint_id_node,
+                        NOTIFICATION_ACCESS_CONTROL,
+                        0x26,  // All Credential deleted
+                        // No need to have arguments here
+                        notification_parameters.data(),
+                        notification_parameters.size());
+
+  for (auto &node: expected_nodes) {
+    TEST_ASSERT_FALSE_MESSAGE(
+      attribute_store_node_exists(node.credential_type_node),
+      "Credential type node should have been removed");
+    TEST_ASSERT_FALSE_MESSAGE(
+      attribute_store_node_exists(node.credential_slot_node),
+      "Credential slot node should have been removed");
+  }
+
+  user_credential_user_unique_id_t user_id = 0;
+  auto user_0_node
+    = attribute_store_get_node_child_by_value(endpoint_id_node,
+                                              ATTRIBUTE(USER_UNIQUE_ID),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&user_id,
+                                              sizeof(user_id),
+                                              0);
+
+  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(user_0_node),
+                            "User 0 should not exists");
+}
+
+void test_user_credential_remove_all_credentials_of_user()
+{
+  const zwave_cc_version_t version = 1;
+  attribute_store_set_child_reported(endpoint_id_node,
+                                     ATTRIBUTE(VERSION),
+                                     &version,
+                                     sizeof(version));
+
+  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
+                               "Notification callback should be defined");
+
+  user_credential_user_unique_id_t user_to_delete = 12;
+
+
+  std::vector<credential_structure_nodes> expected_nodes;
+  // WARNING : All those vectors should be the same size
+  std::vector<user_credential_user_unique_id_t> user_ids
+    = {user_to_delete, user_to_delete, user_to_delete, 15, 19};
+  std::vector<user_credential_type_t> credential_types   = {1, 1, 2, 5, 1};
+  std::vector<user_credential_slot_t> credential_slots   = {1, 2, 2, 1, 3};
+  // WARNING : Make sure that all the vector above have the same size
+  const size_t expected_credential_count = user_ids.size();
+  for (size_t i = 0; i < expected_credential_count; i++) {
+    expected_nodes.push_back(
+      helper_create_credential_structure(user_ids[i],
+                                         credential_types[i],
+                                         credential_slots[i],
+                                         REPORTED_ATTRIBUTE));
+  }
+
+  auto status
+    = zwave_command_class_user_credential_delete_all_credentials_for_user(
+      endpoint_id_node,
+      user_to_delete);
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    status,
+    "Remove all credentials for user should have returned SL_STATUS_OK");
+
+  auto exploded_user_to_delete = explode_uint16(user_to_delete);
+  std::vector<uint8_t> notification_parameters
+    = {exploded_user_to_delete.msb, exploded_user_to_delete.lsb, 0, 0, 0};
+  // This will handle the deletion
+  notification_callback(endpoint_id_node,
+                        NOTIFICATION_ACCESS_CONTROL,
+                        0x26,  // All Credential deleted
+                        // No need to have arguments here
+                        notification_parameters.data(),
+                        notification_parameters.size());
+
+  attribute_store_log();
+
+  for (auto &node: expected_nodes) {
+    user_credential_user_unique_id_t reported_user_id;
+    attribute_store_get_reported(node.user_id_node,
+                                 &reported_user_id,
+                                 sizeof(reported_user_id));
+    printf("User node %d / Credential Type Node %d / Credential Slot Node %d\n",
+           node.user_id_node,
+           node.credential_type_node,
+           node.credential_slot_node);
+
+    if (reported_user_id == user_to_delete) {
+      TEST_ASSERT_FALSE_MESSAGE(
+        attribute_store_node_exists(node.credential_type_node),
+        "Credential type node should have been removed");
+      TEST_ASSERT_FALSE_MESSAGE(
+        attribute_store_node_exists(node.credential_slot_node),
+        "Credential slot node should have been removed");
+    } else {
+      TEST_ASSERT_TRUE_MESSAGE(
+        attribute_store_node_exists(node.credential_type_node),
+        "Credential type node should still exist");
+      TEST_ASSERT_TRUE_MESSAGE(
+        attribute_store_node_exists(node.credential_slot_node),
+        "Credential slot node should still exist");
+    }
+  }
+
+  user_credential_user_unique_id_t user_id = 0;
+  auto user_0_node
+    = attribute_store_get_node_child_by_value(endpoint_id_node,
+                                              ATTRIBUTE(USER_UNIQUE_ID),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&user_id,
+                                              sizeof(user_id),
+                                              0);
+
+  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(user_0_node),
+                            "User 0 should not exists");
+}
+
+
+void test_user_credential_remove_all_credentials_of_user_by_type()
+{
+  const zwave_cc_version_t version = 1;
+  attribute_store_set_child_reported(endpoint_id_node,
+                                     ATTRIBUTE(VERSION),
+                                     &version,
+                                     sizeof(version));
+
+  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
+                               "Notification callback should be defined");
+
+  user_credential_user_unique_id_t user_to_delete = 12;
+  user_credential_type_t credential_type_to_delete = 1;
+
+
+  struct expected_node_data {
+    credential_structure_nodes nodes;
+    bool should_not_exist;
+  };
+  std::vector<expected_node_data> expected_nodes_data;
+  // WARNING : All those vectors should be the same size
+  std::vector<user_credential_user_unique_id_t> user_ids
+    = {user_to_delete, user_to_delete, user_to_delete, 15, 19};
+  std::vector<user_credential_type_t> credential_types
+    = {credential_type_to_delete, credential_type_to_delete, 2, 5, 1};
+  std::vector<user_credential_slot_t> credential_slots   = {1, 2, 2, 1, 3};
+  // WARNING : Make sure that all the vector above have the same size
+  const size_t expected_credential_count = user_ids.size();
+  for (size_t i = 0; i < expected_credential_count; i++) {
+    expected_nodes_data.push_back(
+      {helper_create_credential_structure(user_ids[i],
+                                          credential_types[i],
+                                          credential_slots[i],
+                                          REPORTED_ATTRIBUTE),
+       user_ids[i] == user_to_delete
+         && credential_types[i] == credential_type_to_delete});
+  }
+
+  auto status
+    = zwave_command_class_user_credential_delete_all_credentials_for_user_by_type(
+      endpoint_id_node,
+      user_to_delete,
+      credential_type_to_delete);
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    status,
+    "Remove all credentials for user should have returned SL_STATUS_OK");
+
+  auto exploded_user_to_delete = explode_uint16(user_to_delete);
+  std::vector<uint8_t> notification_parameters = {exploded_user_to_delete.msb,
+                                                  exploded_user_to_delete.lsb,
+                                                  credential_type_to_delete,
+                                                  0,
+                                                  0};
+
+  // This will handle the deletion
+  notification_callback(endpoint_id_node,
+                        NOTIFICATION_ACCESS_CONTROL,
+                        0x26,  // All Credential deleted
+                        // No need to have arguments here
+                        notification_parameters.data(),
+                        notification_parameters.size());
+
+  attribute_store_log();
+
+  for (auto &node_data: expected_nodes_data) {
+    auto nodes = node_data.nodes;
+    auto should_not_exist = node_data.should_not_exist;
+    printf("User node %d / Credential Type Node %d / Credential Slot Node %d\n",
+           nodes.user_id_node,
+           nodes.credential_type_node,
+           nodes.credential_slot_node);
+
+    if (should_not_exist) {
+      TEST_ASSERT_FALSE_MESSAGE(
+        attribute_store_node_exists(nodes.credential_type_node),
+        "Credential type node should have been removed");
+      TEST_ASSERT_FALSE_MESSAGE(
+        attribute_store_node_exists(nodes.credential_slot_node),
+        "Credential slot node should have been removed");
+    } else {
+      TEST_ASSERT_TRUE_MESSAGE(
+        attribute_store_node_exists(nodes.credential_type_node),
+        "Credential type node should still exist");
+      TEST_ASSERT_TRUE_MESSAGE(
+        attribute_store_node_exists(nodes.credential_slot_node),
+        "Credential slot node should still exist");
+    }
+  }
+
+  user_credential_user_unique_id_t user_id = 0;
+  auto user_0_node
+    = attribute_store_get_node_child_by_value(endpoint_id_node,
+                                              ATTRIBUTE(USER_UNIQUE_ID),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&user_id,
+                                              sizeof(user_id),
+                                              0);
+
+  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(user_0_node),
+                            "User 0 should not exists");
+}
+
+void test_user_credential_remove_all_credentials_by_type()
+{
+  const zwave_cc_version_t version = 1;
+  attribute_store_set_child_reported(endpoint_id_node,
+                                     ATTRIBUTE(VERSION),
+                                     &version,
+                                     sizeof(version));
+
+  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
+                               "Notification callback should be defined");
+
+  user_credential_type_t credential_type_to_delete = 1;
+
+
+  struct expected_node_data {
+    credential_structure_nodes nodes;
+    bool should_not_exist;
+  };
+  std::vector<expected_node_data> expected_nodes_data;
+  // WARNING : All those vectors should be the same size
+  std::vector<user_credential_user_unique_id_t> user_ids = {12, 12, 12, 15, 19};
+  std::vector<user_credential_type_t> credential_types
+    = {credential_type_to_delete,
+       credential_type_to_delete,
+       2,
+       5,
+       credential_type_to_delete};
+  std::vector<user_credential_slot_t> credential_slots = {1, 2, 2, 1, 3};
+  // WARNING : Make sure that all the vector above have the same size
+  const size_t expected_credential_count = user_ids.size();
+  for (size_t i = 0; i < expected_credential_count; i++) {
+    expected_nodes_data.push_back(
+      {helper_create_credential_structure(user_ids[i],
+                                          credential_types[i],
+                                          credential_slots[i],
+                                          REPORTED_ATTRIBUTE),
+       credential_types[i] == credential_type_to_delete});
+  }
+
+  auto status
+    = zwave_command_class_user_credential_delete_all_credentials_by_type(
+      endpoint_id_node,
+      credential_type_to_delete);
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    status,
+    "Remove all credentials for user should have returned SL_STATUS_OK");
+
+  std::vector<uint8_t> notification_parameters
+    = {0, 0, credential_type_to_delete, 0, 0};
+
+  // This will handle the deletion
+  notification_callback(endpoint_id_node,
+                        NOTIFICATION_ACCESS_CONTROL,
+                        0x26,  // All Credential deleted
+                        // No need to have arguments here
+                        notification_parameters.data(),
+                        notification_parameters.size());
+
+  attribute_store_log();
+
+  for (auto &node_data: expected_nodes_data) {
+    auto nodes = node_data.nodes;
+    auto should_not_exist = node_data.should_not_exist;
+    printf("User node %d / Credential Type Node %d / Credential Slot Node %d\n",
+           nodes.user_id_node,
+           nodes.credential_type_node,
+           nodes.credential_slot_node);
+
+    if (should_not_exist) {
+      TEST_ASSERT_FALSE_MESSAGE(
+        attribute_store_node_exists(nodes.credential_type_node),
+        "Credential type node should have been removed");
+      TEST_ASSERT_FALSE_MESSAGE(
+        attribute_store_node_exists(nodes.credential_slot_node),
+        "Credential slot node should have been removed");
+    } else {
+      TEST_ASSERT_TRUE_MESSAGE(
+        attribute_store_node_exists(nodes.credential_type_node),
+        "Credential type node should still exist");
+      TEST_ASSERT_TRUE_MESSAGE(
+        attribute_store_node_exists(nodes.credential_slot_node),
+        "Credential slot node should still exist");
+    }
+  }
+
+  user_credential_user_unique_id_t user_id = 0;
+  auto user_0_node
+    = attribute_store_get_node_child_by_value(endpoint_id_node,
+                                              ATTRIBUTE(USER_UNIQUE_ID),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&user_id,
+                                              sizeof(user_id),
+                                              0);
+
+  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(user_0_node),
+                            "User 0 should not exists");
 }
 }  // extern "C"

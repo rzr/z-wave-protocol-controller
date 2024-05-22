@@ -76,7 +76,10 @@ uic_mqtt_dotdot_user_credential_add_credential_callback_t add_credential_command
 uic_mqtt_dotdot_user_credential_modify_credential_callback_t modify_credential_command = NULL;
 uic_mqtt_dotdot_user_credential_delete_credential_callback_t delete_credential_command = NULL;
 uic_mqtt_dotdot_user_credential_delete_all_users_callback_t delete_all_users_command = NULL;
-
+uic_mqtt_dotdot_user_credential_delete_all_credentials_callback_t delete_all_credentials_command = NULL;
+uic_mqtt_dotdot_user_credential_delete_all_credentials_by_type_callback_t delete_all_credentials_by_type_command = NULL;
+uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_callback_t delete_all_credentials_for_user_command = NULL;
+uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_by_type_callback_t delete_all_credentials_for_user_by_type_command = NULL;
 // clang-format on
 
 // Stub functions for intercepting callback registration.
@@ -125,6 +128,31 @@ void uic_mqtt_dotdot_user_credential_delete_all_users_callback_set_stub(
 {
   delete_all_users_command = callback;
 }
+void uic_mqtt_dotdot_user_credential_delete_all_credentials_callback_set_stub(
+  const uic_mqtt_dotdot_user_credential_delete_all_credentials_callback_t callback,
+  int cmock_num_calls)
+{
+  delete_all_credentials_command = callback;
+}
+void uic_mqtt_dotdot_user_credential_delete_all_credentials_by_type_callback_set_stub(
+  const uic_mqtt_dotdot_user_credential_delete_all_credentials_by_type_callback_t callback,
+  int cmock_num_calls)
+{
+  delete_all_credentials_by_type_command = callback;
+}
+void uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_callback_set_stub(
+  const uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_callback_t callback,
+  int cmock_num_calls)
+{
+  delete_all_credentials_for_user_command = callback;
+}
+void uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_by_type_callback_set_stub(
+  const uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_by_type_callback_t callback,
+  int cmock_num_calls)
+{
+  delete_all_credentials_for_user_by_type_command = callback;
+}
+
 
 /// Setup the test suite (called once before all test_xxx functions are called)
 void suiteSetUp()
@@ -187,6 +215,10 @@ void setUp()
   uic_mqtt_dotdot_user_credential_delete_credential_callback_set_Stub(&uic_mqtt_dotdot_user_credential_delete_credential_callback_set_stub);
   // Delete all
   uic_mqtt_dotdot_user_credential_delete_all_users_callback_set_Stub(&uic_mqtt_dotdot_user_credential_delete_all_users_callback_set_stub);
+  uic_mqtt_dotdot_user_credential_delete_all_credentials_callback_set_Stub(&uic_mqtt_dotdot_user_credential_delete_all_credentials_callback_set_stub);
+  uic_mqtt_dotdot_user_credential_delete_all_credentials_by_type_callback_set_Stub(&uic_mqtt_dotdot_user_credential_delete_all_credentials_by_type_callback_set_stub);
+  uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_callback_set_Stub(&uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_callback_set_stub);
+  uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_by_type_callback_set_Stub(&uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_by_type_callback_set_stub);
   // clang-format on
 
   // Run the component init
@@ -1636,6 +1668,253 @@ void test_user_credential_cluster_delete_all_users_happy_case()
   TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(deletion_user_node),
                            "Should be one user node with desired value of 0 to perform user interview");
   helper_test_operation_type(deletion_user_node,
+                             USER_CREDENTIAL_OPERATION_TYPE_DELETE);
+}
+
+void test_user_credential_cluster_delete_all_credential_happy_case()
+{
+  user_credential_user_unique_id_t user_unique_id = 0;
+  user_credential_type_t credential_type = 0;
+  user_credential_slot_t credential_slot = 0;
+
+  std::vector<user_credential_user_unique_id_t> user_ids = {12, 12, 12, 15, 19};
+  std::vector<user_credential_type_t> credential_types   = {1, 1, 2, 5, 1};
+  std::vector<user_credential_slot_t> credential_slots = {1, 2, 2, 1, 3};
+  
+  // WARNING : Make sure that all the vector above have the same size
+  const size_t expected_credential_count = user_ids.size();
+  for (size_t i = 0; i < expected_credential_count; i++) {
+    helper_add_complete_credential(user_ids[i],
+                                  credential_types[i],
+                                  credential_slots[i],
+                                  "1");
+  }
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    delete_all_credentials_command(supporting_node_unid,
+                                   endpoint_id,
+                                   UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL),
+    "Should be able to setup attribute store for all credential deletion");
+
+
+  auto deletion_user_node
+    = attribute_store_get_node_child_by_value(endpoint_id_node,
+                                              ATTRIBUTE(USER_UNIQUE_ID),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&user_unique_id,
+                                              sizeof(user_unique_id),
+                                              0);
+  auto deletion_cred_type_node
+    = attribute_store_get_node_child_by_value(deletion_user_node,
+                                              ATTRIBUTE(CREDENTIAL_TYPE),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&credential_type,
+                                              sizeof(credential_type),
+                                              0);
+  auto deletion_cred_slot_node
+    = attribute_store_get_node_child_by_value(deletion_cred_type_node,
+                                              ATTRIBUTE(CREDENTIAL_SLOT),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&credential_slot,
+                                              sizeof(credential_slot),
+                                              0);
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(deletion_user_node),
+                           "User node with id 0 should exists");
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(deletion_cred_type_node),
+                           "Credential type node with id 0 should exists");
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(deletion_cred_slot_node),
+                           "Credential slot node with id 0 should exists");
+
+  helper_test_operation_type(deletion_cred_slot_node,
+                             USER_CREDENTIAL_OPERATION_TYPE_DELETE);
+}
+
+void test_user_credential_cluster_delete_all_credential_for_user_happy_case()
+{
+
+  user_credential_user_unique_id_t user_unique_id = 12;
+  user_credential_type_t credential_type = 0;
+  user_credential_slot_t credential_slot = 0;
+
+  std::vector<user_credential_user_unique_id_t> user_ids
+    = {user_unique_id, user_unique_id, user_unique_id, 15, 19};
+  std::vector<user_credential_type_t> credential_types   = {1, 1, 2, 5, 1};
+  std::vector<user_credential_slot_t> credential_slots = {1, 2, 2, 1, 3};
+  
+  // WARNING : Make sure that all the vector above have the same size
+  const size_t expected_credential_count = user_ids.size();
+  for (size_t i = 0; i < expected_credential_count; i++) {
+    helper_add_complete_credential(user_ids[i],
+                                  credential_types[i],
+                                  credential_slots[i],
+                                  "1");
+  }
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    delete_all_credentials_for_user_command(supporting_node_unid,
+                                   endpoint_id,
+                                   UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL,
+                                   user_unique_id),
+    "Should be able to setup attribute store for all credential deletion");
+
+
+  auto deletion_user_node
+    = attribute_store_get_node_child_by_value(endpoint_id_node,
+                                              ATTRIBUTE(USER_UNIQUE_ID),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&user_unique_id,
+                                              sizeof(user_unique_id),
+                                              0);
+  auto deletion_cred_type_node
+    = attribute_store_get_node_child_by_value(deletion_user_node,
+                                              ATTRIBUTE(CREDENTIAL_TYPE),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&credential_type,
+                                              sizeof(credential_type),
+                                              0);
+  auto deletion_cred_slot_node
+    = attribute_store_get_node_child_by_value(deletion_cred_type_node,
+                                              ATTRIBUTE(CREDENTIAL_SLOT),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&credential_slot,
+                                              sizeof(credential_slot),
+                                              0);
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(deletion_user_node),
+                           "User node should exists");
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(deletion_cred_type_node),
+                           "Credential type node with id 0 should exists");
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(deletion_cred_slot_node),
+                           "Credential slot node with id 0 should exists");
+
+  helper_test_operation_type(deletion_cred_slot_node,
+                             USER_CREDENTIAL_OPERATION_TYPE_DELETE);
+}
+
+void test_user_credential_cluster_delete_all_credential_for_user_by_type_happy_case()
+{
+
+  user_credential_user_unique_id_t user_unique_id = 12;
+  user_credential_type_t credential_type = 1;
+  user_credential_slot_t credential_slot = 0;
+
+  std::vector<user_credential_user_unique_id_t> user_ids
+    = {user_unique_id, user_unique_id, user_unique_id, 15, 19};
+  std::vector<user_credential_type_t> credential_types
+    = {credential_type, credential_type, 2, 5, credential_type};
+  std::vector<user_credential_slot_t> credential_slots = {1, 2, 2, 1, 3};
+  
+  // WARNING : Make sure that all the vector above have the same size
+  const size_t expected_credential_count = user_ids.size();
+  for (size_t i = 0; i < expected_credential_count; i++) {
+    helper_add_complete_credential(user_ids[i],
+                                  credential_types[i],
+                                  credential_slots[i],
+                                  "1");
+  }
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    delete_all_credentials_for_user_by_type_command(
+      supporting_node_unid,
+      endpoint_id,
+      UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL,
+      user_unique_id,
+      static_cast<CredType>(credential_type)),
+    "Should be able to setup attribute store for all credential deletion");
+
+  auto deletion_user_node
+    = attribute_store_get_node_child_by_value(endpoint_id_node,
+                                              ATTRIBUTE(USER_UNIQUE_ID),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&user_unique_id,
+                                              sizeof(user_unique_id),
+                                              0);
+  auto deletion_cred_type_node
+    = attribute_store_get_node_child_by_value(deletion_user_node,
+                                              ATTRIBUTE(CREDENTIAL_TYPE),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&credential_type,
+                                              sizeof(credential_type),
+                                              0);
+  auto deletion_cred_slot_node
+    = attribute_store_get_node_child_by_value(deletion_cred_type_node,
+                                              ATTRIBUTE(CREDENTIAL_SLOT),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&credential_slot,
+                                              sizeof(credential_slot),
+                                              0);
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(deletion_user_node),
+                           "User node should exists");
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(deletion_cred_type_node),
+                           "Credential type node should exists");
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(deletion_cred_slot_node),
+                           "Credential slot node with id 0 should exists");
+
+  helper_test_operation_type(deletion_cred_slot_node,
+                             USER_CREDENTIAL_OPERATION_TYPE_DELETE);
+}
+
+void test_user_credential_cluster_delete_all_credential_by_type_happy_case()
+{
+
+  user_credential_user_unique_id_t user_unique_id = 0;
+  user_credential_type_t credential_type = 1;
+  user_credential_slot_t credential_slot = 0;
+
+  std::vector<user_credential_user_unique_id_t> user_ids
+    = {12, 12, 12, 15, 19};
+  std::vector<user_credential_type_t> credential_types
+    = {credential_type, credential_type, 2, 5, credential_type};
+  std::vector<user_credential_slot_t> credential_slots = {1, 2, 2, 1, 3};
+  
+  // WARNING : Make sure that all the vector above have the same size
+  const size_t expected_credential_count = user_ids.size();
+  for (size_t i = 0; i < expected_credential_count; i++) {
+    helper_add_complete_credential(user_ids[i],
+                                  credential_types[i],
+                                  credential_slots[i],
+                                  "1");
+  }
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    delete_all_credentials_by_type_command(supporting_node_unid,
+                                           endpoint_id,
+                                           UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL,
+                                           static_cast<CredType>(credential_type)),
+    "Should be able to setup attribute store for all credential deletion");
+
+  auto deletion_user_node
+    = attribute_store_get_node_child_by_value(endpoint_id_node,
+                                              ATTRIBUTE(USER_UNIQUE_ID),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&user_unique_id,
+                                              sizeof(user_unique_id),
+                                              0);
+  auto deletion_cred_type_node
+    = attribute_store_get_node_child_by_value(deletion_user_node,
+                                              ATTRIBUTE(CREDENTIAL_TYPE),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&credential_type,
+                                              sizeof(credential_type),
+                                              0);
+  auto deletion_cred_slot_node
+    = attribute_store_get_node_child_by_value(deletion_cred_type_node,
+                                              ATTRIBUTE(CREDENTIAL_SLOT),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&credential_slot,
+                                              sizeof(credential_slot),
+                                              0);
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(deletion_user_node),
+                           "User node with id 0 should exists");
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(deletion_cred_type_node),
+                           "Credential type node should exists");
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(deletion_cred_slot_node),
+                           "Credential slot node with id 0 should exists");
+
+  helper_test_operation_type(deletion_cred_slot_node,
                              USER_CREDENTIAL_OPERATION_TYPE_DELETE);
 }
 
