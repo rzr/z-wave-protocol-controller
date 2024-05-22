@@ -51,6 +51,10 @@ void mock_deletion_user_mqtt_topic(user_credential_user_unique_id_t user_id);
 void mock_deletion_cred_mqtt_topic(user_credential_user_unique_id_t user_id,
                                    user_credential_type_t credential_type,
                                    user_credential_slot_t credential_slot);
+void mock_deletion_cred_rule_mqtt_topic(user_credential_type_t credential_type);
+void setup_user_capabilities();
+void setup_cred_capabilities();
+
 
 // Keep a reference to the mqtt topics we want to test
 // Stored as <topic, payload>
@@ -60,6 +64,8 @@ static std::vector<std::tuple<user_credential_user_unique_id_t,
                               user_credential_type_t,
                               user_credential_slot_t>>
   created_credential_ids;
+static std::vector<user_credential_type_t>
+  created_supported_credential_types;
 
 // Callback functions
 // clang-format off
@@ -132,6 +138,11 @@ int suiteTearDown(int num_failures)
 /// Called before each and every test
 void setUp()
 {
+  // WARNING : Order matters here
+  // Check if credential rules need to be removed 
+  for(auto cred_type: created_supported_credential_types) {
+    mock_deletion_cred_rule_mqtt_topic(cred_type);
+  }
   // Check if any users that need to be removed
   for (auto user_id: created_user_id) {
     // Check if MQTT topics for deletion are correctly published
@@ -142,6 +153,8 @@ void setUp()
                                   std::get<1>(cred_id),
                                   std::get<2>(cred_id));
   }
+
+
 
   zpc_attribute_store_test_helper_create_network();
 
@@ -154,7 +167,7 @@ void setUp()
   mqtt_topics.clear();
   created_user_id.clear();
   created_credential_ids.clear();
-
+  created_supported_credential_types.clear();
   // clang-format off
   // User
   uic_mqtt_dotdot_user_credential_add_user_callback_set_Stub(&uic_mqtt_dotdot_user_credential_add_user_callback_set_stub);
@@ -168,19 +181,28 @@ void setUp()
 
   // Run the component init
   TEST_ASSERT_EQUAL(SL_STATUS_OK, user_credential_cluster_server_init());
+
+  // We are not here to test user capabilities, so we need to set them up to 
+  // accept our test data
+  setup_user_capabilities();
+  // Need to call this after init() to have the mqtt callback initialized
+  setup_cred_capabilities();
 }
 
 /////////////////////////////////////////////////////////////////////////
 // Mqtt topics helpers
 /////////////////////////////////////////////////////////////////////////
-std::string get_base_topic()
+std::string get_base_topic(bool include_user=true)
 {
+  const std::string user_str = include_user ? "/User" : "";
   const std::string base
-    = "ucl/by-unid/%1%/ep%2%/UserCredential/Attributes/User";
+    = "ucl/by-unid/%1%/ep%2%/UserCredential/Attributes%3%";
   return (boost::format(base) % supporting_node_unid
-          % (unsigned int)endpoint_id)
+          % (unsigned int)endpoint_id % user_str) 
     .str();
 }
+
+
 
 std::string
   get_user_attribute_mqtt_topic(user_credential_user_unique_id_t user_unique_id,
@@ -201,6 +223,17 @@ std::string
   const std::string base = "%1%/%2%/Credential/%3%/%4%/%5%/Reported";
   return (boost::format(base) % get_base_topic() % user_unique_id
           % cred_type_get_enum_value_name(credential_type) % credential_slot
+          % attribute_name)
+    .str();
+}
+
+std::string
+  get_cred_rule_mqtt_topic(user_credential_type_t credential_type,
+                           const std::string &attribute_name)
+{
+  const std::string base = "%1%/Credentials/%2%/%3%/Reported";
+  return (boost::format(base) % get_base_topic(false)
+          % cred_type_get_enum_value_name(credential_type)
           % attribute_name)
     .str();
 }
@@ -250,7 +283,21 @@ void mock_expected_cred_mqtt_topic(user_credential_user_unique_id_t user_id,
                           mqtt_topics.back().second.size(),
                           true);
 }
+template<typename T>
+void mock_expected_cred_rule_mqtt_topic(user_credential_type_t credential_type,
+                                        const std::string &attribute_name,
+                                        T payload_value)
+{
+  // This way we make sure that we have valid reference to our strings
+  mqtt_topics.push_back(
+    {get_cred_rule_mqtt_topic(credential_type, attribute_name),
+     get_payload<T>(payload_value)});
 
+  uic_mqtt_publish_Expect(mqtt_topics.back().first.c_str(),
+                          mqtt_topics.back().second.c_str(),
+                          mqtt_topics.back().second.size(),
+                          true);
+}
 void mock_deletion_user_mqtt_topic(user_credential_user_unique_id_t user_id)
 {
   // WARNING : Order here matters based on their initialization order in the add_complete_user function
@@ -1244,7 +1291,7 @@ void test_user_credential_cluster_add_credential_others_happy_case()
 {
   // Simulate user
   user_credential_user_unique_id_t user_unique_id = 12;
-  CredType credential_type                        = CredType::ZCL_CRED_TYPE_NFC;
+  CredType credential_type                        = CredType::ZCL_CRED_TYPE_RFID_CODE;
   user_credential_slot_t credential_slot          = 1;
   const char *credential_data                     = "hunter2";
 
@@ -1546,13 +1593,6 @@ void test_user_credential_cluster_delete_credential_happy_case()
 
 void test_user_credential_cluster_test_user_command_support_happy_case()
 {
-  // Emplace checked attributes
-  uint16_t user_count = 2;
-  attribute_store_emplace(endpoint_id_node,
-                          ATTRIBUTE(NUMBER_OF_USERS),
-                          &user_count,
-                          sizeof(user_count));
-
   // We don't care about those value it should not matter here
   user_credential_user_unique_id_t user_unique_id = 12;
   UserTypeEnum user_type                  = ZCL_USER_TYPE_ENUM_DISPOSABLE_USER;
@@ -1610,6 +1650,15 @@ void test_user_credential_cluster_test_user_command_not_supported_happy_case()
   UserNameEncodingType user_name_encoding = ZCL_USER_NAME_ENCODING_TYPE_ASCII;
   const char *user_name                   = "Test User";
 
+  // We don't want anything in the tree for this test
+  // This way we can make support check fails
+  // We need to inform the MQTT of the deleted credential type rules
+  for(auto cred_type: created_supported_credential_types) {
+    mock_deletion_cred_rule_mqtt_topic(cred_type);
+  }
+  // Delete all the nodes
+  attribute_store_delete_all_children(endpoint_id_node);
+
   TEST_ASSERT_EQUAL_MESSAGE(
     SL_STATUS_FAIL,
     add_user_command(supporting_node_unid,
@@ -1622,7 +1671,7 @@ void test_user_credential_cluster_test_user_command_not_supported_happy_case()
                      user_name,
                      expiring_timeout,
                      user_name_encoding),
-    "Add user should not be supported");
+    "Check value : Add user should not be supported");
 
   TEST_ASSERT_EQUAL_MESSAGE(
     SL_STATUS_FAIL,
