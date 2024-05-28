@@ -73,6 +73,12 @@ typedef uint8_t user_credential_operation_type_t;
 ///> Expiring Timeout for User (Minutes). uint16_t
 typedef uint16_t user_credential_expiring_timeout_minutes_t;
 
+///> Expiring Timeout for Credential Learn (Seconds). uint8_t
+typedef uint8_t user_credential_learn_timeout_t;
+
+///> Credential Learn Status. uint8_t
+typedef uint8_t user_credential_learn_status_t;
+
 #ifdef __cplusplus
 extern "C" {
 #endif

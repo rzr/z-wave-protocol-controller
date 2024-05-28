@@ -243,6 +243,60 @@ sl_status_t
     user_credential_user_unique_id_t user_id,
     user_credential_type_t credential_type);
 
+
+/**
+ * @brief Send new credential command (Credential Learn Start) with operation type Add to the end device
+ * 
+ * @note The credential type must be supporting the Credential Learn feature.
+ * 
+ * @param endpoint_node The attribute store node of the endpoint where the user credential is located.
+ * @param user_id The unique ID of the user. Should exists. Cannot be 0.
+ * @param credential_type The type of the credential. Can exist or not. Cannot be 0.
+ * @param credential_slot The slot of the credential. Should not exists. Cannot be 0. 
+ * @param credential_learn_timeout Timeout for each credential learn step on the node, in seconds. Can be set to 0 to use recommended timeout by the end device.
+ * 
+ * @return sl_status_t SL_STATUS_OK if the attribute store was updated successfully
+ * @return sl_status_t SL_STATUS_FAIL if the user_id doesn't exists or the credential_slot already exists or one of the value is 0. Also if the credential type doesn't support the learn mode.
+ */
+sl_status_t zwave_command_class_user_credential_credential_learn_start_add(
+  attribute_store_node_t endpoint_node,
+  user_credential_user_unique_id_t user_id,
+  user_credential_type_t credential_type,
+  user_credential_slot_t credential_slot,
+  user_credential_learn_timeout_t credential_learn_timeout);
+
+/**
+ * @brief Send new credential command (Credential Learn Start) with operation type Modify to the end device
+ * 
+ * @note The credential type must be supporting the Credential Learn feature.
+ * 
+ * @param endpoint_node The attribute store node of the endpoint where the user credential is located.
+ * @param user_id The unique ID of the user. Should exists. Cannot be 0.
+ * @param credential_type The type of the credential. Should exists. Cannot be 0.
+ * @param credential_slot The slot of the credential. Should exists. Cannot be 0. 
+ * @param credential_learn_timeout Timeout for each credential learn step on the node, in seconds. Can be set to 0 to use recommended timeout by the end device.
+ * 
+ * @return sl_status_t SL_STATUS_OK if the attribute store was updated successfully
+ * @return sl_status_t SL_STATUS_FAIL if the user_id doesn't exists or the credential_slot/credential type is 0 or does not exists. Also if the credential type doesn't support the learn mode.
+ */
+sl_status_t zwave_command_class_user_credential_credential_learn_start_modify(
+  attribute_store_node_t endpoint_node,
+  user_credential_user_unique_id_t user_id,
+  user_credential_type_t credential_type,
+  user_credential_slot_t credential_slot,
+  user_credential_learn_timeout_t credential_learn_timeout);
+
+/**
+ * @brief Send new credential command (Credential Learn Stop) to the end device
+ * 
+ * @param endpoint_node The attribute store node of the endpoint where the user credential is located.
+ * 
+ * @return sl_status_t SL_STATUS_OK if the attribute store was updated successfully
+ * @return sl_status_t SL_STATUS_FAIL otherwise
+*/
+sl_status_t zwave_command_class_user_credential_credential_learn_stop(
+  attribute_store_node_t endpoint_node);
+
 sl_status_t zwave_command_class_user_credential_init();
 
 #ifdef __cplusplus

@@ -31,6 +31,7 @@ extern "C" {
 
 // Test helpers
 #include "zpc_attribute_store_test_helper.h"
+#include "sl_log.h"
 
 // Unify components
 #include "datastore.h"
@@ -55,7 +56,6 @@ void mock_deletion_cred_rule_mqtt_topic(user_credential_type_t credential_type);
 void setup_user_capabilities();
 void setup_cred_capabilities();
 
-
 // Keep a reference to the mqtt topics we want to test
 // Stored as <topic, payload>
 static std::vector<std::pair<std::string, std::string>> mqtt_topics;
@@ -64,8 +64,7 @@ static std::vector<std::tuple<user_credential_user_unique_id_t,
                               user_credential_type_t,
                               user_credential_slot_t>>
   created_credential_ids;
-static std::vector<user_credential_type_t>
-  created_supported_credential_types;
+static std::vector<user_credential_type_t> created_supported_credential_types;
 
 // Callback functions
 // clang-format off
@@ -80,6 +79,9 @@ uic_mqtt_dotdot_user_credential_delete_all_credentials_callback_t delete_all_cre
 uic_mqtt_dotdot_user_credential_delete_all_credentials_by_type_callback_t delete_all_credentials_by_type_command = NULL;
 uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_callback_t delete_all_credentials_for_user_command = NULL;
 uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_by_type_callback_t delete_all_credentials_for_user_by_type_command = NULL;
+uic_mqtt_dotdot_user_credential_credential_learn_start_add_callback_t credential_learn_start_add_command = NULL;
+uic_mqtt_dotdot_user_credential_credential_learn_start_modify_callback_t credential_learn_start_modify_command = NULL;
+uic_mqtt_dotdot_user_credential_credential_learn_stop_callback_t credential_learn_stop_command = NULL;
 // clang-format on
 
 // Stub functions for intercepting callback registration.
@@ -129,30 +131,57 @@ void uic_mqtt_dotdot_user_credential_delete_all_users_callback_set_stub(
   delete_all_users_command = callback;
 }
 void uic_mqtt_dotdot_user_credential_delete_all_credentials_callback_set_stub(
-  const uic_mqtt_dotdot_user_credential_delete_all_credentials_callback_t callback,
+  const uic_mqtt_dotdot_user_credential_delete_all_credentials_callback_t
+    callback,
   int cmock_num_calls)
 {
   delete_all_credentials_command = callback;
 }
 void uic_mqtt_dotdot_user_credential_delete_all_credentials_by_type_callback_set_stub(
-  const uic_mqtt_dotdot_user_credential_delete_all_credentials_by_type_callback_t callback,
+  const uic_mqtt_dotdot_user_credential_delete_all_credentials_by_type_callback_t
+    callback,
   int cmock_num_calls)
 {
   delete_all_credentials_by_type_command = callback;
 }
 void uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_callback_set_stub(
-  const uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_callback_t callback,
+  const uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_callback_t
+    callback,
   int cmock_num_calls)
 {
   delete_all_credentials_for_user_command = callback;
 }
 void uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_by_type_callback_set_stub(
-  const uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_by_type_callback_t callback,
+  const uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_by_type_callback_t
+    callback,
   int cmock_num_calls)
 {
   delete_all_credentials_for_user_by_type_command = callback;
 }
 
+void uic_mqtt_dotdot_user_credential_credential_learn_start_add_callback_set_stub(
+  const uic_mqtt_dotdot_user_credential_credential_learn_start_add_callback_t
+    callback,
+  int cmock_num_calls)
+{
+  credential_learn_start_add_command = callback;
+}
+
+void uic_mqtt_dotdot_user_credential_credential_learn_start_modify_callback_set_stub(
+  const uic_mqtt_dotdot_user_credential_credential_learn_start_modify_callback_t
+    callback,
+  int cmock_num_calls)
+{
+  credential_learn_start_modify_command = callback;
+}
+
+void uic_mqtt_dotdot_user_credential_credential_learn_stop_callback_set_stub(
+  const uic_mqtt_dotdot_user_credential_credential_learn_stop_callback_t
+    callback,
+  int cmock_num_calls)
+{
+  credential_learn_stop_command = callback;
+}
 
 /// Setup the test suite (called once before all test_xxx functions are called)
 void suiteSetUp()
@@ -174,9 +203,19 @@ int suiteTearDown(int num_failures)
 /// Called before each and every test
 void setUp()
 {
+  sl_log_set_level(sl_log_level::SL_LOG_INFO);
+
+  // If you can to enable MQTT topics logs :
+  // sl_log_set_tag_level("user_credential_cluster_server",
+  //                      sl_log_level::SL_LOG_DEBUG);
+
+  sl_log_set_tag_level("zwave_command_class_user_credential",
+                       sl_log_level::SL_LOG_DEBUG);
+  sl_log_set_tag_level("attribute_store", sl_log_level::SL_LOG_DEBUG);
+
   // WARNING : Order matters here
-  // Check if credential rules need to be removed 
-  for(auto cred_type: created_supported_credential_types) {
+  // Check if credential rules need to be removed
+  for (auto cred_type: created_supported_credential_types) {
     mock_deletion_cred_rule_mqtt_topic(cred_type);
   }
   // Check if any users that need to be removed
@@ -189,8 +228,6 @@ void setUp()
                                   std::get<1>(cred_id),
                                   std::get<2>(cred_id));
   }
-
-
 
   zpc_attribute_store_test_helper_create_network();
 
@@ -219,12 +256,16 @@ void setUp()
   uic_mqtt_dotdot_user_credential_delete_all_credentials_by_type_callback_set_Stub(&uic_mqtt_dotdot_user_credential_delete_all_credentials_by_type_callback_set_stub);
   uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_callback_set_Stub(&uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_callback_set_stub);
   uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_by_type_callback_set_Stub(&uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_by_type_callback_set_stub);
+  // Credential learn
+  uic_mqtt_dotdot_user_credential_credential_learn_start_add_callback_set_Stub(&uic_mqtt_dotdot_user_credential_credential_learn_start_add_callback_set_stub);
+  uic_mqtt_dotdot_user_credential_credential_learn_start_modify_callback_set_Stub(&uic_mqtt_dotdot_user_credential_credential_learn_start_modify_callback_set_stub);
+  uic_mqtt_dotdot_user_credential_credential_learn_stop_callback_set_Stub(&uic_mqtt_dotdot_user_credential_credential_learn_stop_callback_set_stub);
   // clang-format on
 
   // Run the component init
   TEST_ASSERT_EQUAL(SL_STATUS_OK, user_credential_cluster_server_init());
 
-  // We are not here to test user capabilities, so we need to set them up to 
+  // We are not here to test user capabilities, so we need to set them up to
   // accept our test data
   setup_user_capabilities();
   // Need to call this after init() to have the mqtt callback initialized
@@ -234,17 +275,14 @@ void setUp()
 /////////////////////////////////////////////////////////////////////////
 // Mqtt topics helpers
 /////////////////////////////////////////////////////////////////////////
-std::string get_base_topic(bool include_user=true)
+std::string get_base_topic(bool include_user = true)
 {
   const std::string user_str = include_user ? "/User" : "";
-  const std::string base
-    = "ucl/by-unid/%1%/ep%2%/UserCredential/Attributes%3%";
-  return (boost::format(base) % supporting_node_unid
-          % (unsigned int)endpoint_id % user_str) 
+  const std::string base = "ucl/by-unid/%1%/ep%2%/UserCredential/Attributes%3%";
+  return (boost::format(base) % supporting_node_unid % (unsigned int)endpoint_id
+          % user_str)
     .str();
 }
-
-
 
 std::string
   get_user_attribute_mqtt_topic(user_credential_user_unique_id_t user_unique_id,
@@ -269,14 +307,12 @@ std::string
     .str();
 }
 
-std::string
-  get_cred_rule_mqtt_topic(user_credential_type_t credential_type,
-                           const std::string &attribute_name)
+std::string get_cred_rule_mqtt_topic(user_credential_type_t credential_type,
+                                     const std::string &attribute_name)
 {
   const std::string base = "%1%/Credentials/%2%/%3%/Reported";
   return (boost::format(base) % get_base_topic(false)
-          % cred_type_get_enum_value_name(credential_type)
-          % attribute_name)
+          % cred_type_get_enum_value_name(credential_type) % attribute_name)
     .str();
 }
 
@@ -366,9 +402,8 @@ void mock_deletion_cred_mqtt_topic(user_credential_user_unique_id_t user_id,
                                    user_credential_slot_t credential_slot)
 {
   // WARNING : Order here matters based on their initialization order in the add_complete_credential function
-  std::vector<std::string> attribute_names = {"CredentialData",
-                                              "CredentialModifierNodeId",
-                                              "CredentialModifierType"};
+  std::vector<std::string> attribute_names
+    = {"CredentialData", "CredentialModifierNodeId", "CredentialModifierType"};
   for (auto &attribute_name: attribute_names) {
     mqtt_topics.push_back({get_cred_attribute_mqtt_topic(user_id,
                                                          credential_type,
@@ -403,13 +438,14 @@ void mock_deletion_cred_rule_mqtt_topic(user_credential_type_t credential_type)
 /////////////////////////////////////////////////////////////////////////
 // Capabilities Helper
 /////////////////////////////////////////////////////////////////////////
-void setup_user_capabilities() {
-  uint16_t number_of_users = 12;
+void setup_user_capabilities()
+{
+  uint16_t number_of_users                                       = 12;
   user_credential_supported_credential_rules_t cred_rule_bitmask = 0x0F;
-  uint8_t username_max_length = 112;
-  uint8_t support_user_schedule = 0;
-  uint8_t support_all_users_checksum = 0;
-  uint8_t support_user_checksum = 0;
+  uint8_t username_max_length                                    = 112;
+  uint8_t support_user_schedule                                  = 0;
+  uint8_t support_all_users_checksum                             = 0;
+  uint8_t support_user_checksum                                  = 0;
   user_credential_supported_user_type_bitmask_t supported_user_types_bitmask
     = 0xFF;
 
@@ -449,26 +485,25 @@ void setup_user_capabilities() {
                           sizeof(supported_user_types_bitmask));
 }
 
-void setup_cred_capabilities() {
-  
+void setup_cred_capabilities()
+{
   // Supports ZCL_CRED_TYPE_PIN_CODE..ZCL_CRED_TYPE_UWB
   // Adjust if needed, we don't need to test all types and this outputs a lot of noise on the logs
   uint8_t max_cred_type = ZCL_CRED_TYPE_UWB;
-  for (uint8_t i=ZCL_CRED_TYPE_PIN_CODE;i<=max_cred_type;i++) {
-    user_credential_type_t cred_type
-      = static_cast<user_credential_type_t>(i);
+  for (uint8_t i = ZCL_CRED_TYPE_PIN_CODE; i <= max_cred_type; i++) {
+    user_credential_type_t cred_type = static_cast<user_credential_type_t>(i);
 
     auto supported_cred_type_node
       = attribute_store_emplace(endpoint_id_node,
                                 ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE),
                                 &cred_type,
                                 sizeof(cred_type));
-    uint8_t crb_support = 1;
-    uint16_t slot_supported = 0xFFFF;
+    uint8_t crb_support      = 1;
+    uint16_t slot_supported  = 0xFFFF;
     uint16_t cred_min_length = 0;
     uint16_t cred_max_length = 0xFF;
-    uint8_t learn_timeout = 112;
-    uint8_t learn_steps = 12;
+    uint8_t learn_timeout    = 112;
+    uint8_t learn_steps      = 12;
 
     mock_expected_cred_rule_mqtt_topic(cred_type,
                                        "LearnSupport",
@@ -519,7 +554,6 @@ void setup_cred_capabilities() {
                             &learn_steps,
                             sizeof(learn_steps));
 
-
     // Will allow to test deletion of attributes
     created_supported_credential_types.push_back(cred_type);
   }
@@ -531,12 +565,16 @@ void setup_cred_capabilities() {
 extern "C" {
 
 void helper_test_operation_type(attribute_store_node_t parent_node,
-                                user_credential_operation_type_t operation_type)
+                                user_credential_operation_type_t operation_type,
+                                attribute_store_type_t tested_attribute_type = 0)
 {
-  attribute_store_type_t tested_attribute_type = ATTRIBUTE(USER_OPERATION_TYPE);
-  // If we are testing a credential we test its attribute instead
-  if (attribute_store_get_node_type(parent_node) != ATTRIBUTE(USER_UNIQUE_ID)) {
-    tested_attribute_type = ATTRIBUTE(CREDENTIAL_OPERATION_TYPE);
+  if (tested_attribute_type == 0) {
+    tested_attribute_type = ATTRIBUTE(USER_OPERATION_TYPE);
+    // If we are testing a credential we test its attribute instead
+    if (attribute_store_get_node_type(parent_node)
+        != ATTRIBUTE(USER_UNIQUE_ID)) {
+      tested_attribute_type = ATTRIBUTE(CREDENTIAL_OPERATION_TYPE);
+    }
   }
   attribute_store_node_t operation_type_node
     = attribute_store_get_first_child_by_type(parent_node,
@@ -604,7 +642,6 @@ attribute_store_node_t helper_add_complete_user(
                           &expiring_timeout,
                           sizeof(expiring_timeout));
 
-
   mock_expected_user_mqtt_topic(
     user_id,
     "UserNameEncoding",
@@ -623,7 +660,8 @@ attribute_store_node_t helper_add_complete_user(
   // Reported attributes by the end device
   // Need those to test MQTT topics
   user_credential_modifier_node_id_t modifier_node_id = 1212;
-  user_credential_modifier_type_t modifier_type = ZCL_USER_MODIFIER_TYPE_LOCALLY;
+  user_credential_modifier_type_t modifier_type
+    = ZCL_USER_MODIFIER_TYPE_LOCALLY;
   mock_expected_user_mqtt_topic(user_id,
                                 "UserModifierNodeId",
                                 static_cast<uint32_t>(modifier_node_id));
@@ -631,9 +669,10 @@ attribute_store_node_t helper_add_complete_user(
                           ATTRIBUTE(USER_MODIFIER_NODE_ID),
                           &modifier_node_id,
                           sizeof(modifier_node_id));
-  mock_expected_user_mqtt_topic(user_id,
-                                "UserModifierType",
-                                user_modifier_type_get_enum_value_name(modifier_type));
+  mock_expected_user_mqtt_topic(
+    user_id,
+    "UserModifierType",
+    user_modifier_type_get_enum_value_name(modifier_type));
   attribute_store_emplace(user_id_node,
                           ATTRIBUTE(USER_MODIFIER_TYPE),
                           &modifier_type,
@@ -716,11 +755,12 @@ attribute_store_node_t
                           ATTRIBUTE(CREDENTIAL_MODIFIER_NODE_ID),
                           &modifier_node_id,
                           sizeof(modifier_node_id));
-  mock_expected_cred_mqtt_topic(user_id,
-                                credential_type,
-                                credential_slot,
-                                "CredentialModifierType",
-                                user_modifier_type_get_enum_value_name(modifier_type));
+  mock_expected_cred_mqtt_topic(
+    user_id,
+    credential_type,
+    credential_slot,
+    "CredentialModifierType",
+    user_modifier_type_get_enum_value_name(modifier_type));
   attribute_store_emplace(credential_slot_node,
                           ATTRIBUTE(CREDENTIAL_MODIFIER_TYPE),
                           &modifier_type,
@@ -1333,9 +1373,9 @@ void test_user_credential_cluster_add_credential_others_happy_case()
 {
   // Simulate user
   user_credential_user_unique_id_t user_unique_id = 12;
-  CredType credential_type                        = CredType::ZCL_CRED_TYPE_RFID_CODE;
-  user_credential_slot_t credential_slot          = 1;
-  const char *credential_data                     = "hunter2";
+  CredType credential_type               = CredType::ZCL_CRED_TYPE_RFID_CODE;
+  user_credential_slot_t credential_slot = 1;
+  const char *credential_data            = "hunter2";
 
   // Add simple user
   helper_add_user_id(user_unique_id);
@@ -1651,22 +1691,22 @@ void test_user_credential_cluster_delete_all_users_happy_case()
   TEST_ASSERT_EQUAL_MESSAGE(
     SL_STATUS_OK,
     delete_all_users_command(supporting_node_unid,
-                        endpoint_id,
-                        UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL),
+                             endpoint_id,
+                             UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL),
     "Should be able to setup attribute store for all user deletion");
 
-  
- user_unique_id = 0;
- auto deletion_user_node
+  user_unique_id = 0;
+  auto deletion_user_node
     = attribute_store_get_node_child_by_value(endpoint_id_node,
                                               ATTRIBUTE(USER_UNIQUE_ID),
                                               REPORTED_ATTRIBUTE,
-                                              (uint8_t*)&user_unique_id,
+                                              (uint8_t *)&user_unique_id,
                                               sizeof(user_unique_id),
                                               0);
 
   TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(deletion_user_node),
-                           "Should be one user node with desired value of 0 to perform user interview");
+                           "Should be one user node with desired value of 0 to "
+                           "perform user interview");
   helper_test_operation_type(deletion_user_node,
                              USER_CREDENTIAL_OPERATION_TYPE_DELETE);
 }
@@ -1674,20 +1714,20 @@ void test_user_credential_cluster_delete_all_users_happy_case()
 void test_user_credential_cluster_delete_all_credential_happy_case()
 {
   user_credential_user_unique_id_t user_unique_id = 0;
-  user_credential_type_t credential_type = 0;
-  user_credential_slot_t credential_slot = 0;
+  user_credential_type_t credential_type          = 0;
+  user_credential_slot_t credential_slot          = 0;
 
   std::vector<user_credential_user_unique_id_t> user_ids = {12, 12, 12, 15, 19};
   std::vector<user_credential_type_t> credential_types   = {1, 1, 2, 5, 1};
-  std::vector<user_credential_slot_t> credential_slots = {1, 2, 2, 1, 3};
-  
+  std::vector<user_credential_slot_t> credential_slots   = {1, 2, 2, 1, 3};
+
   // WARNING : Make sure that all the vector above have the same size
   const size_t expected_credential_count = user_ids.size();
   for (size_t i = 0; i < expected_credential_count; i++) {
     helper_add_complete_credential(user_ids[i],
-                                  credential_types[i],
-                                  credential_slots[i],
-                                  "1");
+                                   credential_types[i],
+                                   credential_slots[i],
+                                   "1");
   }
 
   TEST_ASSERT_EQUAL_MESSAGE(
@@ -1696,7 +1736,6 @@ void test_user_credential_cluster_delete_all_credential_happy_case()
                                    endpoint_id,
                                    UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL),
     "Should be able to setup attribute store for all credential deletion");
-
 
   auto deletion_user_node
     = attribute_store_get_node_child_by_value(endpoint_id_node,
@@ -1732,33 +1771,32 @@ void test_user_credential_cluster_delete_all_credential_happy_case()
 
 void test_user_credential_cluster_delete_all_credential_for_user_happy_case()
 {
-
   user_credential_user_unique_id_t user_unique_id = 12;
-  user_credential_type_t credential_type = 0;
-  user_credential_slot_t credential_slot = 0;
+  user_credential_type_t credential_type          = 0;
+  user_credential_slot_t credential_slot          = 0;
 
   std::vector<user_credential_user_unique_id_t> user_ids
     = {user_unique_id, user_unique_id, user_unique_id, 15, 19};
-  std::vector<user_credential_type_t> credential_types   = {1, 1, 2, 5, 1};
+  std::vector<user_credential_type_t> credential_types = {1, 1, 2, 5, 1};
   std::vector<user_credential_slot_t> credential_slots = {1, 2, 2, 1, 3};
-  
+
   // WARNING : Make sure that all the vector above have the same size
   const size_t expected_credential_count = user_ids.size();
   for (size_t i = 0; i < expected_credential_count; i++) {
     helper_add_complete_credential(user_ids[i],
-                                  credential_types[i],
-                                  credential_slots[i],
-                                  "1");
+                                   credential_types[i],
+                                   credential_slots[i],
+                                   "1");
   }
 
   TEST_ASSERT_EQUAL_MESSAGE(
     SL_STATUS_OK,
-    delete_all_credentials_for_user_command(supporting_node_unid,
-                                   endpoint_id,
-                                   UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL,
-                                   user_unique_id),
+    delete_all_credentials_for_user_command(
+      supporting_node_unid,
+      endpoint_id,
+      UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL,
+      user_unique_id),
     "Should be able to setup attribute store for all credential deletion");
-
 
   auto deletion_user_node
     = attribute_store_get_node_child_by_value(endpoint_id_node,
@@ -1794,24 +1832,23 @@ void test_user_credential_cluster_delete_all_credential_for_user_happy_case()
 
 void test_user_credential_cluster_delete_all_credential_for_user_by_type_happy_case()
 {
-
   user_credential_user_unique_id_t user_unique_id = 12;
-  user_credential_type_t credential_type = 1;
-  user_credential_slot_t credential_slot = 0;
+  user_credential_type_t credential_type          = 1;
+  user_credential_slot_t credential_slot          = 0;
 
   std::vector<user_credential_user_unique_id_t> user_ids
     = {user_unique_id, user_unique_id, user_unique_id, 15, 19};
   std::vector<user_credential_type_t> credential_types
     = {credential_type, credential_type, 2, 5, credential_type};
   std::vector<user_credential_slot_t> credential_slots = {1, 2, 2, 1, 3};
-  
+
   // WARNING : Make sure that all the vector above have the same size
   const size_t expected_credential_count = user_ids.size();
   for (size_t i = 0; i < expected_credential_count; i++) {
     helper_add_complete_credential(user_ids[i],
-                                  credential_types[i],
-                                  credential_slots[i],
-                                  "1");
+                                   credential_types[i],
+                                   credential_slots[i],
+                                   "1");
   }
 
   TEST_ASSERT_EQUAL_MESSAGE(
@@ -1858,32 +1895,31 @@ void test_user_credential_cluster_delete_all_credential_for_user_by_type_happy_c
 
 void test_user_credential_cluster_delete_all_credential_by_type_happy_case()
 {
-
   user_credential_user_unique_id_t user_unique_id = 0;
-  user_credential_type_t credential_type = 1;
-  user_credential_slot_t credential_slot = 0;
+  user_credential_type_t credential_type          = 1;
+  user_credential_slot_t credential_slot          = 0;
 
-  std::vector<user_credential_user_unique_id_t> user_ids
-    = {12, 12, 12, 15, 19};
+  std::vector<user_credential_user_unique_id_t> user_ids = {12, 12, 12, 15, 19};
   std::vector<user_credential_type_t> credential_types
     = {credential_type, credential_type, 2, 5, credential_type};
   std::vector<user_credential_slot_t> credential_slots = {1, 2, 2, 1, 3};
-  
+
   // WARNING : Make sure that all the vector above have the same size
   const size_t expected_credential_count = user_ids.size();
   for (size_t i = 0; i < expected_credential_count; i++) {
     helper_add_complete_credential(user_ids[i],
-                                  credential_types[i],
-                                  credential_slots[i],
-                                  "1");
+                                   credential_types[i],
+                                   credential_slots[i],
+                                   "1");
   }
 
   TEST_ASSERT_EQUAL_MESSAGE(
     SL_STATUS_OK,
-    delete_all_credentials_by_type_command(supporting_node_unid,
-                                           endpoint_id,
-                                           UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL,
-                                           static_cast<CredType>(credential_type)),
+    delete_all_credentials_by_type_command(
+      supporting_node_unid,
+      endpoint_id,
+      UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL,
+      static_cast<CredType>(credential_type)),
     "Should be able to setup attribute store for all credential deletion");
 
   auto deletion_user_node
@@ -1918,6 +1954,151 @@ void test_user_credential_cluster_delete_all_credential_by_type_happy_case()
                              USER_CREDENTIAL_OPERATION_TYPE_DELETE);
 }
 
+///////////////////////////////////////////////////
+// Learn Start
+///////////////////////////////////////////////////
+void test_user_credential_cluster_learn_start_add_happy_case()
+{
+  user_credential_user_unique_id_t user_unique_id  = 12;
+  user_credential_type_t credential_type           = ZCL_CRED_TYPE_PIN_CODE;
+  user_credential_slot_t credential_slot           = 1;
+  user_credential_learn_timeout_t expected_timeout = 30;
+
+  helper_add_user_id(user_unique_id);
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    credential_learn_start_add_command(supporting_node_unid,
+                                       endpoint_id,
+                                       UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL,
+                                       user_unique_id,
+                                       static_cast<CredType>(credential_type),
+                                       credential_slot,
+                                       expected_timeout),
+    "Should be able to setup attribute store for learn start");
+
+  auto user_id_node
+    = attribute_store_get_node_child_by_value(endpoint_id_node,
+                                              ATTRIBUTE(USER_UNIQUE_ID),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&user_unique_id,
+                                              sizeof(user_unique_id),
+                                              0);
+  auto credential_type_node
+    = attribute_store_get_node_child_by_value(user_id_node,
+                                              ATTRIBUTE(CREDENTIAL_TYPE),
+                                              DESIRED_ATTRIBUTE,
+                                              (uint8_t *)&credential_type,
+                                              sizeof(credential_type),
+                                              0);
+  auto credential_slot_node
+    = attribute_store_get_node_child_by_value(credential_type_node,
+                                              ATTRIBUTE(CREDENTIAL_SLOT),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&credential_slot,
+                                              sizeof(credential_slot),
+                                              0);
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(user_id_node),
+                           "User node should exists");
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(credential_type_node),
+                           "Credential type node should exists");
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(credential_slot_node),
+                           "Credential slot should exists");
+
+  helper_test_operation_type(credential_slot_node,
+                             USER_CREDENTIAL_OPERATION_TYPE_ADD,
+                             ATTRIBUTE(CREDENTIAL_LEARN_OPERATION_TYPE));
+  user_credential_learn_timeout_t timeout = 0;
+  attribute_store_get_child_reported(credential_slot_node,
+                                     ATTRIBUTE(CREDENTIAL_LEARN_TIMEOUT),
+                                     &timeout,
+                                     sizeof(timeout));
+  TEST_ASSERT_EQUAL_MESSAGE(expected_timeout,
+                            timeout,
+                            "Timeout value mismatch");
+}
+
+void test_user_credential_cluster_learn_start_modify_happy_case()
+{
+  user_credential_user_unique_id_t user_unique_id  = 12;
+  user_credential_type_t credential_type           = ZCL_CRED_TYPE_PIN_CODE;
+  user_credential_slot_t credential_slot           = 1;
+  user_credential_learn_timeout_t expected_timeout = 30;
+
+  helper_add_user_id(user_unique_id);
+  helper_add_complete_credential(user_unique_id,
+                                 credential_type,
+                                 credential_slot,
+                                 "1234");
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    credential_learn_start_modify_command(
+      supporting_node_unid,
+      endpoint_id,
+      UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL,
+      user_unique_id,
+      static_cast<CredType>(credential_type),
+      credential_slot,
+      expected_timeout),
+    "Should be able to setup attribute store for learn start");
+
+  auto user_id_node
+    = attribute_store_get_node_child_by_value(endpoint_id_node,
+                                              ATTRIBUTE(USER_UNIQUE_ID),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&user_unique_id,
+                                              sizeof(user_unique_id),
+                                              0);
+  auto credential_type_node
+    = attribute_store_get_node_child_by_value(user_id_node,
+                                              ATTRIBUTE(CREDENTIAL_TYPE),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&credential_type,
+                                              sizeof(credential_type),
+                                              0);
+  auto credential_slot_node
+    = attribute_store_get_node_child_by_value(credential_type_node,
+                                              ATTRIBUTE(CREDENTIAL_SLOT),
+                                              REPORTED_ATTRIBUTE,
+                                              (uint8_t *)&credential_slot,
+                                              sizeof(credential_slot),
+                                              0);
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(user_id_node),
+                           "User node should exists");
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(credential_type_node),
+                           "Credential type node should exists");
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(credential_slot_node),
+                           "Credential slot should exists");
+
+  helper_test_operation_type(credential_slot_node,
+                             USER_CREDENTIAL_OPERATION_TYPE_MODIFY,
+                             ATTRIBUTE(CREDENTIAL_LEARN_OPERATION_TYPE));
+  uint8_t timeout = 0;
+  attribute_store_get_child_reported(credential_slot_node,
+                                     ATTRIBUTE(CREDENTIAL_LEARN_TIMEOUT),
+                                     &timeout,
+                                     sizeof(timeout));
+  TEST_ASSERT_EQUAL_MESSAGE(expected_timeout,
+                            timeout,
+                            "Timeout value mismatch");
+}
+
+void test_user_credential_cluster_learn_stop_happy_case()
+{
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    credential_learn_stop_command(supporting_node_unid,
+                                  endpoint_id,
+                                  UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL),
+    "Should be able to setup attribute store for learn stop");
+
+  uint8_t stop_flag = 0;
+  auto stop_node
+    = attribute_store_get_node_child_by_type(endpoint_id_node,
+                                             ATTRIBUTE(CREDENTIAL_LEARN_STOP),
+                                             0);
+  attribute_store_get_desired(stop_node, &stop_flag, sizeof(stop_flag));
+  TEST_ASSERT_EQUAL_MESSAGE(1, stop_flag, "Stop flag should be set to 1");
+}
 
 ///////////////////////////////////////////////////
 // Support tests
@@ -1985,7 +2166,7 @@ void test_user_credential_cluster_test_user_command_not_supported_happy_case()
   // We don't want anything in the tree for this test
   // This way we can make support check fails
   // We need to inform the MQTT of the deleted credential type rules
-  for(auto cred_type: created_supported_credential_types) {
+  for (auto cred_type: created_supported_credential_types) {
     mock_deletion_cred_rule_mqtt_topic(cred_type);
   }
   // Delete all the nodes

@@ -424,6 +424,91 @@ static sl_status_t delete_all_credentials_for_user_by_type(
     static_cast<user_credential_type_t>(credential_type));
 }
 
+sl_status_t credential_learn_start_add(
+  dotdot_unid_t unid,
+  dotdot_endpoint_id_t endpoint,
+  uic_mqtt_dotdot_callback_call_type_t call_type,
+  uint16_t user_uniqueid,
+  CredType credential_type,
+  uint16_t credential_slot,
+  uint8_t credential_learn_timeout)
+{
+  attribute_store_node_t endpoint_node
+    = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
+
+  // Now that we know that the command is supported, return here if it is
+  // a support check type of call.
+  if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
+    attribute_store_node_t user_count_node
+      = attribute_store_get_first_child_by_type(endpoint_node,
+                                                ATTRIBUTE(NUMBER_OF_USERS));
+
+    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
+                                                        : SL_STATUS_FAIL;
+  }
+
+  return zwave_command_class_user_credential_credential_learn_start_add(
+    endpoint_node,
+    user_uniqueid,
+    static_cast<user_credential_type_t>(credential_type),
+    credential_slot,
+    credential_learn_timeout);
+}
+
+sl_status_t credential_learn_start_modify(
+  dotdot_unid_t unid,
+  dotdot_endpoint_id_t endpoint,
+  uic_mqtt_dotdot_callback_call_type_t call_type,
+  uint16_t user_uniqueid,
+  CredType credential_type,
+  uint16_t credential_slot,
+  uint8_t credential_learn_timeout)
+{
+  attribute_store_node_t endpoint_node
+    = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
+
+  // Now that we know that the command is supported, return here if it is
+  // a support check type of call.
+  if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
+    attribute_store_node_t user_count_node
+      = attribute_store_get_first_child_by_type(endpoint_node,
+                                                ATTRIBUTE(NUMBER_OF_USERS));
+
+    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
+                                                        : SL_STATUS_FAIL;
+  }
+
+  return zwave_command_class_user_credential_credential_learn_start_modify(
+    endpoint_node,
+    user_uniqueid,
+    static_cast<user_credential_type_t>(credential_type),
+    credential_slot,
+    credential_learn_timeout);
+}
+
+
+sl_status_t credential_learn_stop(
+  dotdot_unid_t unid,
+  dotdot_endpoint_id_t endpoint,
+  uic_mqtt_dotdot_callback_call_type_t call_type)
+{
+  attribute_store_node_t endpoint_node
+    = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
+
+  // Now that we know that the command is supported, return here if it is
+  // a support check type of call.
+  if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
+    attribute_store_node_t user_count_node
+      = attribute_store_get_first_child_by_type(endpoint_node,
+                                                ATTRIBUTE(NUMBER_OF_USERS));
+
+    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
+                                                        : SL_STATUS_FAIL;
+  }
+
+  return zwave_command_class_user_credential_credential_learn_stop(
+    endpoint_node);
+}
 ///////////////////////////////////////////////////////////////////////////////
 // Helpers functions
 //////////////////////////////////////////////////////////////////////////////
@@ -842,6 +927,15 @@ sl_status_t user_credential_cluster_server_init()
     &delete_all_credentials_for_user);
   uic_mqtt_dotdot_user_credential_delete_all_credentials_for_user_by_type_callback_set(
     &delete_all_credentials_for_user_by_type);
+  // Credential Learn
+  uic_mqtt_dotdot_user_credential_credential_learn_start_add_callback_set(
+    &credential_learn_start_add);
+  uic_mqtt_dotdot_user_credential_credential_learn_start_modify_callback_set(
+    &credential_learn_start_modify);
+  uic_mqtt_dotdot_user_credential_credential_learn_stop_callback_set(
+    &credential_learn_stop);
+  
 
   return SL_STATUS_OK;
 }
+

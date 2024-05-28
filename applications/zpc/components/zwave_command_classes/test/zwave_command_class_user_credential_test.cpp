@@ -66,7 +66,9 @@ static std::map<attribute_store_type_t, bound_functions> attributes_binding
      {ATTRIBUTE(USER_UNIQUE_ID), {USER_GET, 0}},
      {ATTRIBUTE(USER_OPERATION_TYPE), {0, USER_SET}},
      {ATTRIBUTE(CREDENTIAL_SLOT), {CREDENTIAL_GET, 0}},
-     {ATTRIBUTE(CREDENTIAL_OPERATION_TYPE), {0, CREDENTIAL_SET}}};
+     {ATTRIBUTE(CREDENTIAL_OPERATION_TYPE), {0, CREDENTIAL_SET}},
+     {ATTRIBUTE(CREDENTIAL_LEARN_OPERATION_TYPE), {0, CREDENTIAL_LEARN_START}},
+     {ATTRIBUTE(CREDENTIAL_LEARN_STOP), {0, CREDENTIAL_LEARN_CANCEL}}};
 
 // Filed with resolver function for given ID in attribute_resolver_register_rule_stub based on
 // attributes_binding map.
@@ -287,8 +289,7 @@ void helper_simulate_credential_capabilites_report(
   std::vector<uint16_t> min_length,
   std::vector<uint16_t> max_length,
   std::vector<uint8_t> cl_timeout,
-  std::vector<uint8_t> cl_steps
-  )
+  std::vector<uint8_t> cl_steps)
 {
   if (credential_type.size() != cl_support.size()
       || credential_type.size() != supported_credential_slots.size()
@@ -345,6 +346,42 @@ void helper_simulate_credential_capabilites_report(
     SL_STATUS_OK,
     handler.control_handler(&info, report_frame.data(), report_frame.size()));
 };
+
+void helper_create_learn_status_report_frame(
+  uint8_t credential_learn_status,
+  user_credential_user_unique_id_t user_id,
+  user_credential_type_t credential_type,
+  user_credential_slot_t credential_slot,
+  uint8_t learn_steps_remaining)
+{
+  zwave_controller_connection_info_t info = {};
+  info.remote.node_id                     = node_id;
+  info.remote.endpoint_id                 = endpoint_id;
+  info.local.is_multicast                 = false;
+
+  std::vector<uint8_t> report_frame
+    = {COMMAND_CLASS_USER_CREDENTIAL, CREDENTIAL_LEARN_REPORT};
+
+  report_frame.push_back(credential_learn_status);
+
+  auto exploded_user_id = explode_uint16(user_id);
+  report_frame.push_back(exploded_user_id.msb);
+  report_frame.push_back(exploded_user_id.lsb);
+
+  report_frame.push_back(credential_type);
+
+  auto exploded_credential_slot = explode_uint16(credential_slot);
+  report_frame.push_back(exploded_credential_slot.msb);
+  report_frame.push_back(exploded_credential_slot.lsb);
+
+  report_frame.push_back(learn_steps_remaining);
+
+  // Do the report
+  TEST_ASSERT_EQUAL(
+    SL_STATUS_OK,
+    handler.control_handler(&info, report_frame.data(), report_frame.size()));
+}
+
 /**
  * @brief Create credential structure and return associated nodes
  * 
@@ -582,6 +619,88 @@ void helper_test_string_value(
   }
 }
 
+void helper_test_credential_learn_structure(
+  attribute_store_node_t user_id_node,
+  attribute_store_node_t credential_type_node,
+  attribute_store_node_t credential_slot_node,
+  user_credential_learn_timeout_t expected_cl_timeout,
+  user_credential_operation_type_t expected_operation_type)
+{
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(user_id_node),
+                           "Credential type node should exist");
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(credential_type_node),
+                           "Credential type node should exist");
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(credential_slot_node),
+                           "Credential type slot should exist");
+
+  uint8_t current_cl_timeout   = 0;
+  auto cred_learn_timeout_node = attribute_store_get_first_child_by_type(
+    credential_slot_node,
+    ATTRIBUTE(CREDENTIAL_LEARN_TIMEOUT));
+  attribute_store_get_reported(cred_learn_timeout_node,
+                               &current_cl_timeout,
+                               sizeof(current_cl_timeout));
+
+  TEST_ASSERT_EQUAL_MESSAGE(expected_cl_timeout,
+                            current_cl_timeout,
+                            "Timeout value mismatch.");
+
+  user_credential_operation_type_t operation_type = 6;
+  auto operation_type_node = attribute_store_get_node_child_by_type(
+    credential_slot_node,
+    ATTRIBUTE(CREDENTIAL_LEARN_OPERATION_TYPE),
+    0);
+  attribute_store_get_desired(operation_type_node,
+                              &operation_type,
+                              sizeof(operation_type));
+
+  TEST_ASSERT_EQUAL_MESSAGE(expected_operation_type,
+                            operation_type,
+                            "Operation type should be learn add");
+
+  auto credential_type_state
+    = expected_operation_type == USER_CREDENTIAL_OPERATION_TYPE_ADD
+        ? DESIRED_ATTRIBUTE
+        : REPORTED_ATTRIBUTE;
+
+  helper_test_set_get_with_args(
+    CREDENTIAL_LEARN_START,
+    operation_type_node,
+    {{user_id_node, REPORTED_ATTRIBUTE},
+     {credential_type_node, credential_type_state},
+     {credential_slot_node, REPORTED_ATTRIBUTE},
+     {operation_type_node, DESIRED_ATTRIBUTE},
+     {cred_learn_timeout_node, REPORTED_ATTRIBUTE}});
+
+  user_credential_user_unique_id_t user_id;
+  user_credential_type_t credential_type;
+  user_credential_slot_t credential_slot;
+
+  attribute_store_get_reported(user_id_node, &user_id, sizeof(user_id));
+  attribute_store_read_value(credential_type_node,
+                             credential_type_state,
+                             &credential_type,
+                             sizeof(credential_type));
+  attribute_store_get_reported(credential_slot_node,
+                               &credential_slot,
+                               sizeof(credential_slot));
+
+  uint8_t step_remaining = 2;
+  user_credential_learn_status_t learn_status = CREDENTIAL_LEARN_REPORT_SUCCESS;
+  helper_create_learn_status_report_frame(learn_status,
+                                          user_id,
+                                          credential_type,
+                                          credential_slot,
+                                          step_remaining);
+
+  std::map<attribute_store_type_t, uint8_t> uint8_attribute_map = {
+    {ATTRIBUTE(CREDENTIAL_LEARN_STATUS), learn_status},
+    {ATTRIBUTE(CREDENTIAL_LEARN_STEPS_REMAINING), step_remaining},
+  };
+
+  helper_test_attribute_store_values(uint8_attribute_map, credential_slot_node);
+};
+
 /////////////////////////////////////////////////////
 // Test case
 /////////////////////////////////////////////////////
@@ -816,8 +935,8 @@ void test_user_credential_credential_capabilities_report_happy_case()
   std::vector<uint16_t> supported_credential_slots = {1233, 11233, 21233, 33};
   std::vector<uint16_t> min_length                 = {2, 2362, 255, 1255};
   std::vector<uint16_t> max_length       = {5632, 15632, 25632, 32568};
-  std::vector<uint8_t> cl_timeout       = {100, 0, 0, 128};
-  std::vector<uint8_t> cl_steps       = {2, 0, 0, 12};
+  std::vector<uint8_t> cl_timeout        = {100, 0, 0, 128};
+  std::vector<uint8_t> cl_steps          = {2, 0, 0, 12};
   uint16_t expected_credential_type_mask = 0b11101;
 
   auto test_report_values = [&]() {
@@ -2393,10 +2512,11 @@ void test_user_credential_add_credential_already_defined_cred_type_and_slot()
   TEST_ASSERT_EQUAL_MESSAGE(
     SL_STATUS_FAIL,
     status,
-    "Credential add should have returned SL_STATUS_FAIL (trying to add same credential type/slot to same user).");
+    "Credential add should have returned SL_STATUS_FAIL (trying to add same "
+    "credential type/slot to same user).");
 
   // Try to add same credential type/slot on other user
-  user_id      = 15;
+  user_id = 15;
   attribute_store_emplace(endpoint_id_node,
                           ATTRIBUTE(USER_UNIQUE_ID),
                           &user_id,
@@ -2412,7 +2532,8 @@ void test_user_credential_add_credential_already_defined_cred_type_and_slot()
   TEST_ASSERT_EQUAL_MESSAGE(
     SL_STATUS_FAIL,
     status,
-    "Credential add should have returned SL_STATUS_FAIL (trying to add same credential type/slot to different user).");
+    "Credential add should have returned SL_STATUS_FAIL (trying to add same "
+    "credential type/slot to different user).");
 }
 
 void test_user_credential_user_notification_add_modify_delete_happy_case()
@@ -3971,4 +4092,471 @@ void test_user_credential_remove_all_credentials_by_type()
   TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(user_0_node),
                             "User 0 should not exists");
 }
+
+void test_user_credential_credential_learn_start_add_happy_case()
+{
+  user_credential_user_unique_id_t user_id   = 12;
+  user_credential_type_t credential_type     = ZCL_CRED_TYPE_PIN_CODE;
+  user_credential_slot_t credential_slot     = 1;
+  user_credential_learn_timeout_t cl_timeout = 0;
+  // Simulate user
+  auto user_id_node = attribute_store_emplace(endpoint_id_node,
+                                              ATTRIBUTE(USER_UNIQUE_ID),
+                                              &user_id,
+                                              sizeof(user_id));
+
+  // Set capabilities
+  uint8_t supported_credential_checksum = 1;
+  std::vector<user_credential_type_t> supported_credential_type
+    = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
+  std::vector<uint8_t> supported_cl                = {1, 1};
+  std::vector<uint16_t> supported_credential_slots = {1, 2};
+  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
+  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cl_timeout        = {20, 2};
+  std::vector<uint8_t> supported_cl_steps          = {1, 95};
+  helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                supported_credential_type,
+                                                supported_cl,
+                                                supported_credential_slots,
+                                                supported_cred_min_length,
+                                                supported_cred_max_length,
+                                                supported_cl_timeout,
+                                                supported_cl_steps);
+
+  // Add credential
+  // Test if we give 0 as timeout, it should be set to default value
+  sl_status_t status
+    = zwave_command_class_user_credential_credential_learn_start_add(
+      endpoint_id_node,
+      user_id,
+      credential_type,
+      credential_slot,
+      cl_timeout);
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
+                            status,
+                            "Should be able to start learning");
+
+  attribute_store_node_t credential_type_node;
+  attribute_store_node_t credential_slot_node;
+  auto update_credential_nodes = [&]() {
+    credential_type_node
+      = attribute_store_get_node_child_by_value(user_id_node,
+                                                ATTRIBUTE(CREDENTIAL_TYPE),
+                                                DESIRED_ATTRIBUTE,
+                                                (uint8_t *)&credential_type,
+                                                sizeof(credential_type),
+                                                0);
+    credential_slot_node
+      = attribute_store_get_node_child_by_value(credential_type_node,
+                                                ATTRIBUTE(CREDENTIAL_SLOT),
+                                                REPORTED_ATTRIBUTE,
+                                                (uint8_t *)&credential_slot,
+                                                sizeof(credential_slot),
+                                                0);
+  };
+
+  update_credential_nodes();
+  helper_test_credential_learn_structure(user_id_node,
+                                         credential_type_node,
+                                         credential_slot_node,
+                                         supported_cl_timeout[0],
+                                         USER_CREDENTIAL_OPERATION_TYPE_ADD);
+
+  // Test with specific timeout
+  credential_type = ZCL_CRED_TYPE_HAND_BIOMETRIC;
+  credential_slot = 1;
+  cl_timeout      = 100;
+
+  status = zwave_command_class_user_credential_credential_learn_start_add(
+    endpoint_id_node,
+    user_id,
+    credential_type,
+    credential_slot,
+    cl_timeout);
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
+                            status,
+                            "Should be able to start learning");
+
+  update_credential_nodes();
+  helper_test_credential_learn_structure(user_id_node,
+                                         credential_type_node,
+                                         credential_slot_node,
+                                         cl_timeout,
+                                         USER_CREDENTIAL_OPERATION_TYPE_ADD);
+}
+
+void test_user_credential_credential_learn_start_add_cl_not_supported()
+{
+  user_credential_user_unique_id_t user_id   = 12;
+  user_credential_type_t credential_type     = ZCL_CRED_TYPE_PIN_CODE;
+  user_credential_slot_t credential_slot     = 1;
+  user_credential_learn_timeout_t cl_timeout = 0;
+  // Simulate user
+  attribute_store_emplace(endpoint_id_node,
+                          ATTRIBUTE(USER_UNIQUE_ID),
+                          &user_id,
+                          sizeof(user_id));
+
+  // Set capabilities
+  uint8_t supported_credential_checksum = 1;
+  std::vector<user_credential_type_t> supported_credential_type
+    = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
+  std::vector<uint8_t> supported_cl                = {0, 1};
+  std::vector<uint16_t> supported_credential_slots = {1, 2};
+  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
+  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cl_timeout        = {0, 2};
+  std::vector<uint8_t> supported_cl_steps          = {0, 95};
+  helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                supported_credential_type,
+                                                supported_cl,
+                                                supported_credential_slots,
+                                                supported_cred_min_length,
+                                                supported_cred_max_length,
+                                                supported_cl_timeout,
+                                                supported_cl_steps);
+
+  sl_status_t status
+    = zwave_command_class_user_credential_credential_learn_start_add(
+      endpoint_id_node,
+      user_id,
+      credential_type,
+      credential_slot,
+      cl_timeout);
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_FAIL,
+                            status,
+                            "Should not be able to start learning");
+}
+
+void test_user_credential_credential_learn_start_add_slot_not_supported()
+{
+  user_credential_user_unique_id_t user_id   = 12;
+  user_credential_type_t credential_type     = ZCL_CRED_TYPE_PIN_CODE;
+  user_credential_slot_t credential_slot     = 6;
+  user_credential_learn_timeout_t cl_timeout = 0;
+  // Simulate user
+  attribute_store_emplace(endpoint_id_node,
+                          ATTRIBUTE(USER_UNIQUE_ID),
+                          &user_id,
+                          sizeof(user_id));
+
+  // Set capabilities
+  uint8_t supported_credential_checksum = 1;
+  std::vector<user_credential_type_t> supported_credential_type
+    = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
+  std::vector<uint8_t> supported_cl                = {1, 1};
+  std::vector<uint16_t> supported_credential_slots = {1, 2};
+  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
+  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cl_timeout        = {10, 2};
+  std::vector<uint8_t> supported_cl_steps          = {1, 95};
+  helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                supported_credential_type,
+                                                supported_cl,
+                                                supported_credential_slots,
+                                                supported_cred_min_length,
+                                                supported_cred_max_length,
+                                                supported_cl_timeout,
+                                                supported_cl_steps);
+
+  sl_status_t status
+    = zwave_command_class_user_credential_credential_learn_start_add(
+      endpoint_id_node,
+      user_id,
+      credential_type,
+      credential_slot,
+      cl_timeout);
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_FAIL,
+                            status,
+                            "Should not be able to start learning");
+}
+
+void test_user_credential_credential_learn_start_add_type_not_supported()
+{
+  user_credential_user_unique_id_t user_id   = 12;
+  user_credential_type_t credential_type     = ZCL_CRED_TYPE_BLE;
+  user_credential_slot_t credential_slot     = 1;
+  user_credential_learn_timeout_t cl_timeout = 0;
+  // Simulate user
+  attribute_store_emplace(endpoint_id_node,
+                          ATTRIBUTE(USER_UNIQUE_ID),
+                          &user_id,
+                          sizeof(user_id));
+
+  // Set capabilities
+  uint8_t supported_credential_checksum = 1;
+  std::vector<user_credential_type_t> supported_credential_type
+    = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
+  std::vector<uint8_t> supported_cl                = {1, 1};
+  std::vector<uint16_t> supported_credential_slots = {1, 2};
+  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
+  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cl_timeout        = {10, 2};
+  std::vector<uint8_t> supported_cl_steps          = {1, 95};
+  helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                supported_credential_type,
+                                                supported_cl,
+                                                supported_credential_slots,
+                                                supported_cred_min_length,
+                                                supported_cred_max_length,
+                                                supported_cl_timeout,
+                                                supported_cl_steps);
+
+  sl_status_t status
+    = zwave_command_class_user_credential_credential_learn_start_add(
+      endpoint_id_node,
+      user_id,
+      credential_type,
+      credential_slot,
+      cl_timeout);
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_FAIL,
+                            status,
+                            "Should not be able to start learning");
+}
+
+void test_user_credential_credential_learn_start_add_credential_already_exists()
+{
+  user_credential_user_unique_id_t user_id   = 12;
+  user_credential_type_t credential_type     = ZCL_CRED_TYPE_PIN_CODE;
+  user_credential_slot_t credential_slot     = 1;
+  user_credential_learn_timeout_t cl_timeout = 0;
+  // Simulate user
+  attribute_store_emplace(endpoint_id_node,
+                          ATTRIBUTE(USER_UNIQUE_ID),
+                          &user_id,
+                          sizeof(user_id));
+  user_id           = 15;
+  auto user_id_node = attribute_store_emplace(endpoint_id_node,
+                                              ATTRIBUTE(USER_UNIQUE_ID),
+                                              &user_id,
+                                              sizeof(user_id));
+  auto credential_type_node
+    = attribute_store_emplace(user_id_node,
+                              ATTRIBUTE(CREDENTIAL_TYPE),
+                              &credential_type,
+                              sizeof(credential_type));
+  attribute_store_emplace(credential_type_node,
+                          ATTRIBUTE(CREDENTIAL_SLOT),
+                          &credential_slot,
+                          sizeof(credential_slot));
+  // Set capabilities
+  uint8_t supported_credential_checksum = 1;
+  std::vector<user_credential_type_t> supported_credential_type
+    = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
+  std::vector<uint8_t> supported_cl                = {1, 1};
+  std::vector<uint16_t> supported_credential_slots = {1, 2};
+  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
+  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cl_timeout        = {10, 2};
+  std::vector<uint8_t> supported_cl_steps          = {1, 95};
+  helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                supported_credential_type,
+                                                supported_cl,
+                                                supported_credential_slots,
+                                                supported_cred_min_length,
+                                                supported_cred_max_length,
+                                                supported_cl_timeout,
+                                                supported_cl_steps);
+
+  sl_status_t status
+    = zwave_command_class_user_credential_credential_learn_start_add(
+      endpoint_id_node,
+      user_id,
+      credential_type,
+      credential_slot,
+      cl_timeout);
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_FAIL,
+                            status,
+                            "Should not be able to start learning");
+}
+
+void test_user_credential_credential_learn_start_modify_happy_case()
+{
+  user_credential_user_unique_id_t user_id   = 12;
+  user_credential_type_t credential_type     = ZCL_CRED_TYPE_PIN_CODE;
+  user_credential_slot_t credential_slot     = 1;
+  user_credential_learn_timeout_t cl_timeout = 0;
+  // Simulate user
+  auto credential_nodes
+    = helper_create_credential_structure(user_id,
+                                         credential_type,
+                                         credential_slot,
+                                         REPORTED_ATTRIBUTE);
+
+  // Set capabilities
+  uint8_t supported_credential_checksum = 1;
+  std::vector<user_credential_type_t> supported_credential_type
+    = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
+  std::vector<uint8_t> supported_cl                = {1, 1};
+  std::vector<uint16_t> supported_credential_slots = {1, 2};
+  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
+  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cl_timeout        = {20, 2};
+  std::vector<uint8_t> supported_cl_steps          = {1, 95};
+  helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                supported_credential_type,
+                                                supported_cl,
+                                                supported_credential_slots,
+                                                supported_cred_min_length,
+                                                supported_cred_max_length,
+                                                supported_cl_timeout,
+                                                supported_cl_steps);
+
+  // Add credential
+  // Test if we give 0 as timeout, it should be set to default value
+  sl_status_t status
+    = zwave_command_class_user_credential_credential_learn_start_modify(
+      endpoint_id_node,
+      user_id,
+      credential_type,
+      credential_slot,
+      cl_timeout);
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
+                            status,
+                            "Should be able to start learning (modify)");
+
+  helper_test_credential_learn_structure(credential_nodes.user_id_node,
+                                         credential_nodes.credential_type_node,
+                                         credential_nodes.credential_slot_node,
+                                         supported_cl_timeout[0],
+                                         USER_CREDENTIAL_OPERATION_TYPE_MODIFY);
+
+  // Test with specific timeout
+  credential_type  = ZCL_CRED_TYPE_HAND_BIOMETRIC;
+  credential_slot  = 1;
+  cl_timeout       = 100;
+  credential_nodes = helper_create_credential_structure(user_id,
+                                                        credential_type,
+                                                        credential_slot,
+                                                        REPORTED_ATTRIBUTE);
+
+  status = zwave_command_class_user_credential_credential_learn_start_modify(
+    endpoint_id_node,
+    user_id,
+    credential_type,
+    credential_slot,
+    cl_timeout);
+
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
+                            status,
+                            "Should be able to start learning (modify)");
+  helper_test_credential_learn_structure(credential_nodes.user_id_node,
+                                         credential_nodes.credential_type_node,
+                                         credential_nodes.credential_slot_node,
+                                         cl_timeout,
+                                         USER_CREDENTIAL_OPERATION_TYPE_MODIFY);
+}
+
+void test_user_credential_credential_learn_start_modify_cl_not_supported()
+{
+  user_credential_user_unique_id_t user_id   = 12;
+  user_credential_type_t credential_type     = ZCL_CRED_TYPE_PIN_CODE;
+  user_credential_slot_t credential_slot     = 1;
+  user_credential_learn_timeout_t cl_timeout = 0;
+  // Simulate user
+  helper_create_credential_structure(user_id,
+                                     credential_type,
+                                     credential_slot,
+                                     REPORTED_ATTRIBUTE);
+
+  // Set capabilities
+  uint8_t supported_credential_checksum = 1;
+  std::vector<user_credential_type_t> supported_credential_type
+    = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
+  std::vector<uint8_t> supported_cl                = {0, 1};
+  std::vector<uint16_t> supported_credential_slots = {1, 2};
+  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
+  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cl_timeout        = {0, 2};
+  std::vector<uint8_t> supported_cl_steps          = {0, 95};
+  helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                supported_credential_type,
+                                                supported_cl,
+                                                supported_credential_slots,
+                                                supported_cred_min_length,
+                                                supported_cred_max_length,
+                                                supported_cl_timeout,
+                                                supported_cl_steps);
+
+  sl_status_t status
+    = zwave_command_class_user_credential_credential_learn_start_modify(
+      endpoint_id_node,
+      user_id,
+      credential_type,
+      credential_slot,
+      cl_timeout);
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_FAIL,
+                            status,
+                            "Should not be able to start learning (modify)");
+}
+
+void test_user_credential_credential_learn_start_modify_credential_not_existing()
+{
+  user_credential_user_unique_id_t user_id   = 12;
+  user_credential_type_t credential_type     = ZCL_CRED_TYPE_PIN_CODE;
+  user_credential_slot_t credential_slot     = 1;
+  user_credential_learn_timeout_t cl_timeout = 0;
+
+  // Simulate user
+  attribute_store_emplace(endpoint_id_node,
+                          ATTRIBUTE(USER_UNIQUE_ID),
+                          &user_id,
+                          sizeof(user_id));
+
+  // Set capabilities
+  uint8_t supported_credential_checksum = 1;
+  std::vector<user_credential_type_t> supported_credential_type
+    = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
+  std::vector<uint8_t> supported_cl                = {0, 1};
+  std::vector<uint16_t> supported_credential_slots = {1, 2};
+  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
+  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cl_timeout        = {0, 2};
+  std::vector<uint8_t> supported_cl_steps          = {0, 95};
+  helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                supported_credential_type,
+                                                supported_cl,
+                                                supported_credential_slots,
+                                                supported_cred_min_length,
+                                                supported_cred_max_length,
+                                                supported_cl_timeout,
+                                                supported_cl_steps);
+
+  sl_status_t status
+    = zwave_command_class_user_credential_credential_learn_start_modify(
+      endpoint_id_node,
+      user_id,
+      credential_type,
+      credential_slot,
+      cl_timeout);
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_FAIL,
+                            status,
+                            "Should not be able to start learning (modify)");
+}
+
+void test_user_credential_credential_learn_cancel_happy_case() {
+  uint8_t stop_flag = 0;
+  auto stop_node
+    = attribute_store_emplace_desired(endpoint_id_node,
+                                      ATTRIBUTE(CREDENTIAL_LEARN_STOP),
+                                      &stop_flag,
+                                      sizeof(stop_flag));
+
+  auto &get_func = resolver_functions[CREDENTIAL_LEARN_CANCEL];
+
+  // Ask for a Get Command, should always be the same
+  TEST_ASSERT_NOT_NULL_MESSAGE(
+    get_func,
+    "Couldn't find get function in resolver_functions.");
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
+                            get_func(stop_node, received_frame, &received_frame_size),
+                            "Get function should have returned OK");
+
+  attribute_store_get_reported(stop_node, &stop_flag, sizeof(stop_flag));
+  TEST_ASSERT_EQUAL_MESSAGE(1,
+                            stop_flag,
+                            "Stop flag should have been set to 1");
+}
+
 }  // extern "C"
