@@ -3785,6 +3785,18 @@ sl_status_t zwave_command_class_user_credential_add_new_credential(
     return SL_STATUS_FAIL;
   }
 
+  auto capabilities
+    = get_credential_capabilities(endpoint_node, credential_type);
+
+  if (!capabilities.is_slot_valid(credential_slot)) {
+    sl_log_error(LOG_TAG,
+                 "Credential slot %d for Credential Type %d is not valid. "
+                 "Not adding credentials.",
+                 credential_slot,
+                 credential_type);
+    return SL_STATUS_FAIL;
+  }
+
   // Create or update existing structure
   attribute_store_node_t credential_type_node = ATTRIBUTE_STORE_INVALID_NODE;
   attribute_store_node_t credential_slot_node = ATTRIBUTE_STORE_INVALID_NODE;
@@ -3799,6 +3811,8 @@ sl_status_t zwave_command_class_user_credential_add_new_credential(
                  credential_type);
     return SL_STATUS_FAIL;
   }
+
+
 
   // Get or create credential type node
   credential_type_node = add_credential_type_node_if_missing(endpoint_node,
@@ -3834,8 +3848,6 @@ sl_status_t zwave_command_class_user_credential_add_new_credential(
     return SL_STATUS_FAIL;
   }
 
-  auto capabilities
-    = get_credential_capabilities(endpoint_node, credential_type);
 
   if (!capabilities.is_credential_valid(credential_type,
                                         credential_slot,
