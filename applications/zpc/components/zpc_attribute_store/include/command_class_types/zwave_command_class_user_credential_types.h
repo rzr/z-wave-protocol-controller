@@ -40,6 +40,8 @@ typedef uint8_t user_credential_modifier_type_t;
 ///> User Modifier Node ID. uint16_t
 typedef uint16_t user_credential_modifier_node_id_t;
 
+///> User Credential Checksum. uint16_t
+typedef uint16_t user_credential_checksum_t;
 
 ///> User Type. uint8_t
 #define USER_CREDENTIAL_USER_TYPE_GENERAL_USER 0x00
