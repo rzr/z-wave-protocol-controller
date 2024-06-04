@@ -83,6 +83,7 @@ uic_mqtt_dotdot_user_credential_credential_learn_start_add_callback_t credential
 uic_mqtt_dotdot_user_credential_credential_learn_start_modify_callback_t credential_learn_start_modify_command = NULL;
 uic_mqtt_dotdot_user_credential_credential_learn_stop_callback_t credential_learn_stop_command = NULL;
 uic_mqtt_dotdot_user_credential_credential_association_callback_t credential_association_command = NULL;
+uic_mqtt_dotdot_user_credential_get_user_checksum_callback_t get_user_checksum_command = NULL;
 // clang-format on
 
 // Stub functions for intercepting callback registration.
@@ -192,6 +193,13 @@ void uic_mqtt_dotdot_user_credential_credential_association_callback_set_stub(
   credential_association_command = callback;
 }
 
+void uic_mqtt_dotdot_user_credential_get_user_checksum_callback_set_stub(
+  const uic_mqtt_dotdot_user_credential_get_user_checksum_callback_t callback,
+  int cmock_num_calls)
+{
+  get_user_checksum_command = callback;
+}
+
 /// Setup the test suite (called once before all test_xxx functions are called)
 void suiteSetUp()
 {
@@ -271,6 +279,8 @@ void setUp()
   uic_mqtt_dotdot_user_credential_credential_learn_stop_callback_set_Stub(&uic_mqtt_dotdot_user_credential_credential_learn_stop_callback_set_stub);
   // UUIC association
   uic_mqtt_dotdot_user_credential_credential_association_callback_set_Stub(&uic_mqtt_dotdot_user_credential_credential_association_callback_set_stub);
+  // User checksum
+  uic_mqtt_dotdot_user_credential_get_user_checksum_callback_set_Stub(&uic_mqtt_dotdot_user_credential_get_user_checksum_callback_set_stub);
   // clang-format on
 
   // Run the component init
@@ -397,7 +407,9 @@ void mock_deletion_user_mqtt_topic(user_credential_user_unique_id_t user_id)
                                               "UserNameEncoding",
                                               "UserName",
                                               "UserModifierNodeId",
-                                              "UserModifierType"};
+                                              "UserModifierType",
+                                              "UserChecksum",
+                                              "UserChecksumError"};
   for (auto &attribute_name: attribute_names) {
     mqtt_topics.push_back(
       {get_user_attribute_mqtt_topic(user_id, attribute_name), ""});
@@ -691,6 +703,26 @@ attribute_store_node_t helper_add_complete_user(
                           ATTRIBUTE(USER_MODIFIER_TYPE),
                           &modifier_type,
                           sizeof(modifier_type));
+
+  // Only used to see if they are correctly exposed
+  user_credential_checksum_t user_checksum = 0xABCD;
+  mock_expected_user_mqtt_topic(
+    user_id,
+    "UserChecksum",
+    user_checksum);
+  attribute_store_emplace(user_id_node,
+                          ATTRIBUTE(USER_CHECKSUM),
+                          &user_checksum,
+                          sizeof(user_checksum));
+  user_credential_checksum_t computed_checksum = 0xFFFF;
+  mock_expected_user_mqtt_topic(
+    user_id,
+    "UserChecksumError",
+    computed_checksum);
+  attribute_store_emplace(user_id_node,
+                          ATTRIBUTE(USER_CHECKSUM_MISMATCH_ERROR),
+                          &computed_checksum,
+                          sizeof(computed_checksum));
 
   // Cleanup : this will automatically test the MQTT deletion messages
   created_user_id.push_back(user_id);
@@ -2208,6 +2240,58 @@ void test_user_credential_cluster_credential_association_happy_case()
   TEST_ASSERT_EQUAL_MESSAGE(destination_credential_slot,
                             reported_destination_credential_slot,
                             "Destination credential slot mismatch");
+}
+
+void test_user_credential_cluster_test_user_checksum_happy_case()
+{
+  user_credential_user_unique_id_t user_unique_id = 12;
+
+  auto user_id_node = helper_add_user_id(user_unique_id);
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    get_user_checksum_command(supporting_node_unid,
+                              endpoint_id,
+                              UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL,
+                              user_unique_id),
+    "Should be able to setup attribute store for get_user_checksum");
+
+  auto checksum_node
+    = attribute_store_get_first_child_by_type(user_id_node,
+                                              ATTRIBUTE(USER_CHECKSUM));
+
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(checksum_node),
+                           "Checksum node should exists");
+  user_credential_checksum_t checksum = 1312;
+  mock_expected_user_mqtt_topic(user_unique_id,
+                                "UserChecksum",
+                                checksum);
+  attribute_store_set_reported(checksum_node, &checksum, sizeof(checksum));
+
+  // Try a second time to see if we still have only one checksum node
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    get_user_checksum_command(supporting_node_unid,
+                              endpoint_id,
+                              UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL,
+                              user_unique_id),
+    "Should be able to setup attribute store for get_user_checksum");
+
+  auto checksum_count
+    = attribute_store_get_node_child_count_by_type(user_id_node,
+                                                   ATTRIBUTE(USER_CHECKSUM));
+
+  TEST_ASSERT_EQUAL_MESSAGE(1,
+                            checksum_count,
+                            "Should have only one checksum attribute");
+
+  checksum_node
+    = attribute_store_get_first_child_by_type(user_id_node,
+                                              ATTRIBUTE(USER_CHECKSUM));
+
+  TEST_ASSERT_FALSE_MESSAGE(
+    attribute_store_is_reported_defined(checksum_node),
+    "Checksum node reported value should be not defined");
 }
 
 ///////////////////////////////////////////////////
