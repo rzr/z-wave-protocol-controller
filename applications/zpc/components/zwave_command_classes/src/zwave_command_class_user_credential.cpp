@@ -3750,6 +3750,55 @@ sl_status_t zwave_command_class_user_credential_user_set_error_handle_report(
 }
 
 /////////////////////////////////////////////////////////////////////////////
+// Checksum helpers
+/////////////////////////////////////////////////////////////////////////////
+
+/**
+ * @brief Compte the checksum and verify the checksum integrity. 
+ * 
+ * Compare crc16 of checksum_data and expected checksum and put it in the 
+ * checksum_error_type if not matching.  
+ * 
+ * @param base_node The base node to put the error attribute
+ * @param checksum_error_type The type of the error attribute
+ * @param checksum_data The data to compute the checksum. Checksum will be 0 if empty.
+ * @param expected_checksum The expected checksum
+ * 
+ * @return The computed checksum of checksum_data
+*/
+user_credential_checksum_t compute_checksum_and_verify_integrity(
+  attribute_store_node_t base_node,
+  attribute_store_type_t checksum_error_type,
+  std::vector<uint8_t> checksum_data,
+  user_credential_checksum_t expected_checksum)
+{
+  user_credential_checksum_t computed_checksum = 0;
+  // If checksum data is empty, the checksum is 0. The guard is present to avoid
+  // zwave_controller_crc16 to return CRC_INITIALIZATION_VALUE if checksum_data is empty.
+  // See CC:0083.01.19.11.016 & CC:0083.01.17.11.013
+  if (checksum_data.size() > 0) {
+    computed_checksum = zwave_controller_crc16(CRC_INITIALIZATION_VALUE,
+                                               checksum_data.data(),
+                                               checksum_data.size());
+  }
+
+  if (computed_checksum != expected_checksum) {
+    // Set checksum mismatch error
+    attribute_store_set_child_reported(base_node,
+                                       checksum_error_type,
+                                       &computed_checksum,
+                                       sizeof(computed_checksum));
+  } else {
+    // If we don't have any errors we remove the checksum_error_type node
+    auto checksum_mismatch_node
+      = attribute_store_get_first_child_by_type(base_node, checksum_error_type);
+    attribute_store_delete_node(checksum_mismatch_node);
+  }
+
+  return computed_checksum;
+}
+
+/////////////////////////////////////////////////////////////////////////////
 // User Checksum Get/Report
 /////////////////////////////////////////////////////////////////////////////
 
@@ -3920,16 +3969,13 @@ sl_status_t zwave_command_class_user_credential_user_checksum_handle_report(
   }
 
   user_credential_checksum_t computed_checksum
-    = zwave_controller_crc16(CRC_INITIALIZATION_VALUE,
-                             checksum_data.data(),
-                             checksum_data.size());
+    = compute_checksum_and_verify_integrity(
+      user_id_node,
+      ATTRIBUTE(USER_CHECKSUM_MISMATCH_ERROR),
+      checksum_data,
+      user_checksum);
 
   if (computed_checksum != user_checksum) {
-    // Set checksum mismatch error
-    attribute_store_set_child_reported(user_id_node,
-                                       ATTRIBUTE(USER_CHECKSUM_MISMATCH_ERROR),
-                                       &computed_checksum,
-                                       sizeof(computed_checksum));
     sl_log_error(LOG_TAG,
                  "Checksum mismatch for user %d. Expected 0x%X, got 0x%X",
                  user_id,
@@ -3938,11 +3984,172 @@ sl_status_t zwave_command_class_user_credential_user_checksum_handle_report(
     return SL_STATUS_FAIL;
   }
 
-  // If we don't have any errors we remove the USER_CHECKSUM_MISMATCH_ERROR node
-  auto checksum_mismatch_node = attribute_store_get_first_child_by_type(
-    user_id_node,
-    ATTRIBUTE(USER_CHECKSUM_MISMATCH_ERROR));
-  attribute_store_delete_node(checksum_mismatch_node);
+  return SL_STATUS_OK;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// Credential Checksum Get/Report
+/////////////////////////////////////////////////////////////////////////////
+
+static sl_status_t zwave_command_class_user_credential_credential_checksum_get(
+  attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
+{
+  sl_log_debug(LOG_TAG, "Credential Checksum Get");
+
+  auto credential_type_node = attribute_store_get_first_parent_with_type(
+    node,
+    ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE));
+
+  if (!attribute_store_node_exists(credential_type_node)) {
+    sl_log_error(
+      LOG_TAG,
+      "Can't find Credential Type node. Not sending Credential Checksum Get.");
+    return SL_STATUS_NOT_SUPPORTED;
+  }
+
+  user_credential_type_t credential_type = 0;
+  sl_status_t status = attribute_store_get_reported(credential_type_node,
+                                                    &credential_type,
+                                                    sizeof(credential_type));
+
+  if (status != SL_STATUS_OK) {
+    sl_log_error(
+      LOG_TAG,
+      "Can't get credential type value. Not sending Credential Checksum Get.");
+    return SL_STATUS_NOT_SUPPORTED;
+  }
+
+  ZW_CREDENTIAL_CHECKSUM_GET_FRAME *get_frame
+    = (ZW_CREDENTIAL_CHECKSUM_GET_FRAME *)frame;
+  get_frame->cmdClass       = COMMAND_CLASS_USER_CREDENTIAL;
+  get_frame->cmd            = CREDENTIAL_CHECKSUM_GET;
+  get_frame->credentialType = credential_type;
+
+  *frame_length = sizeof(ZW_CREDENTIAL_CHECKSUM_GET_FRAME);
+
+  return SL_STATUS_OK;
+}
+
+sl_status_t
+  zwave_command_class_user_credential_credential_checksum_handle_report(
+    const zwave_controller_connection_info_t *connection_info,
+    const uint8_t *frame_data,
+    uint16_t frame_length)
+{
+  constexpr uint8_t EXPECTED_FRAME_LENGTH = 5;
+  if (frame_length != EXPECTED_FRAME_LENGTH) {
+    sl_log_error(LOG_TAG,
+                 "CREDENTIAL_CHECKSUM_REPORT frame length is not "
+                 "valid. Expected %d, got %d",
+                 EXPECTED_FRAME_LENGTH,
+                 frame_length);
+    return SL_STATUS_NOT_SUPPORTED;
+  }
+
+  constexpr uint8_t INDEX_CREDENTIAL_TYPE = 2;
+  constexpr uint8_t INDEX_USER_CHECKSUM   = 3;
+
+  attribute_store_node_t endpoint_node
+    = zwave_command_class_get_endpoint_node(connection_info);
+
+  // Interpret frame
+  const user_credential_type_t credential_type
+    = frame_data[INDEX_CREDENTIAL_TYPE];
+  const user_credential_checksum_t credential_checksum
+    = get_uint16_value(frame_data, INDEX_USER_CHECKSUM);
+
+  sl_log_debug(LOG_TAG,
+               "Credential Checksum Report. Credential type: %d / "
+               "Checksum: 0x%X",
+               credential_type,
+               credential_checksum);
+
+  attribute_store_node_t credential_type_node
+    = attribute_store_get_node_child_by_value(
+      endpoint_node,
+      ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE),
+      REPORTED_ATTRIBUTE,
+      (uint8_t *)&credential_type,
+      sizeof(credential_type),
+      0);
+
+  if (!attribute_store_node_exists(credential_type_node)) {
+    sl_log_error(
+      LOG_TAG,
+      "Can't find Credential Type %d reported by Credential Checksum "
+      "Report",
+      credential_type);
+    return SL_STATUS_NOT_SUPPORTED;
+  }
+
+  // Set reported value
+  attribute_store_set_child_reported(credential_type_node,
+                                     ATTRIBUTE(CREDENTIAL_CHECKSUM),
+                                     &credential_checksum,
+                                     sizeof(credential_checksum));
+
+  // Compute checksum ourselves to see if it matches
+  std::vector<uint8_t> checksum_data;
+
+  auto credential_type_nodes
+    = get_all_credential_type_nodes(endpoint_node, credential_type);
+  for (auto credential_type_node: credential_type_nodes) {
+    auto credential_slot_node_count
+      = attribute_store_get_node_child_count_by_type(
+        credential_type_node,
+        ATTRIBUTE(CREDENTIAL_SLOT));
+
+    for (size_t slot_index = 0; slot_index < credential_slot_node_count;
+         slot_index++) {
+      attribute_store_node_t credential_slot_node
+        = attribute_store_get_node_child_by_type(credential_type_node,
+                                                 ATTRIBUTE(CREDENTIAL_SLOT),
+                                                 slot_index);
+      // We don't have all the data for this slot, skipping it.
+      if (!attribute_store_is_reported_defined(credential_slot_node)) {
+        sl_log_debug(
+          LOG_TAG,
+          "Credential Slot #%d is not defined. Not adding to checksum.",
+          slot_index);
+        continue;
+      }
+
+      // Add credential slot to checksum
+      if (!add_node_to_checksum(checksum_data, credential_slot_node)) {
+        return SL_STATUS_FAIL;
+      }
+
+      auto credential_data_length_node
+        = attribute_store_get_first_child_by_type(
+          credential_slot_node,
+          ATTRIBUTE(CREDENTIAL_DATA_LENGTH));
+      auto credential_data_node
+        = attribute_store_get_first_child_by_type(credential_data_length_node,
+                                                  ATTRIBUTE(CREDENTIAL_DATA));
+
+      // Add credential data to checksum
+      if (!add_node_to_checksum(checksum_data, credential_data_node)) {
+        return SL_STATUS_FAIL;
+      }
+    }
+  }
+
+  user_credential_checksum_t computed_checksum
+    = compute_checksum_and_verify_integrity(
+      credential_type_node,
+      ATTRIBUTE(CREDENTIAL_CHECKSUM_MISMATCH_ERROR),
+      checksum_data,
+      credential_checksum);
+
+  if (computed_checksum != credential_checksum) {
+    sl_log_error(
+      LOG_TAG,
+      "Checksum mismatch for credential type %d. Expected 0x%X, got 0x%X",
+      credential_type,
+      credential_checksum,
+      computed_checksum);
+    return SL_STATUS_FAIL;
+  }
 
   return SL_STATUS_OK;
 }
@@ -4948,7 +5155,7 @@ sl_status_t zwave_command_class_user_credential_get_user_checksum(
   if (!user_exists) {
     sl_log_error(
       LOG_TAG,
-      "Can't find source user with ID %d. Not adding user checksum get.",
+      "Can't find source user with ID %d. Not setting up User Checksum Get.",
       user_id_node);
     return SL_STATUS_FAIL;
   }
@@ -4967,6 +5174,43 @@ sl_status_t zwave_command_class_user_credential_get_user_checksum(
 
   return SL_STATUS_OK;
 }
+
+sl_status_t zwave_command_class_user_credential_get_credential_checksum(
+  attribute_store_node_t endpoint_node, user_credential_type_t credential_type)
+{
+  attribute_store_node_t supported_credential_type_node
+    = attribute_store_get_node_child_by_value(
+      endpoint_node,
+      ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE),
+      REPORTED_ATTRIBUTE,
+      &credential_type,
+      sizeof(credential_type),
+      0);
+
+  if (!attribute_store_node_exists(supported_credential_type_node)) {
+    sl_log_error(
+      LOG_TAG,
+      "Can't find supported credential type %d. Not setting up Checksum get.",
+      credential_type);
+    return SL_STATUS_FAIL;
+  }
+
+  auto checksum_node
+    = attribute_store_get_first_child_by_type(supported_credential_type_node,
+                                              ATTRIBUTE(CREDENTIAL_CHECKSUM));
+
+  // If node already exists, we clear its value to trigger the GET
+  if (attribute_store_node_exists(checksum_node)) {
+    attribute_store_undefine_reported(checksum_node);
+    attribute_store_undefine_desired(checksum_node);
+  } else {
+    attribute_store_add_node(ATTRIBUTE(CREDENTIAL_CHECKSUM),
+                             supported_credential_type_node);
+  }
+
+  return SL_STATUS_OK;
+}
+
 /////////////////////////////////////////////////////////////////////////////
 // Class logic
 /////////////////////////////////////////////////////////////////////////////
@@ -5029,6 +5273,11 @@ sl_status_t zwave_command_class_user_credential_control_handler(
         frame_length);
     case USER_CHECKSUM_REPORT:
       return zwave_command_class_user_credential_user_checksum_handle_report(
+        connection_info,
+        frame_data,
+        frame_length);
+    case CREDENTIAL_CHECKSUM_REPORT:
+      return zwave_command_class_user_credential_credential_checksum_handle_report(
         connection_info,
         frame_data,
         frame_length);
@@ -5098,6 +5347,11 @@ sl_status_t zwave_command_class_user_credential_init()
     ATTRIBUTE(USER_CHECKSUM),
     NULL,
     &zwave_command_class_user_credential_user_checksum_get);
+
+  attribute_resolver_register_rule(
+    ATTRIBUTE(CREDENTIAL_CHECKSUM),
+    NULL,
+    &zwave_command_class_user_credential_credential_checksum_get);
 
   // https://github.com/Z-Wave-Alliance/AWG/pull/124#discussion_r1484473752
   // Discussion about delaying the user interview process after the inclusion
