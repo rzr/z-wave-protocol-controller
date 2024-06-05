@@ -84,6 +84,7 @@ uic_mqtt_dotdot_user_credential_credential_learn_start_modify_callback_t credent
 uic_mqtt_dotdot_user_credential_credential_learn_stop_callback_t credential_learn_stop_command = NULL;
 uic_mqtt_dotdot_user_credential_credential_association_callback_t credential_association_command = NULL;
 uic_mqtt_dotdot_user_credential_get_user_checksum_callback_t get_user_checksum_command = NULL;
+uic_mqtt_dotdot_user_credential_get_credential_checksum_callback_t get_credential_checksum_command = NULL;
 // clang-format on
 
 // Stub functions for intercepting callback registration.
@@ -200,6 +201,14 @@ void uic_mqtt_dotdot_user_credential_get_user_checksum_callback_set_stub(
   get_user_checksum_command = callback;
 }
 
+void uic_mqtt_dotdot_user_credential_get_credential_checksum_callback_set_stub(
+  const uic_mqtt_dotdot_user_credential_get_credential_checksum_callback_t
+    callback,
+  int cmock_num_calls)
+{
+  get_credential_checksum_command = callback;
+}
+
 /// Setup the test suite (called once before all test_xxx functions are called)
 void suiteSetUp()
 {
@@ -281,6 +290,8 @@ void setUp()
   uic_mqtt_dotdot_user_credential_credential_association_callback_set_Stub(&uic_mqtt_dotdot_user_credential_credential_association_callback_set_stub);
   // User checksum
   uic_mqtt_dotdot_user_credential_get_user_checksum_callback_set_Stub(&uic_mqtt_dotdot_user_credential_get_user_checksum_callback_set_stub);
+  // Credential checksum
+  uic_mqtt_dotdot_user_credential_get_credential_checksum_callback_set_Stub(&uic_mqtt_dotdot_user_credential_get_credential_checksum_callback_set_stub);
   // clang-format on
 
   // Run the component init
@@ -2288,6 +2299,63 @@ void test_user_credential_cluster_test_user_checksum_happy_case()
   checksum_node
     = attribute_store_get_first_child_by_type(user_id_node,
                                               ATTRIBUTE(USER_CHECKSUM));
+
+  TEST_ASSERT_FALSE_MESSAGE(
+    attribute_store_is_reported_defined(checksum_node),
+    "Checksum node reported value should be not defined");
+}
+
+void test_user_credential_cluster_test_credential_checksum_happy_case()
+{
+  user_credential_type_t credential_type = ZCL_CRED_TYPE_PIN_CODE;
+
+  auto credential_type_node
+    = attribute_store_emplace(endpoint_id_node,
+                              ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE),
+                              &credential_type,
+                              sizeof(credential_type));
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    get_credential_checksum_command(supporting_node_unid,
+                                    endpoint_id,
+                                    UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL,
+                                    static_cast<CredType>(credential_type)),
+    "Should be able to setup attribute store for get_credential_checksum");
+
+  auto checksum_node
+    = attribute_store_get_first_child_by_type(credential_type_node,
+                                              ATTRIBUTE(CREDENTIAL_CHECKSUM));
+
+  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(checksum_node),
+                           "Checksum node should exists");
+
+  user_credential_checksum_t checksum = 1312;
+  mock_expected_cred_rule_mqtt_topic(credential_type,
+                                     "CredentialChecksum",
+                                     checksum);
+  attribute_store_set_reported(checksum_node, &checksum, sizeof(checksum));
+
+  // Try a second time to see if we still have only one checksum node
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    get_credential_checksum_command(supporting_node_unid,
+                                    endpoint_id,
+                                    UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL,
+                                    static_cast<CredType>(credential_type)),
+    "Should be able to setup attribute store for get_credential_checksum");
+
+  auto checksum_count
+    = attribute_store_get_node_child_count_by_type(credential_type_node,
+                                                   ATTRIBUTE(CREDENTIAL_CHECKSUM));
+
+  TEST_ASSERT_EQUAL_MESSAGE(1,
+                            checksum_count,
+                            "Should have only one checksum attribute");
+
+  checksum_node
+    = attribute_store_get_first_child_by_type(credential_type_node,
+                                              ATTRIBUTE(CREDENTIAL_CHECKSUM));
 
   TEST_ASSERT_FALSE_MESSAGE(
     attribute_store_is_reported_defined(checksum_node),

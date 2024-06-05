@@ -111,7 +111,9 @@ static const user_attributes_mqtt_map_t credential_rules_attributes
      {ATTRIBUTE(CREDENTIAL_MAX_LENGTH), {"CredentialMaxLength"}},
      {ATTRIBUTE(CREDENTIAL_LEARN_RECOMMENDED_TIMEOUT),
       {"LearnRecommendedTimeout"}},
-     {ATTRIBUTE(CREDENTIAL_LEARN_NUMBER_OF_STEPS), {"LearnNumberOfSteps"}}};
+     {ATTRIBUTE(CREDENTIAL_LEARN_NUMBER_OF_STEPS), {"LearnNumberOfSteps"}},
+     {ATTRIBUTE(CREDENTIAL_CHECKSUM), {"CredentialChecksum"}},
+     {ATTRIBUTE(CREDENTIAL_CHECKSUM_MISMATCH_ERROR), {"CredentialChecksumError"}}};
 
 ///////////////////////////////////////////////////////////////////////////////
 // DotDot MQTT incoming commands handling functions
@@ -568,6 +570,31 @@ sl_status_t get_user_checksum(dotdot_unid_t unid,
                                                                user_uniqueid);
 }
 
+sl_status_t get_credential_checksum(dotdot_unid_t unid,
+                              dotdot_endpoint_id_t endpoint,
+                              uic_mqtt_dotdot_callback_call_type_t call_type,
+                              CredType credential_type)
+{
+  attribute_store_node_t endpoint_node
+    = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
+
+  // Now that we know that the command is supported, return here if it is
+  // a support check type of call.
+  if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
+    attribute_store_node_t user_count_node
+      = attribute_store_get_first_child_by_type(endpoint_node,
+                                                ATTRIBUTE(NUMBER_OF_USERS));
+
+    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
+                                                        : SL_STATUS_FAIL;
+                                                        
+  }
+
+  return zwave_command_class_user_credential_get_credential_checksum(
+    endpoint_node,
+    credential_type);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Helpers functions
 //////////////////////////////////////////////////////////////////////////////
@@ -996,5 +1023,8 @@ sl_status_t user_credential_cluster_server_init()
   // User Checksum
   uic_mqtt_dotdot_user_credential_get_user_checksum_callback_set(
     &get_user_checksum);
+  // Credential Checksum
+  uic_mqtt_dotdot_user_credential_get_credential_checksum_callback_set(
+    &get_credential_checksum);
   return SL_STATUS_OK;
 }
