@@ -99,7 +99,8 @@ static const user_attributes_mqtt_map_t credential_attributes
      {ATTRIBUTE(CREDENTIAL_MODIFIER_TYPE),
       {"CredentialModifierType", user_modifier_type_get_enum_value_name}},
      {ATTRIBUTE(CREDENTIAL_MODIFIER_NODE_ID), {"CredentialModifierNodeId"}},
-     {ATTRIBUTE(CREDENTIAL_DATA), {"CredentialData"}}};
+     {ATTRIBUTE(CREDENTIAL_DATA), {"CredentialData"}},
+     {ATTRIBUTE(ASSOCIATION_STATUS), {"AssociationStatus"}}};
 
 static const user_attributes_mqtt_map_t credential_rules_attributes
   = {{ATTRIBUTE(CREDENTIAL_LEARN_SUPPORT), {"LearnSupport", convert_to_bool}},
@@ -188,7 +189,6 @@ static sl_status_t
 
   return SL_STATUS_OK;
 }
-
 
 static sl_status_t
   delete_user_command(dotdot_unid_t unid,
@@ -303,9 +303,10 @@ static sl_status_t
     credential_slot);
 }
 
-static sl_status_t delete_all_users_command(dotdot_unid_t unid,
-                                            dotdot_endpoint_id_t endpoint,
-                                            uic_mqtt_dotdot_callback_call_type_t call_type)
+static sl_status_t
+  delete_all_users_command(dotdot_unid_t unid,
+                           dotdot_endpoint_id_t endpoint,
+                           uic_mqtt_dotdot_callback_call_type_t call_type)
 {
   attribute_store_node_t endpoint_node
     = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
@@ -347,11 +348,11 @@ static sl_status_t
     endpoint_node);
 }
 
-static sl_status_t delete_all_credentials_by_type(
-  dotdot_unid_t unid,
-  dotdot_endpoint_id_t endpoint,
-  uic_mqtt_dotdot_callback_call_type_t call_type,
-  CredType credential_type)
+static sl_status_t
+  delete_all_credentials_by_type(dotdot_unid_t unid,
+                                 dotdot_endpoint_id_t endpoint,
+                                 uic_mqtt_dotdot_callback_call_type_t call_type,
+                                 CredType credential_type)
 {
   attribute_store_node_t endpoint_node
     = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
@@ -424,14 +425,14 @@ static sl_status_t delete_all_credentials_for_user_by_type(
     static_cast<user_credential_type_t>(credential_type));
 }
 
-sl_status_t credential_learn_start_add(
-  dotdot_unid_t unid,
-  dotdot_endpoint_id_t endpoint,
-  uic_mqtt_dotdot_callback_call_type_t call_type,
-  uint16_t user_uniqueid,
-  CredType credential_type,
-  uint16_t credential_slot,
-  uint8_t credential_learn_timeout)
+sl_status_t
+  credential_learn_start_add(dotdot_unid_t unid,
+                             dotdot_endpoint_id_t endpoint,
+                             uic_mqtt_dotdot_callback_call_type_t call_type,
+                             uint16_t user_uniqueid,
+                             CredType credential_type,
+                             uint16_t credential_slot,
+                             uint8_t credential_learn_timeout)
 {
   attribute_store_node_t endpoint_node
     = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
@@ -455,14 +456,14 @@ sl_status_t credential_learn_start_add(
     credential_learn_timeout);
 }
 
-sl_status_t credential_learn_start_modify(
-  dotdot_unid_t unid,
-  dotdot_endpoint_id_t endpoint,
-  uic_mqtt_dotdot_callback_call_type_t call_type,
-  uint16_t user_uniqueid,
-  CredType credential_type,
-  uint16_t credential_slot,
-  uint8_t credential_learn_timeout)
+sl_status_t
+  credential_learn_start_modify(dotdot_unid_t unid,
+                                dotdot_endpoint_id_t endpoint,
+                                uic_mqtt_dotdot_callback_call_type_t call_type,
+                                uint16_t user_uniqueid,
+                                CredType credential_type,
+                                uint16_t credential_slot,
+                                uint8_t credential_learn_timeout)
 {
   attribute_store_node_t endpoint_node
     = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
@@ -486,11 +487,10 @@ sl_status_t credential_learn_start_modify(
     credential_learn_timeout);
 }
 
-
-sl_status_t credential_learn_stop(
-  dotdot_unid_t unid,
-  dotdot_endpoint_id_t endpoint,
-  uic_mqtt_dotdot_callback_call_type_t call_type)
+sl_status_t
+  credential_learn_stop(dotdot_unid_t unid,
+                        dotdot_endpoint_id_t endpoint,
+                        uic_mqtt_dotdot_callback_call_type_t call_type)
 {
   attribute_store_node_t endpoint_node
     = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
@@ -509,6 +509,39 @@ sl_status_t credential_learn_stop(
   return zwave_command_class_user_credential_credential_learn_stop(
     endpoint_node);
 }
+
+sl_status_t uuic_association_set(dotdot_unid_t unid,
+                                 dotdot_endpoint_id_t endpoint,
+                                 uic_mqtt_dotdot_callback_call_type_t call_type,
+                                 CredType credential_type,
+                                 uint16_t source_user_uniqueid,
+                                 uint16_t source_credential_slot,
+                                 uint16_t destination_user_uniqueid,
+                                 uint16_t destination_credential_slot)
+{
+  attribute_store_node_t endpoint_node
+    = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
+
+  // Now that we know that the command is supported, return here if it is
+  // a support check type of call.
+  if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
+    attribute_store_node_t user_count_node
+      = attribute_store_get_first_child_by_type(endpoint_node,
+                                                ATTRIBUTE(NUMBER_OF_USERS));
+
+    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
+                                                        : SL_STATUS_FAIL;
+  }
+
+  return zwave_command_class_user_credential_uuic_association_set(
+    endpoint_node,
+    static_cast<user_credential_type_t>(credential_type),
+    source_user_uniqueid,
+    source_credential_slot,
+    destination_user_uniqueid,
+    destination_credential_slot);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Helpers functions
 //////////////////////////////////////////////////////////////////////////////
@@ -577,8 +610,7 @@ std::string get_base_mqtt_topic(attribute_store::attribute updated_node_cpp)
 std::string
   get_base_user_mqtt_topic(attribute_store::attribute updated_node_cpp)
 {
-  boost::format mqtt_topic
-    = boost::format("%1%/User/%2%");
+  boost::format mqtt_topic = boost::format("%1%/User/%2%");
 
   std::string base_mqtt_topic = get_base_mqtt_topic(updated_node_cpp);
   if (base_mqtt_topic.empty()) {
@@ -590,8 +622,7 @@ std::string
       = updated_node_cpp.first_parent_or_self(ATTRIBUTE(USER_UNIQUE_ID))
           .reported<user_credential_user_unique_id_t>();
 
-    return (mqtt_topic % base_mqtt_topic  % user_id)
-      .str();
+    return (mqtt_topic % base_mqtt_topic % user_id).str();
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
                  "Error while publishing User attribute (%s) : %s",
@@ -644,8 +675,8 @@ std::string
   return "";
 }
 
-std::string
-  get_base_credential_rule_mqtt_topic(attribute_store::attribute updated_node_cpp)
+std::string get_base_credential_rule_mqtt_topic(
+  attribute_store::attribute updated_node_cpp)
 {
   std::string base_user_mqtt_topic = get_base_mqtt_topic(updated_node_cpp);
   if (base_user_mqtt_topic.empty()) {
@@ -730,15 +761,15 @@ std::string get_payload_value(attribute_store::attribute updated_node_cpp,
     case BYTE_ARRAY_STORAGE_TYPE: {
       // Convert the byte array to a string
       // Credential data are encoded in different way that's why we store them as raw byte array and interpret their value
-      
+
       std::string output;
       auto data = updated_node_cpp.reported<std::vector<uint8_t>>();
 
       // Check if we need to convert the value to UTF-8
       if (need_utf8_conversion) {
         std::u16string utf16_str;
-        for(size_t i=0; i<data.size(); i+=2) {
-          char16_t char16 = (data[i] << 8) | data[i+1];
+        for (size_t i = 0; i < data.size(); i += 2) {
+          char16_t char16 = (data[i] << 8) | data[i + 1];
           utf16_str.push_back(char16);
         }
         std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> cnv;
@@ -789,7 +820,6 @@ void publish_mqtt_topic(const std::string &base_topic,
 
   std::string payload_str = "";
   if (change != ATTRIBUTE_DELETED) {
-
     if (updated_node_cpp.type() == ATTRIBUTE(CREDENTIAL_DATA)) {
       // Credential data are encoded in different way that's why we store them as raw byte array and interpret their value
       // We need to convert the value to UTF-8 if the credential type is password
@@ -934,8 +964,9 @@ sl_status_t user_credential_cluster_server_init()
     &credential_learn_start_modify);
   uic_mqtt_dotdot_user_credential_credential_learn_stop_callback_set(
     &credential_learn_stop);
-  
+  // UUIC association
+  uic_mqtt_dotdot_user_credential_credential_association_callback_set(
+    &uuic_association_set);
 
   return SL_STATUS_OK;
 }
-

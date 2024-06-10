@@ -43,6 +43,9 @@
 #include <string>
 #include <map>
 
+// Cpp Attribute store
+#include "attribute.hpp"
+
 // UTF16 conversion (deprecated in C++17)
 // Needed for credential data (password) per specification
 #include <locale>
@@ -3063,6 +3066,257 @@ sl_status_t zwave_command_class_user_credential_credential_learn_status_report(
                                      sizeof(learn_status));
   return status;
 }
+
+
+/////////////////////////////////////////////////////////////////////////////
+// User Unique Identifier Credential Association Set/Report
+/////////////////////////////////////////////////////////////////////////////
+
+static sl_status_t zwave_command_class_user_credential_uuic_association_set(
+  attribute_store_node_t destination_credential_slot_node,
+  uint8_t *frame,
+  uint16_t *frame_length)
+{
+  // Get nodes
+  auto credential_slot_node = attribute_store_get_first_parent_with_type(
+    destination_credential_slot_node,
+    ATTRIBUTE(CREDENTIAL_SLOT));
+  auto credential_type_node = attribute_store_get_first_parent_with_type(
+    credential_slot_node,
+    ATTRIBUTE(CREDENTIAL_TYPE));
+  auto user_id_node = attribute_store_get_first_parent_with_type(
+    credential_type_node,
+    ATTRIBUTE(USER_UNIQUE_ID));
+
+  sl_log_debug(LOG_TAG, "User Unique Identifier Credential Association Set command");
+
+  // Set the frame
+ // Since the data is not linear we provide the node directly
+  std::vector<attribute_command_data> set_data
+    = {{ATTRIBUTE(USER_UNIQUE_ID), REPORTED_ATTRIBUTE, user_id_node},
+       {ATTRIBUTE(CREDENTIAL_TYPE), REPORTED_ATTRIBUTE, credential_type_node},
+       {ATTRIBUTE(CREDENTIAL_SLOT), REPORTED_ATTRIBUTE, credential_slot_node},
+       {ATTRIBUTE(ASSOCIATION_DESTINATION_USER_ID), DESIRED_ATTRIBUTE},
+       {ATTRIBUTE(ASSOCIATION_DESTINATION_CREDENTIAL_SLOT), DESIRED_ATTRIBUTE}};
+
+  sl_status_t status = create_command_frame(USER_CREDENTIAL_ASSOCIATION_SET,
+                                            set_data,
+                                            credential_slot_node,
+                                            frame,
+                                            frame_length);
+
+
+  if (status != SL_STATUS_OK) {
+    sl_log_error(
+      LOG_TAG,
+      "Can't create User Unique Identifier Credential Association Set frame");
+  }
+
+  return status;
+}
+
+
+sl_status_t zwave_command_class_user_credential_uuic_association_report(
+  const zwave_controller_connection_info_t *connection_info,
+  const uint8_t *frame_data,
+  uint16_t frame_length) {
+
+  constexpr uint8_t EXPECTED_FRAME_LENGTH = 12;
+  if (frame_length != EXPECTED_FRAME_LENGTH) {
+    sl_log_error(LOG_TAG,
+                 "USER_CREDENTIAL_ASSOCIATION_REPORT frame length is not valid. Expected %d, got %d",
+                 EXPECTED_FRAME_LENGTH,
+                 frame_length);
+    return SL_STATUS_NOT_SUPPORTED;
+  }
+
+  constexpr uint8_t INDEX_SOURCE_USER_ID                         = 2;
+  constexpr uint8_t INDEX_SOURCE_CREDENTIAL_TYPE                 = 4;
+  constexpr uint8_t INDEX_SOURCE_CREDENTIAL_SLOT                 = 5;
+  constexpr uint8_t INDEX_DESTINATION_USER_ID                    = 7;
+  constexpr uint8_t INDEX_DESTINATION_CREDENTIAL_SLOT            = 9;
+  constexpr uint8_t INDEX_ASSOCIATION_STATUS                     = 11;
+
+  attribute_store_node_t endpoint_node
+    = zwave_command_class_get_endpoint_node(connection_info);
+
+  // Interpret frame
+  const user_credential_user_unique_id_t source_user_id
+    = get_uint16_value(frame_data, INDEX_SOURCE_USER_ID);
+  const user_credential_type_t source_credential_type
+    = frame_data[INDEX_SOURCE_CREDENTIAL_TYPE];
+  const user_credential_slot_t source_credential_slot
+    = get_uint16_value(frame_data, INDEX_SOURCE_CREDENTIAL_SLOT);
+  const user_credential_user_unique_id_t destination_user_id
+    = get_uint16_value(frame_data, INDEX_DESTINATION_USER_ID);
+  const user_credential_slot_t destination_credential_slot
+    = get_uint16_value(frame_data, INDEX_DESTINATION_CREDENTIAL_SLOT);
+  const uint8_t association_status = frame_data[INDEX_ASSOCIATION_STATUS];
+
+  sl_log_debug(LOG_TAG,
+               "User Unique Identifier Credential Association Report. Source User ID: %d / "
+               "Source Credential Type: %d / Source Credential Slot: %d / "
+               "Destination User ID: %d / Destination Credential Slot: %d",
+               source_user_id,
+               source_credential_type,
+               source_credential_slot,
+               destination_user_id,
+               destination_credential_slot);
+
+  // Get nodes
+  attribute_store_node_t source_credential_type_node;
+  attribute_store_node_t source_credential_slot_node;
+  get_credential_type_node(endpoint_node,
+                           source_user_id,
+                           source_credential_type,
+                           REPORTED_ATTRIBUTE,
+                           source_credential_type_node);
+  get_credential_slot_node(source_credential_type_node,
+                           source_credential_slot,
+                           REPORTED_ATTRIBUTE,
+                           source_credential_slot_node);
+
+  if (!attribute_store_node_exists(source_credential_type_node) 
+      || !attribute_store_node_exists(source_credential_slot_node)) {
+    sl_log_error(LOG_TAG,
+                 "Can't find User %d, Credential Type %d, "
+                 "Credential Slot %d reported by User Unique Identifier Credential Association Report",
+                 source_user_id,
+                 source_credential_type,
+                 source_credential_slot);
+    return SL_STATUS_NOT_SUPPORTED;
+  }
+
+  // Set association status
+  attribute_store_set_child_reported(source_credential_slot_node,
+                              ATTRIBUTE(ASSOCIATION_STATUS),
+                              &association_status,
+                              sizeof(association_status));
+
+  // Clean up association data so ZPC won't try to send the SET command again
+  auto association_destination_user_id_node = attribute_store_get_first_child_by_type(
+    source_credential_slot_node,
+    ATTRIBUTE(ASSOCIATION_DESTINATION_USER_ID));
+  auto association_destination_credential_slot_node
+    = attribute_store_get_first_child_by_type(
+      source_credential_slot_node,
+      ATTRIBUTE(ASSOCIATION_DESTINATION_CREDENTIAL_SLOT));
+  attribute_store_delete_node(association_destination_user_id_node);
+  attribute_store_delete_node(association_destination_credential_slot_node);
+
+  if (association_status != USER_CREDENTIAL_ASSOCIATION_REPORT_SUCCESS) {
+    sl_log_error(LOG_TAG,
+                 "User Unique Identifier Credential Association error. "
+                 "Reported status code : %d",
+                 association_status);
+    return SL_STATUS_OK;
+  }
+
+  // Simple case : we only have to change the slot number
+  if (destination_user_id == source_user_id) {
+    sl_log_info(LOG_TAG,
+                 "Moving slot %d to slot %d (user %d)",
+                 source_credential_slot,
+                 destination_credential_slot,
+                 destination_user_id);
+
+    return attribute_store_set_reported(
+      source_credential_slot_node,
+      &destination_credential_slot,
+      sizeof(destination_credential_slot));
+  }
+
+  // Complex case : we have to move the slot to another user
+  sl_log_info(LOG_TAG,
+              "Moving slot %d (user %d) to slot %d (user %d)",
+              source_credential_slot,
+              source_user_id,
+              destination_credential_slot,
+              destination_user_id);
+
+  // Get user node
+  attribute_store_node_t destination_user_id_node;
+  get_user_id_node(endpoint_node,
+                   destination_user_id,
+                   REPORTED_ATTRIBUTE,
+                   destination_user_id_node);
+
+  if (!attribute_store_node_exists(destination_user_id_node)) {
+    sl_log_error(LOG_TAG,
+                 "Can't find User %d reported by User Unique Identifier Credential Association Report",
+                 destination_user_id);
+    return SL_STATUS_NOT_SUPPORTED;
+  }
+
+  // Get destination type node
+  attribute_store_node_t destination_credential_type_node;
+  // Look for it if it exists
+  get_credential_type_node(endpoint_node,
+                           destination_user_id,
+                           source_credential_type,
+                           REPORTED_ATTRIBUTE,
+                           destination_credential_type_node);
+  // If it doesn't exists yet we create it
+  if (!attribute_store_node_exists(destination_credential_type_node)) {
+    destination_credential_type_node
+      = attribute_store_emplace(destination_user_id_node,
+                                ATTRIBUTE(CREDENTIAL_TYPE),
+                                &source_credential_type,
+                                sizeof(source_credential_type));
+  }
+
+  // Get destination slot node (if we are here we assume that it doesn't exists)
+  attribute_store_node_t destination_credential_slot_node
+    = attribute_store_emplace(destination_credential_type_node,
+                              ATTRIBUTE(CREDENTIAL_SLOT),
+                              &destination_credential_slot,
+                              sizeof(destination_credential_slot));
+
+  // Copy attribute tree
+  attribute_store::attribute cpp_source_credential_slot_node(
+    source_credential_slot_node);
+  attribute_store::attribute cpp_destination_credential_slot_node(
+    destination_credential_slot_node);
+
+  // Can't use walk_tree here since we need a capturing lambda
+  // Define the lambda explicitly since it is recursive https://stackoverflow.com/a/4081391
+  std::function<void(attribute_store::attribute, attribute_store_type_t)>
+    deep_copy_reported_attributes;
+  deep_copy_reported_attributes =
+    [&](attribute_store::attribute cpp_current_node,
+        attribute_store::attribute cpp_parent_node) {
+      // Ignore fields that doesn't have a reported value
+      if (!cpp_current_node.reported_exists()) {
+        return;
+      }
+      attribute_store_node_t destination_node;
+      // If we are not at the root node, add new node
+      if (cpp_current_node.type() != cpp_parent_node.type()) {
+        destination_node
+          = attribute_store_add_node(cpp_current_node.type(), cpp_parent_node);
+
+        attribute_store_copy_value(cpp_current_node,
+                                   destination_node,
+                                   REPORTED_ATTRIBUTE);
+      }
+      // Check node children
+      for (auto child: cpp_current_node.children()) {
+        // If we are not at the root, need to copy the child attribute
+        if (cpp_current_node.type() != cpp_parent_node.type()) {
+          cpp_parent_node = destination_node;
+        }
+        deep_copy_reported_attributes(child, cpp_parent_node);
+      }
+    };
+  deep_copy_reported_attributes(cpp_source_credential_slot_node,
+                                cpp_destination_credential_slot_node);
+
+  // Then remove the old node
+  attribute_store_delete_node(source_credential_slot_node);
+
+  return SL_STATUS_OK;
+}
+
 /////////////////////////////////////////////////////////////////////////////
 // User Set/Get/Report/Set Error Report
 /////////////////////////////////////////////////////////////////////////////
@@ -4361,6 +4615,72 @@ sl_status_t zwave_command_class_user_credential_credential_learn_stop(
                                            sizeof(stop_flag));
 }
 
+
+sl_status_t zwave_command_class_user_credential_uuic_association_set(
+  attribute_store_node_t endpoint_node,
+  user_credential_type_t credential_type,
+  user_credential_user_unique_id_t source_user_id,
+  user_credential_slot_t source_credential_slot,
+  user_credential_user_unique_id_t destination_user_id,
+  user_credential_slot_t destination_credential_slot)
+{
+  attribute_store_node_t source_user_id_node;
+  bool user_exists = get_user_id_node(endpoint_node,
+                                      source_user_id,
+                                      REPORTED_ATTRIBUTE,
+                                      source_user_id_node);
+  if (!user_exists) {
+    sl_log_error(LOG_TAG,
+                 "Can't find source user with ID %d. Not adding uuic association set.",
+                 source_user_id);
+    return SL_STATUS_FAIL;
+  }
+
+  attribute_store_node_t credential_type_node;
+  bool cred_type_exists = get_credential_type_node(endpoint_node,
+                                                   source_user_id,
+                                                   credential_type,
+                                                   REPORTED_ATTRIBUTE,
+                                                   credential_type_node);
+
+  if (!cred_type_exists) {
+    sl_log_error(LOG_TAG,
+                 "Can't find credential type %d for user %d. Not adding uuic association set.",
+                 credential_type,
+                 source_user_id);
+    return SL_STATUS_FAIL;
+  }
+
+  attribute_store_node_t source_credential_slot_node;
+  bool cred_slot_exists = get_credential_slot_node(credential_type_node,
+                                                   source_credential_slot,
+                                                   REPORTED_ATTRIBUTE,
+                                                   source_credential_slot_node);
+
+  if (!cred_slot_exists) {
+    sl_log_error(LOG_TAG,
+                 "Can't find source credential slot %d for credential type %d. Not adding uuic association set.",
+                 source_credential_slot,
+                 credential_type);
+    return SL_STATUS_FAIL;
+  }
+
+  attribute_store_emplace_desired(source_credential_slot_node,
+                                  ATTRIBUTE(ASSOCIATION_DESTINATION_USER_ID),
+                                  &destination_user_id,
+                                  sizeof(destination_user_id));
+                                  
+  // Slot ID last since it's this attribute that is bound to the SET command
+  attribute_store_emplace_desired(
+    source_credential_slot_node,
+    ATTRIBUTE(ASSOCIATION_DESTINATION_CREDENTIAL_SLOT),
+    &destination_credential_slot,
+    sizeof(destination_credential_slot));
+
+  return SL_STATUS_OK;
+}
+
+
 /////////////////////////////////////////////////////////////////////////////
 // Class logic
 /////////////////////////////////////////////////////////////////////////////
@@ -4416,10 +4736,16 @@ sl_status_t zwave_command_class_user_credential_control_handler(
         connection_info,
         frame_data,
         frame_length);
+    case USER_CREDENTIAL_ASSOCIATION_REPORT:
+      return zwave_command_class_user_credential_uuic_association_report(
+        connection_info,
+        frame_data,
+        frame_length);
     default:
       return SL_STATUS_NOT_SUPPORTED;
   }
 }
+
 
 // Entry point
 sl_status_t zwave_command_class_user_credential_init()
@@ -4471,6 +4797,11 @@ sl_status_t zwave_command_class_user_credential_init()
   attribute_resolver_register_rule(
     ATTRIBUTE(CREDENTIAL_LEARN_STOP),
     &zwave_command_class_user_credential_credential_learn_cancel,
+    NULL);
+
+  attribute_resolver_register_rule(
+    ATTRIBUTE(ASSOCIATION_DESTINATION_CREDENTIAL_SLOT),
+    &zwave_command_class_user_credential_uuic_association_set,
     NULL);
 
   // https://github.com/Z-Wave-Alliance/AWG/pull/124#discussion_r1484473752

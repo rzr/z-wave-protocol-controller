@@ -297,6 +297,28 @@ sl_status_t zwave_command_class_user_credential_credential_learn_start_modify(
 sl_status_t zwave_command_class_user_credential_credential_learn_stop(
   attribute_store_node_t endpoint_node);
 
+
+/**
+ * @brief Send a User Unique Identifier Credential Association Set to the end device 
+ * 
+ * @param endpoint_node The attribute store node of the endpoint where the user credential is located.
+ * @param credential_type The type of the credential.
+ * @param source_user_id The unique ID of the source user. Should exists. Cannot be 0.
+ * @param source_credential_slot The slot of the source credential. Should exists. Cannot be 0.
+ * @param destination_user_id The unique ID of the destination user. Cannot be 0.
+ * @param destination_credential_slot The slot of the destination credential. Should not exists. Cannot be 0.
+ * 
+ * @return sl_status_t SL_STATUS_OK if the attribute store was updated successfully
+ * @return sl_status_t SL_STATUS_FAIL if the user_id already exists or is 0.
+ */
+sl_status_t zwave_command_class_user_credential_uuic_association_set(
+  attribute_store_node_t endpoint_node,
+  user_credential_type_t credential_type,
+  user_credential_user_unique_id_t source_user_id,
+  user_credential_slot_t source_credential_slot,
+  user_credential_user_unique_id_t destination_user_id,
+  user_credential_slot_t destination_credential_slot);
+
 sl_status_t zwave_command_class_user_credential_init();
 
 #ifdef __cplusplus
