@@ -102,7 +102,8 @@ static const user_attributes_mqtt_map_t credential_attributes
       {"CredentialModifierType", user_modifier_type_get_enum_value_name}},
      {ATTRIBUTE(CREDENTIAL_MODIFIER_NODE_ID), {"CredentialModifierNodeId"}},
      {ATTRIBUTE(CREDENTIAL_DATA), {"CredentialData"}},
-     {ATTRIBUTE(ASSOCIATION_STATUS), {"AssociationStatus"}}};
+     {ATTRIBUTE(ASSOCIATION_STATUS), {"AssociationStatus"}},
+     {ATTRIBUTE(CREDENTIAL_LEARN_STATUS), {"CredentialLearnStatus"}}};
 
 static const user_attributes_mqtt_map_t credential_rules_attributes
   = {{ATTRIBUTE(CREDENTIAL_LEARN_SUPPORT), {"LearnSupport", convert_to_bool}},
