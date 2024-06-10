@@ -59,16 +59,19 @@ struct bound_functions {
   uint8_t get_func_id;
   uint8_t set_func_id;
 };
-static std::map<attribute_store_type_t, bound_functions> attributes_binding
-  = {{ATTRIBUTE(NUMBER_OF_USERS), {USER_CAPABILITIES_GET, 0}},
-     {ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM), {CREDENTIAL_CAPABILITIES_GET, 0}},
-     {ATTRIBUTE(ALL_USERS_CHECKSUM), {ALL_USERS_CHECKSUM_GET, 0}},
-     {ATTRIBUTE(USER_UNIQUE_ID), {USER_GET, 0}},
-     {ATTRIBUTE(USER_OPERATION_TYPE), {0, USER_SET}},
-     {ATTRIBUTE(CREDENTIAL_SLOT), {CREDENTIAL_GET, 0}},
-     {ATTRIBUTE(CREDENTIAL_OPERATION_TYPE), {0, CREDENTIAL_SET}},
-     {ATTRIBUTE(CREDENTIAL_LEARN_OPERATION_TYPE), {0, CREDENTIAL_LEARN_START}},
-     {ATTRIBUTE(CREDENTIAL_LEARN_STOP), {0, CREDENTIAL_LEARN_CANCEL}}};
+static std::map<attribute_store_type_t, bound_functions> attributes_binding = {
+  {ATTRIBUTE(NUMBER_OF_USERS), {USER_CAPABILITIES_GET, 0}},
+  {ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM), {CREDENTIAL_CAPABILITIES_GET, 0}},
+  {ATTRIBUTE(ALL_USERS_CHECKSUM), {ALL_USERS_CHECKSUM_GET, 0}},
+  {ATTRIBUTE(USER_UNIQUE_ID), {USER_GET, 0}},
+  {ATTRIBUTE(USER_OPERATION_TYPE), {0, USER_SET}},
+  {ATTRIBUTE(CREDENTIAL_SLOT), {CREDENTIAL_GET, 0}},
+  {ATTRIBUTE(CREDENTIAL_OPERATION_TYPE), {0, CREDENTIAL_SET}},
+  {ATTRIBUTE(CREDENTIAL_LEARN_OPERATION_TYPE), {0, CREDENTIAL_LEARN_START}},
+  {ATTRIBUTE(CREDENTIAL_LEARN_STOP), {0, CREDENTIAL_LEARN_CANCEL}},
+  {ATTRIBUTE(ASSOCIATION_DESTINATION_CREDENTIAL_SLOT),
+   {0, USER_CREDENTIAL_ASSOCIATION_SET}},
+};
 
 // Filed with resolver function for given ID in attribute_resolver_register_rule_stub based on
 // attributes_binding map.
@@ -382,6 +385,47 @@ void helper_create_learn_status_report_frame(
     handler.control_handler(&info, report_frame.data(), report_frame.size()));
 }
 
+void helper_association_report_frame(
+  user_credential_user_unique_id_t source_user_id,
+  user_credential_type_t source_credential_type,
+  user_credential_slot_t source_credential_slot,
+  user_credential_user_unique_id_t destination_user_id,
+  user_credential_slot_t destination_credential_slot,
+  uint8_t credential_association_status)
+{
+  zwave_controller_connection_info_t info = {};
+  info.remote.node_id                     = node_id;
+  info.remote.endpoint_id                 = endpoint_id;
+  info.local.is_multicast                 = false;
+
+  std::vector<uint8_t> report_frame
+    = {COMMAND_CLASS_USER_CREDENTIAL, USER_CREDENTIAL_ASSOCIATION_REPORT};
+
+  auto exploded_user_id = explode_uint16(source_user_id);
+  report_frame.push_back(exploded_user_id.msb);
+  report_frame.push_back(exploded_user_id.lsb);
+
+  report_frame.push_back(source_credential_type);
+
+  auto exploded_credential_slot = explode_uint16(source_credential_slot);
+  report_frame.push_back(exploded_credential_slot.msb);
+  report_frame.push_back(exploded_credential_slot.lsb);
+
+  exploded_user_id = explode_uint16(destination_user_id);
+  report_frame.push_back(exploded_user_id.msb);
+  report_frame.push_back(exploded_user_id.lsb);
+
+  exploded_credential_slot = explode_uint16(destination_credential_slot);
+  report_frame.push_back(exploded_credential_slot.msb);
+  report_frame.push_back(exploded_credential_slot.lsb);
+
+  report_frame.push_back(credential_association_status);
+
+  // Do the report
+  TEST_ASSERT_EQUAL(
+    SL_STATUS_OK,
+    handler.control_handler(&info, report_frame.data(), report_frame.size()));
+}
 /**
  * @brief Create credential structure and return associated nodes
  * 
@@ -685,7 +729,7 @@ void helper_test_credential_learn_structure(
                                &credential_slot,
                                sizeof(credential_slot));
 
-  uint8_t step_remaining = 2;
+  uint8_t step_remaining                      = 2;
   user_credential_learn_status_t learn_status = CREDENTIAL_LEARN_REPORT_SUCCESS;
   helper_create_learn_status_report_frame(learn_status,
                                           user_id,
@@ -700,6 +744,92 @@ void helper_test_credential_learn_structure(
 
   helper_test_attribute_store_values(uint8_attribute_map, credential_slot_node);
 };
+
+struct association_nodes_t {
+  attribute_store_node_t association_user_id_node;
+  attribute_store_node_t association_credential_slot_node;
+};
+association_nodes_t
+  helper_setup_association(attribute_store_node_t credential_slot_node,
+                           user_credential_user_unique_id_t destination_user_id,
+                           user_credential_slot_t destination_credential_slot)
+{
+  association_nodes_t association_nodes;
+
+  association_nodes.association_user_id_node = attribute_store_emplace_desired(
+    credential_slot_node,
+    ATTRIBUTE(ASSOCIATION_DESTINATION_USER_ID),
+    &destination_user_id,
+    sizeof(destination_user_id));
+  association_nodes.association_credential_slot_node
+    = attribute_store_emplace_desired(
+      credential_slot_node,
+      ATTRIBUTE(ASSOCIATION_DESTINATION_CREDENTIAL_SLOT),
+      &destination_credential_slot,
+      sizeof(destination_credential_slot));
+
+  return association_nodes;
+}
+
+void helper_fill_credential_data(attribute_store_node_t credential_slot_node,
+                                 std::string credential_data,
+                                 user_credential_modifier_type_t modifier_type)
+{
+  uint8_t credential_data_length = credential_data.size();
+  auto credential_data_length_node
+    = attribute_store_emplace(credential_slot_node,
+                              ATTRIBUTE(CREDENTIAL_DATA_LENGTH),
+                              &credential_data_length,
+                              sizeof(uint8_t));
+
+  attribute_store_emplace(credential_data_length_node,
+                          ATTRIBUTE(CREDENTIAL_DATA),
+                          credential_data.data(),
+                          credential_data.size());
+
+  attribute_store_emplace(credential_slot_node,
+                          ATTRIBUTE(CREDENTIAL_MODIFIER_TYPE),
+                          &modifier_type,
+                          sizeof(modifier_type));
+}
+void helper_test_credential_data(attribute_store_node_t credential_slot_node,
+                                 std::string credential_data,
+                                 user_credential_modifier_type_t modifier_type)
+{
+  uint8_t credential_data_length   = credential_data.size();
+  auto credential_data_length_node = attribute_store_get_first_child_by_type(
+    credential_slot_node,
+    ATTRIBUTE(CREDENTIAL_DATA_LENGTH));
+  uint8_t reported_credential_data_length;
+  attribute_store_get_reported(credential_data_length_node,
+                               &reported_credential_data_length,
+                               sizeof(reported_credential_data_length));
+  TEST_ASSERT_EQUAL_MESSAGE(credential_data_length,
+                            reported_credential_data_length,
+                            "Credential data length mismatch");
+
+  std::vector<uint8_t> reported_credential_data;
+  reported_credential_data.resize(reported_credential_data_length);
+
+  attribute_store_get_child_reported(credential_data_length_node,
+                                     ATTRIBUTE(CREDENTIAL_DATA),
+                                     reported_credential_data.data(),
+                                     reported_credential_data_length);
+
+  TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(credential_data.data(),
+                                        reported_credential_data.data(),
+                                        credential_data.size(),
+                                        "Credential data mismatch");
+
+  user_credential_modifier_type_t reported_modifier_type;
+  attribute_store_get_child_reported(credential_slot_node,
+                                     ATTRIBUTE(CREDENTIAL_MODIFIER_TYPE),
+                                     &reported_modifier_type,
+                                     sizeof(reported_modifier_type));
+  TEST_ASSERT_EQUAL_MESSAGE(modifier_type,
+                            reported_modifier_type,
+                            "Modifier type mismatch");
+}
 
 /////////////////////////////////////////////////////
 // Test case
@@ -2574,9 +2704,11 @@ void test_user_credential_add_credential_invalid_slot()
     credential_slot,
     credential_data.c_str());
 
-  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_FAIL,
-                            status,
-                            "Credential add should have returned SL_STATUS_FAIL (trying to add a non supported slot)");
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_FAIL,
+    status,
+    "Credential add should have returned SL_STATUS_FAIL (trying to add a non "
+    "supported slot)");
 }
 
 void test_user_credential_user_notification_add_modify_delete_happy_case()
@@ -4578,7 +4710,8 @@ void test_user_credential_credential_learn_start_modify_credential_not_existing(
                             "Should not be able to start learning (modify)");
 }
 
-void test_user_credential_credential_learn_cancel_happy_case() {
+void test_user_credential_credential_learn_cancel_happy_case()
+{
   uint8_t stop_flag = 0;
   auto stop_node
     = attribute_store_emplace_desired(endpoint_id_node,
@@ -4592,14 +4725,506 @@ void test_user_credential_credential_learn_cancel_happy_case() {
   TEST_ASSERT_NOT_NULL_MESSAGE(
     get_func,
     "Couldn't find get function in resolver_functions.");
-  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
-                            get_func(stop_node, received_frame, &received_frame_size),
-                            "Get function should have returned OK");
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    get_func(stop_node, received_frame, &received_frame_size),
+    "Get function should have returned OK");
 
   attribute_store_get_reported(stop_node, &stop_flag, sizeof(stop_flag));
   TEST_ASSERT_EQUAL_MESSAGE(1,
                             stop_flag,
                             "Stop flag should have been set to 1");
 }
+
+void test_user_credential_uuic_association_same_slot_different_user()
+{
+  // Capabilities
+  uint8_t supported_credential_checksum = 1;
+  std::vector<user_credential_type_t> supported_credential_type
+    = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
+  std::vector<uint8_t> supported_cl                = {1, 1};
+  std::vector<uint16_t> supported_credential_slots = {5, 2};
+  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
+  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cl_timeout        = {20, 2};
+  std::vector<uint8_t> supported_cl_steps          = {1, 95};
+  helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                supported_credential_type,
+                                                supported_cl,
+                                                supported_credential_slots,
+                                                supported_cred_min_length,
+                                                supported_cred_max_length,
+                                                supported_cl_timeout,
+                                                supported_cl_steps);
+
+  // Structure
+  user_credential_user_unique_id_t source_user_id      = 12;
+  user_credential_user_unique_id_t destination_user_id = 15;
+  user_credential_type_t credential_type               = ZCL_CRED_TYPE_PIN_CODE;
+  user_credential_slot_t source_credential_slot        = 1;
+  user_credential_slot_t destination_credential_slot   = 1;
+  // Credential data
+  std::string credential_data                   = "123456";
+  user_credential_modifier_type_t modifier_type = 5;
+  uint8_t association_status = USER_CREDENTIAL_ASSOCIATION_REPORT_SUCCESS;
+
+  auto source_nodes = helper_create_credential_structure(source_user_id,
+                                                         credential_type,
+                                                         source_credential_slot,
+                                                         REPORTED_ATTRIBUTE);
+
+  auto destination_user_id_node
+    = attribute_store_emplace(endpoint_id_node,
+                              ATTRIBUTE(USER_UNIQUE_ID),
+                              &destination_user_id,
+                              sizeof(destination_user_id));
+
+  helper_fill_credential_data(source_nodes.credential_slot_node,
+                              credential_data,
+                              modifier_type);
+  auto association_nodes
+    = helper_setup_association(source_nodes.credential_slot_node,
+                               destination_user_id,
+                               destination_credential_slot);
+  // Simulate Set
+  helper_test_set_get_with_args(
+    USER_CREDENTIAL_ASSOCIATION_SET,
+    association_nodes.association_credential_slot_node,
+    {{source_nodes.user_id_node, REPORTED_ATTRIBUTE},
+     {source_nodes.credential_type_node, REPORTED_ATTRIBUTE},
+     {source_nodes.credential_slot_node, REPORTED_ATTRIBUTE},
+     {association_nodes.association_user_id_node, DESIRED_ATTRIBUTE},
+     {association_nodes.association_credential_slot_node, DESIRED_ATTRIBUTE}});
+
+  // Then simulate report
+  helper_association_report_frame(source_user_id,
+                                  credential_type,
+                                  source_credential_slot,
+                                  destination_user_id,
+                                  destination_credential_slot,
+                                  association_status);
+
+  // Test data structure
+  TEST_ASSERT_TRUE_MESSAGE(
+    attribute_store_node_exists(source_nodes.credential_type_node),
+    "Old credential type node should still exist");
+  TEST_ASSERT_FALSE_MESSAGE(
+    attribute_store_node_exists(source_nodes.credential_slot_node),
+    "Old credential slot node should have been removed");
+  // Association nodes doesn't have any reported value so they shouldn't exists anymore
+  TEST_ASSERT_FALSE_MESSAGE(
+    attribute_store_node_exists(association_nodes.association_user_id_node),
+    "Association user id node should have been removed");
+  TEST_ASSERT_FALSE_MESSAGE(
+    attribute_store_node_exists(
+      association_nodes.association_credential_slot_node),
+    "Association credential slot node should have been removed");
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    0,
+    attribute_store_get_node_child_count(source_nodes.credential_type_node),
+    "Source Credential type node should have no children");
+
+  // Check destination structure
+  auto destination_credential_type_node
+    = attribute_store_get_first_child_by_type(destination_user_id_node,
+                                              ATTRIBUTE(CREDENTIAL_TYPE));
+  user_credential_type_t reported_credential_type;
+  attribute_store_get_reported(destination_credential_type_node,
+                               &reported_credential_type,
+                               sizeof(reported_credential_type));
+  TEST_ASSERT_EQUAL_MESSAGE(credential_type,
+                            reported_credential_type,
+                            "Credential type mismatch");
+
+  auto destination_credential_slot_node
+    = attribute_store_get_first_child_by_type(destination_credential_type_node,
+                                              ATTRIBUTE(CREDENTIAL_SLOT));
+  user_credential_slot_t reported_credential_slot;
+  attribute_store_get_reported(destination_credential_slot_node,
+                               &reported_credential_slot,
+                               sizeof(reported_credential_slot));
+  TEST_ASSERT_EQUAL_MESSAGE(destination_credential_slot,
+                            reported_credential_slot,
+                            "Credential slot mismatch");
+
+  helper_test_credential_data(destination_credential_slot_node,
+                              credential_data,
+                              modifier_type);
+  uint8_t reported_status;
+  attribute_store_get_child_reported(destination_credential_slot_node,
+                                     ATTRIBUTE(ASSOCIATION_STATUS),
+                                     &reported_status,
+                                     sizeof(reported_status));
+  TEST_ASSERT_EQUAL_MESSAGE(association_status,
+                            reported_status,
+                            "Association status mismatch");
+}
+
+void test_user_credential_uuic_association_different_slot_different_user_with_existing_type()
+{
+  // Capabilities
+  uint8_t supported_credential_checksum = 1;
+  std::vector<user_credential_type_t> supported_credential_type
+    = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
+  std::vector<uint8_t> supported_cl                = {1, 1};
+  std::vector<uint16_t> supported_credential_slots = {5, 2};
+  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
+  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cl_timeout        = {20, 2};
+  std::vector<uint8_t> supported_cl_steps          = {1, 95};
+  helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                supported_credential_type,
+                                                supported_cl,
+                                                supported_credential_slots,
+                                                supported_cred_min_length,
+                                                supported_cred_max_length,
+                                                supported_cl_timeout,
+                                                supported_cl_steps);
+
+  // Structure
+  user_credential_user_unique_id_t source_user_id      = 12;
+  user_credential_user_unique_id_t destination_user_id = 15;
+  user_credential_type_t credential_type               = ZCL_CRED_TYPE_PIN_CODE;
+  user_credential_slot_t source_credential_slot        = 1;
+  user_credential_slot_t destination_credential_slot   = 2;
+  // Credential data
+  std::string credential_data                   = "123456";
+  user_credential_modifier_type_t modifier_type = 5;
+  uint8_t association_status = USER_CREDENTIAL_ASSOCIATION_REPORT_SUCCESS;
+
+  auto source_nodes = helper_create_credential_structure(source_user_id,
+                                                         credential_type,
+                                                         source_credential_slot,
+                                                         REPORTED_ATTRIBUTE);
+
+  auto destination_user_id_node
+    = attribute_store_emplace(endpoint_id_node,
+                              ATTRIBUTE(USER_UNIQUE_ID),
+                              &destination_user_id,
+                              sizeof(destination_user_id));
+  // Already present type
+  attribute_store_emplace(destination_user_id_node,
+                              ATTRIBUTE(CREDENTIAL_TYPE),
+                              &credential_type,
+                              sizeof(credential_type));
+
+  helper_fill_credential_data(source_nodes.credential_slot_node,
+                              credential_data,
+                              modifier_type);
+  auto association_nodes
+    = helper_setup_association(source_nodes.credential_slot_node,
+                               destination_user_id,
+                               destination_credential_slot);
+  // Simulate Set
+  helper_test_set_get_with_args(
+    USER_CREDENTIAL_ASSOCIATION_SET,
+    association_nodes.association_credential_slot_node,
+    {{source_nodes.user_id_node, REPORTED_ATTRIBUTE},
+     {source_nodes.credential_type_node, REPORTED_ATTRIBUTE},
+     {source_nodes.credential_slot_node, REPORTED_ATTRIBUTE},
+     {association_nodes.association_user_id_node, DESIRED_ATTRIBUTE},
+     {association_nodes.association_credential_slot_node, DESIRED_ATTRIBUTE}});
+
+  // Then simulate report
+  helper_association_report_frame(source_user_id,
+                                  credential_type,
+                                  source_credential_slot,
+                                  destination_user_id,
+                                  destination_credential_slot,
+                                  association_status);
+
+  // Test data structure
+  TEST_ASSERT_TRUE_MESSAGE(
+    attribute_store_node_exists(source_nodes.credential_type_node),
+    "Old credential type node should still exist");
+  TEST_ASSERT_FALSE_MESSAGE(
+    attribute_store_node_exists(source_nodes.credential_slot_node),
+    "Old credential slot node should have been removed");
+  // Association nodes doesn't have any reported value so they shouldn't exists anymore
+  TEST_ASSERT_FALSE_MESSAGE(
+    attribute_store_node_exists(association_nodes.association_user_id_node),
+    "Association user id node should have been removed");
+  TEST_ASSERT_FALSE_MESSAGE(
+    attribute_store_node_exists(
+      association_nodes.association_credential_slot_node),
+    "Association credential slot node should have been removed");
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    0,
+    attribute_store_get_node_child_count(source_nodes.credential_type_node),
+    "Source Credential type node should have no children");
+
+  // Check destination structure
+  auto destination_credential_type_node
+    = attribute_store_get_first_child_by_type(destination_user_id_node,
+                                              ATTRIBUTE(CREDENTIAL_TYPE));
+  user_credential_type_t reported_credential_type;
+  attribute_store_get_reported(destination_credential_type_node,
+                               &reported_credential_type,
+                               sizeof(reported_credential_type));
+  TEST_ASSERT_EQUAL_MESSAGE(credential_type,
+                            reported_credential_type,
+                            "Credential type mismatch");
+
+  auto destination_credential_slot_node
+    = attribute_store_get_first_child_by_type(destination_credential_type_node,
+                                              ATTRIBUTE(CREDENTIAL_SLOT));
+  user_credential_slot_t reported_credential_slot;
+  attribute_store_get_reported(destination_credential_slot_node,
+                               &reported_credential_slot,
+                               sizeof(reported_credential_slot));
+  TEST_ASSERT_EQUAL_MESSAGE(destination_credential_slot,
+                            reported_credential_slot,
+                            "Credential slot mismatch");
+
+  helper_test_credential_data(destination_credential_slot_node,
+                              credential_data,
+                              modifier_type);
+  uint8_t reported_status;
+  attribute_store_get_child_reported(destination_credential_slot_node,
+                                     ATTRIBUTE(ASSOCIATION_STATUS),
+                                     &reported_status,
+                                     sizeof(reported_status));
+  TEST_ASSERT_EQUAL_MESSAGE(association_status,
+                            reported_status,
+                            "Association status mismatch");
+}
+
+void test_user_credential_uuic_association_different_slot_same_user()
+{
+  // Capabilities
+  uint8_t supported_credential_checksum = 1;
+  std::vector<user_credential_type_t> supported_credential_type
+    = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
+  std::vector<uint8_t> supported_cl                = {1, 1};
+  std::vector<uint16_t> supported_credential_slots = {5, 2};
+  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
+  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cl_timeout        = {20, 2};
+  std::vector<uint8_t> supported_cl_steps          = {1, 95};
+  helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                supported_credential_type,
+                                                supported_cl,
+                                                supported_credential_slots,
+                                                supported_cred_min_length,
+                                                supported_cred_max_length,
+                                                supported_cl_timeout,
+                                                supported_cl_steps);
+
+  // Structure
+  user_credential_user_unique_id_t source_user_id      = 12;
+  user_credential_user_unique_id_t destination_user_id = 12;
+  user_credential_type_t credential_type               = ZCL_CRED_TYPE_PIN_CODE;
+  user_credential_slot_t source_credential_slot        = 1;
+  user_credential_slot_t destination_credential_slot   = 2;
+  // Credential data
+  std::string credential_data                   = "123456";
+  user_credential_modifier_type_t modifier_type = 5;
+  uint8_t association_status = USER_CREDENTIAL_ASSOCIATION_REPORT_SUCCESS;
+
+  auto source_nodes = helper_create_credential_structure(source_user_id,
+                                                         credential_type,
+                                                         source_credential_slot,
+                                                         REPORTED_ATTRIBUTE);
+
+  helper_fill_credential_data(source_nodes.credential_slot_node,
+                              credential_data,
+                              modifier_type);
+  auto association_nodes
+    = helper_setup_association(source_nodes.credential_slot_node,
+                               destination_user_id,
+                               destination_credential_slot);
+  // Simulate Set
+  helper_test_set_get_with_args(
+    USER_CREDENTIAL_ASSOCIATION_SET,
+    association_nodes.association_credential_slot_node,
+    {{source_nodes.user_id_node, REPORTED_ATTRIBUTE},
+     {source_nodes.credential_type_node, REPORTED_ATTRIBUTE},
+     {source_nodes.credential_slot_node, REPORTED_ATTRIBUTE},
+     {association_nodes.association_user_id_node, DESIRED_ATTRIBUTE},
+     {association_nodes.association_credential_slot_node, DESIRED_ATTRIBUTE}});
+
+  // Then simulate report
+  helper_association_report_frame(source_user_id,
+                                  credential_type,
+                                  source_credential_slot,
+                                  destination_user_id,
+                                  destination_credential_slot,
+                                  association_status);
+
+  // Test data structure
+  TEST_ASSERT_TRUE_MESSAGE(
+    attribute_store_node_exists(source_nodes.credential_type_node),
+    "Old credential type node should still exist");
+  TEST_ASSERT_TRUE_MESSAGE(
+    attribute_store_node_exists(source_nodes.credential_slot_node),
+    "Old credential slot node should just been updated");
+  // Association nodes doesn't have any reported value so they shouldn't exists anymore
+  TEST_ASSERT_FALSE_MESSAGE(
+    attribute_store_node_exists(association_nodes.association_user_id_node),
+    "Association user id node should have been removed");
+  TEST_ASSERT_FALSE_MESSAGE(
+    attribute_store_node_exists(
+      association_nodes.association_credential_slot_node),
+    "Association credential slot node should have been removed");
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    1,
+    attribute_store_get_node_child_count(source_nodes.credential_type_node),
+    "Source Credential type node should have one children");
+
+  // Check destination structure
+  auto destination_credential_type_node = source_nodes.credential_type_node;
+  user_credential_type_t reported_credential_type;
+  attribute_store_get_reported(destination_credential_type_node,
+                               &reported_credential_type,
+                               sizeof(reported_credential_type));
+  TEST_ASSERT_EQUAL_MESSAGE(credential_type,
+                            reported_credential_type,
+                            "Credential type mismatch");
+
+  auto destination_credential_slot_node
+    = attribute_store_get_first_child_by_type(destination_credential_type_node,
+                                              ATTRIBUTE(CREDENTIAL_SLOT));
+  user_credential_slot_t reported_credential_slot;
+  attribute_store_get_reported(destination_credential_slot_node,
+                               &reported_credential_slot,
+                               sizeof(reported_credential_slot));
+  TEST_ASSERT_EQUAL_MESSAGE(destination_credential_slot,
+                            reported_credential_slot,
+                            "Credential slot mismatch");
+
+  helper_test_credential_data(destination_credential_slot_node,
+                              credential_data,
+                              modifier_type);
+  uint8_t reported_status;
+  attribute_store_get_child_reported(destination_credential_slot_node,
+                                     ATTRIBUTE(ASSOCIATION_STATUS),
+                                     &reported_status,
+                                     sizeof(reported_status));
+  TEST_ASSERT_EQUAL_MESSAGE(association_status,
+                            reported_status,
+                            "Association status mismatch");
+}
+
+void test_user_credential_uuic_association_error_code()
+{
+  // Capabilities
+  uint8_t supported_credential_checksum = 1;
+  std::vector<user_credential_type_t> supported_credential_type
+    = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
+  std::vector<uint8_t> supported_cl                = {1, 1};
+  std::vector<uint16_t> supported_credential_slots = {5, 2};
+  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
+  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cl_timeout        = {20, 2};
+  std::vector<uint8_t> supported_cl_steps          = {1, 95};
+  helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                supported_credential_type,
+                                                supported_cl,
+                                                supported_credential_slots,
+                                                supported_cred_min_length,
+                                                supported_cred_max_length,
+                                                supported_cl_timeout,
+                                                supported_cl_steps);
+
+  // Structure
+  user_credential_user_unique_id_t source_user_id      = 12;
+  user_credential_user_unique_id_t destination_user_id = 15;
+  user_credential_type_t credential_type               = ZCL_CRED_TYPE_PIN_CODE;
+  user_credential_slot_t source_credential_slot        = 1;
+  user_credential_slot_t destination_credential_slot   = 1;
+  // Credential data
+  std::string credential_data                   = "123456";
+  user_credential_modifier_type_t modifier_type = 5;
+  uint8_t association_status = USER_CREDENTIAL_ASSOCIATION_REPORT_SOURCE_CREDENTIAL_SLOT_EMPTY;
+
+  auto source_nodes = helper_create_credential_structure(source_user_id,
+                                                         credential_type,
+                                                         source_credential_slot,
+                                                         REPORTED_ATTRIBUTE);
+
+  auto destination_user_id_node
+    = attribute_store_emplace(endpoint_id_node,
+                              ATTRIBUTE(USER_UNIQUE_ID),
+                              &destination_user_id,
+                              sizeof(destination_user_id));
+
+  helper_fill_credential_data(source_nodes.credential_slot_node,
+                              credential_data,
+                              modifier_type);
+  auto association_nodes
+    = helper_setup_association(source_nodes.credential_slot_node,
+                               destination_user_id,
+                               destination_credential_slot);
+  // Simulate Set
+  helper_test_set_get_with_args(
+    USER_CREDENTIAL_ASSOCIATION_SET,
+    association_nodes.association_credential_slot_node,
+    {{source_nodes.user_id_node, REPORTED_ATTRIBUTE},
+     {source_nodes.credential_type_node, REPORTED_ATTRIBUTE},
+     {source_nodes.credential_slot_node, REPORTED_ATTRIBUTE},
+     {association_nodes.association_user_id_node, DESIRED_ATTRIBUTE},
+     {association_nodes.association_credential_slot_node, DESIRED_ATTRIBUTE}});
+
+  // Then simulate report
+  helper_association_report_frame(source_user_id,
+                                  credential_type,
+                                  source_credential_slot,
+                                  destination_user_id,
+                                  destination_credential_slot,
+                                  association_status);
+
+  // Test data structure
+  TEST_ASSERT_TRUE_MESSAGE(
+    attribute_store_node_exists(source_nodes.credential_type_node),
+    "Old credential type node should still exist");
+  TEST_ASSERT_TRUE_MESSAGE(
+    attribute_store_node_exists(source_nodes.credential_slot_node),
+    "Old credential slot node should have been removed");
+  // Association nodes doesn't have any reported value so they shouldn't exists anymore
+  TEST_ASSERT_FALSE_MESSAGE(
+    attribute_store_node_exists(association_nodes.association_user_id_node),
+    "Association user id node should have been removed");
+  TEST_ASSERT_FALSE_MESSAGE(
+    attribute_store_node_exists(
+      association_nodes.association_credential_slot_node),
+    "Association credential slot node should have been removed");
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    1,
+    attribute_store_get_node_child_count(source_nodes.credential_type_node),
+    "Source Credential type node should have one children");
+
+  // No move should have been performed
+   TEST_ASSERT_EQUAL_MESSAGE(
+    0,
+    attribute_store_get_node_child_count(destination_user_id_node),
+    "Nothing should have changed for destination user ID node");
+
+  // Test source credential slot node
+   auto destination_credential_slot_node = source_nodes.credential_slot_node;
+   user_credential_slot_t reported_credential_slot;
+   attribute_store_get_reported(destination_credential_slot_node,
+                                &reported_credential_slot,
+                                sizeof(reported_credential_slot));
+   TEST_ASSERT_EQUAL_MESSAGE(destination_credential_slot,
+                             reported_credential_slot,
+                             "Credential slot mismatch");
+
+   helper_test_credential_data(destination_credential_slot_node,
+                               credential_data,
+                               modifier_type);
+   uint8_t reported_status;
+   attribute_store_get_child_reported(destination_credential_slot_node,
+                                      ATTRIBUTE(ASSOCIATION_STATUS),
+                                      &reported_status,
+                                      sizeof(reported_status));
+   TEST_ASSERT_EQUAL_MESSAGE(association_status,
+                             reported_status,
+                             "Association status mismatch");
+}
+
 
 }  // extern "C"
