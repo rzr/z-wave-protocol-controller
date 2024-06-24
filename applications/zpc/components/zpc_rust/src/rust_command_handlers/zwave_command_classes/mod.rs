@@ -12,7 +12,5 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 pub mod zwave_command_class_firmware_update;
-mod zwave_command_class_switch_color;
 
 pub use zwave_command_class_firmware_update::*;
-pub use zwave_command_class_switch_color::*;
