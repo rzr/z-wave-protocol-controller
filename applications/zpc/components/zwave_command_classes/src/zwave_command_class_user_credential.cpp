@@ -3084,7 +3084,7 @@ sl_status_t zwave_command_class_user_credential_credential_learn_status_report(
         attribute_store_delete_node(credential_slot_node);
       }
       break;
-    case CREDENTIAL_LEARN_REPORT_INVALID_ADD_OPERATION_TYPE:
+    case CREDENTIAL_LEARN_REPORT_INVALID_CREDENTIAL_LEARN_ADD_OPERATION_TYPE:
       sl_log_error(
         LOG_TAG,
         "Invalid Add Operation Type for User %d, Credential Type %d, "
@@ -3093,7 +3093,7 @@ sl_status_t zwave_command_class_user_credential_credential_learn_status_report(
         credential_type,
         credential_slot);
       break;
-    case CREDENTIAL_LEARN_REPORT_INVALID_MODIFY_OPERATION_TYPE:
+    case CREDENTIAL_LEARN_REPORT_INVALID_CREDENTIAL_LEARN_MODIFY_OPERATION_TYPE:
       sl_log_error(
         LOG_TAG,
         "Invalid Modify Operation Type for User %d, Credential Type %d, "
