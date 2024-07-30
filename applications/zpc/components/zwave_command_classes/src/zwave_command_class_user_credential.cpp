@@ -46,6 +46,8 @@
 
 // Cpp Attribute store
 #include "attribute.hpp"
+#include "zwave_frame_generator.hpp"
+#include "zwave_frame_parser.hpp"
 
 // UTF16 conversion (deprecated in C++17)
 // Needed for credential data (password) per specification
@@ -53,14 +55,16 @@
 #include <codecvt>
 
 // Macro
-#define LOG_TAG         "zwave_command_class_user_credential"
 #define ATTRIBUTE(type) ATTRIBUTE_COMMAND_CLASS_USER_CREDENTIAL_##type
+
+// Constexpr
+constexpr char LOG_TAG[] = "zwave_command_class_user_credential";
 // Used to get user names
 // If the user name has a size > to this number, we will truncate it
 // Specification says that payload data should not exceeded 64 bytes.
-#define MAX_CHAR_SIZE 64
+constexpr uint8_t MAX_CHAR_SIZE = 64;
 // Used to compute checksums
-#define CRC_INITIALIZATION_VALUE 0x1D0F
+constexpr uint16_t CRC_INITIALIZATION_VALUE = 0x1D0F;
 /**
  * @brief Implementation notes
  * 
@@ -71,6 +75,11 @@
  *    > GET will set the reported value so we can get a report for this USER/CREDENTIAL
  * 
  */
+
+namespace
+{
+zwave_frame_generator frame_generator(COMMAND_CLASS_USER_CREDENTIAL);
+}
 
 /////////////////////////////////////////////////////////////////////////////
 // Preemptive declarations
@@ -233,8 +242,8 @@ struct credential_capabilities {
   user_credential_type_t credential_type = 0;
   uint16_t max_slot_count                = 0;
   uint8_t learn_support                  = 0;
-  uint16_t min_credential_length         = 0;
-  uint16_t max_credential_length         = 0;
+  uint8_t min_credential_length          = 0;
+  uint8_t max_credential_length          = 0;
   uint8_t learn_recommended_timeout      = 0;
   uint8_t learn_number_of_steps          = 0;
 
@@ -2026,13 +2035,12 @@ static sl_status_t
 {
   sl_log_debug(LOG_TAG, "Credential Capabilities Get");
 
-  ZW_CREDENTIAL_CAPABILITIES_GET_FRAME *get_frame
-    = (ZW_CREDENTIAL_CAPABILITIES_GET_FRAME *)frame;
-  get_frame->cmdClass = COMMAND_CLASS_USER_CREDENTIAL;
-  get_frame->cmd      = CREDENTIAL_CAPABILITIES_GET;
-  *frame_length       = sizeof(ZW_CREDENTIAL_CAPABILITIES_GET_FRAME);
-  return SL_STATUS_OK;
+  return frame_generator.generate_no_args_frame(CREDENTIAL_CAPABILITIES_GET,
+                                                frame,
+                                                frame_length);
+  ;
 }
+
 
 sl_status_t
   zwave_command_class_user_credential_credential_capabilities_handle_report(
@@ -2040,127 +2048,110 @@ sl_status_t
     const uint8_t *frame_data,
     uint16_t frame_length)
 {
-  if (frame_length < 5) {
-    return SL_STATUS_NOT_SUPPORTED;
-  }
-
   sl_log_debug(LOG_TAG, "Credential Capabilities Report");
+  
+  attribute_store::attribute endpoint_node(
+    zwave_command_class_get_endpoint_node(connection_info));
 
-  attribute_store_node_t endpoint_node
-    = zwave_command_class_get_endpoint_node(connection_info);
+  const uint8_t min_expected_size = 5;
 
-  uint8_t support_credential_checksum
-    = (frame_data[2]
-       & CREDENTIAL_CAPABILITIES_REPORT_PROPERTIES1_CREDENTIAL_CHECKSUM_SUPPORT_BIT_MASK)
-      > 0;
+  try {
+    zwave_frame_parser parser(frame_data, frame_length);
 
-  attribute_store_set_child_reported(endpoint_node,
-                                     ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM),
-                                     &support_credential_checksum,
-                                     sizeof(support_credential_checksum));
-
-  uint8_t supported_credential_types_count = frame_data[3];
-
-  // Remove all previous known CREDENTIAL_TYPE
-  attribute_store_node_t type_node;
-  do {
-    type_node = attribute_store_get_node_child_by_type(
-      endpoint_node,
-      ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE),
-      0);
-    attribute_store_delete_node(type_node);
-  } while (type_node != ATTRIBUTE_STORE_INVALID_NODE);
-
-  uint16_t ucl_credential_type_mask = 0;
-
-  uint16_t current_index = 4;
-  for (uint8_t i = 0; i < supported_credential_types_count; i++) {
-    // > Root node : Credential Type
-    user_credential_type_t credential_type = frame_data[current_index];
-
-    ucl_credential_type_mask |= (1 << (credential_type - 1));
-
-    attribute_store_node_t credential_type_node
-      = attribute_store_emplace(endpoint_node,
-                                ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE),
-                                &credential_type,
-                                sizeof(credential_type));
-
-    if (credential_type_node == ATTRIBUTE_STORE_INVALID_NODE) {
-      sl_log_error(LOG_TAG, "Unable to create credential type node");
-      return SL_STATUS_NOT_SUPPORTED;
+    // We only needs to check the minimum size here
+    if (!parser.is_frame_size_valid(min_expected_size,
+                                    UINT8_MAX)) {
+      sl_log_error(LOG_TAG,
+                   "Invalid frame size for Credential Capabilities Report frame");
+      return SL_STATUS_FAIL;
     }
 
-    sl_log_debug(LOG_TAG, "Supported credential type : %d", credential_type);
+    // TODO: Add admin code support
+    parser.read_byte_with_bitmask(
+      {{CREDENTIAL_CAPABILITIES_REPORT_PROPERTIES1_CREDENTIAL_CHECKSUM_SUPPORT_BIT_MASK,
+        endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM))}});
 
-    // >> CL Support
-    // Use same define as Credential Checksum Support here since it's a same and no define is available for cl support
-    uint8_t cl_support_index = current_index + supported_credential_types_count;
-    uint8_t support_cl
-      = (frame_data[cl_support_index]
-         & CREDENTIAL_CAPABILITIES_REPORT_PROPERTIES1_CREDENTIAL_CHECKSUM_SUPPORT_BIT_MASK)
-        > 0;
+    uint8_t supported_credential_types_count = parser.read_byte();
 
-    attribute_store_set_child_reported(credential_type_node,
-                                       ATTRIBUTE(CREDENTIAL_LEARN_SUPPORT),
-                                       &support_cl,
-                                       sizeof(support_cl));
+    // Remove all previous known SUPPORTED_CREDENTIAL_TYPE
+    attribute_store::attribute type_node;
+    do {
+      // Take first supported credential type node
+      endpoint_node.child_by_type(ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE))
+        .delete_node();
+    } while (endpoint_node.child_by_type(ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE))
+               .is_valid());
 
-    // >> 16 bits values
-    auto store_uint16_value = [&](attribute_store_type_t type, uint8_t offset) {
-      // First 16bit value after CL Support is cl_support_index + supported_credential_types_count
-      // Then we add the 16 bit value offset to it :
-      //  - CREDENTIAL_SUPPORTED_SLOT_COUNT [0] : supported_credential_types_count x 2 x [0] (base)
-      //  - CREDENTIAL_MIN_LENGTH [1] : supported_credential_types_count x 2 x [1] (one batch of 16 bit data before)
-      //  - CREDENTIAL_MAX_LENGTH [2] : supported_credential_types_count x 2 x [2] (two batch of 16 bit data before)
-      // Then we add i to it (0..n) to make sure we take the right pair of data to form the 16 bit unsigned integer
-      const uint16_t index = cl_support_index + supported_credential_types_count
-                             + (supported_credential_types_count * 2 * offset)
-                             + i;
-      uint16_t value = get_uint16_value(frame_data, index);
-      attribute_store_set_child_reported(credential_type_node,
-                                         type,
-                                         &value,
-                                         sizeof(value));
+    // Compute this value here since we need it for the exposure of the supported user credential types
+    uint16_t ucl_credential_type_mask = 0;
+
+    // Create each node with credential type
+    std::vector<attribute_store::attribute> credential_type_nodes;
+    for (uint8_t current_credential_type_index = 0;
+         current_credential_type_index < supported_credential_types_count;
+         current_credential_type_index++) {
+      // Create new node
+      auto current_credential_type_node
+        = endpoint_node.add_node(ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE));
+      // Read credential type and save into the node
+      auto credential_type = parser.read_byte(current_credential_type_node);
+      // Compute bitmask for MQTT
+      ucl_credential_type_mask |= (1 << (credential_type - 1));
+      // Save the credential type node for later
+      credential_type_nodes.push_back(current_credential_type_node);
+    }
+
+    // CL Support
+    for (uint8_t current_credential_type_index = 0;
+         current_credential_type_index < supported_credential_types_count;
+         current_credential_type_index++) {
+      // Create new node
+      auto credential_learn_support_node
+        = credential_type_nodes[current_credential_type_index].add_node(
+          ATTRIBUTE(CREDENTIAL_LEARN_SUPPORT));
+      parser.read_byte_with_bitmask(
+        {CREDENTIAL_CAPABILITIES_REPORT_PROPERTIES1_CREDENTIAL_CHECKSUM_SUPPORT_BIT_MASK,
+         credential_learn_support_node});
+    }
+
+    // Number of Supported Credential Slots
+    for (uint8_t current_credential_type_index = 0;
+         current_credential_type_index < supported_credential_types_count;
+         current_credential_type_index++) {
+      auto credential_learn_support_node
+        = credential_type_nodes[current_credential_type_index].add_node(
+          ATTRIBUTE(CREDENTIAL_SUPPORTED_SLOT_COUNT));
+
+      parser.read_sequential<uint16_t>(2, credential_learn_support_node);
+    }
+
+    auto create_and_store_uint8_value = [&](attribute_store_type_t type) {
+      for (uint8_t current_credential_type_index = 0;
+           current_credential_type_index < supported_credential_types_count;
+           current_credential_type_index++) {
+        auto node = credential_type_nodes[current_credential_type_index].add_node(type);
+        parser.read_byte(node);
+      }
     };
 
-    store_uint16_value(ATTRIBUTE(CREDENTIAL_SUPPORTED_SLOT_COUNT), 0);
-    store_uint16_value(ATTRIBUTE(CREDENTIAL_MIN_LENGTH), 1);
-    store_uint16_value(ATTRIBUTE(CREDENTIAL_MAX_LENGTH), 2);
+    create_and_store_uint8_value(ATTRIBUTE(CREDENTIAL_MIN_LENGTH));
+    create_and_store_uint8_value(ATTRIBUTE(CREDENTIAL_MAX_LENGTH));
+    create_and_store_uint8_value(ATTRIBUTE(CREDENTIAL_LEARN_RECOMMENDED_TIMEOUT));
+    create_and_store_uint8_value(ATTRIBUTE(CREDENTIAL_LEARN_NUMBER_OF_STEPS));
 
-    // End for Credential Max Length values
-    const uint8_t offset = 3;
-    const uint16_t cl_recommended_index
-      = cl_support_index + supported_credential_types_count
-        + (supported_credential_types_count * 2 * offset);
 
-    uint8_t recommended_timeout = frame_data[cl_recommended_index];
-    attribute_store_set_child_reported(
-      credential_type_node,
-      ATTRIBUTE(CREDENTIAL_LEARN_RECOMMENDED_TIMEOUT),
-      &recommended_timeout,
-      sizeof(recommended_timeout));
-
-    // Offset of supported_credential_types_count for next 8 bit value
-    const uint16_t cl_number_of_steps_index
-      = cl_recommended_index + supported_credential_types_count;
-    uint8_t cl_number_of_steps = frame_data[cl_number_of_steps_index];
-    attribute_store_set_child_reported(
-      credential_type_node,
-      ATTRIBUTE(CREDENTIAL_LEARN_NUMBER_OF_STEPS),
-      &cl_number_of_steps,
-      sizeof(cl_number_of_steps));
-    current_index++;
+    // Set UCL mask for supported user credential types
+    endpoint_node
+      .emplace_node(
+        DOTDOT_ATTRIBUTE_ID_USER_CREDENTIAL_SUPPORTED_CREDENTIAL_TYPES)
+      .set_reported(ucl_credential_type_mask);
+    } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while parsing Credential Capabilities Report frame : %s",
+                 e.what());
+    return SL_STATUS_FAIL;
   }
-
-  // Set UCL mask for supported user credential types
-  attribute_store_set_child_reported(
-    endpoint_node,
-    DOTDOT_ATTRIBUTE_ID_USER_CREDENTIAL_SUPPORTED_CREDENTIAL_TYPES,
-    &ucl_credential_type_mask,
-    sizeof(ucl_credential_type_mask));
-
-  return SL_STATUS_OK;
+ return SL_STATUS_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////

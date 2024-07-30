@@ -1,6 +1,6 @@
 /******************************************************************************
  * # License
- * <b>Copyright 2023 Silicon Laboratories Inc. www.silabs.com</b>
+ * <b>Copyright 2024 Silicon Laboratories Inc. www.silabs.com</b>
  ******************************************************************************
  * The licensor of this software is Silicon Laboratories Inc. Your use of this
  * software is governed by the terms of Silicon Labs Master Software License
@@ -537,8 +537,8 @@ void setup_cred_capabilities()
                                 sizeof(cred_type));
     uint8_t crb_support      = 1;
     uint16_t slot_supported  = 0xFFFF;
-    uint16_t cred_min_length = 0;
-    uint16_t cred_max_length = 0xFF;
+    uint8_t cred_min_length = 0;
+    uint8_t cred_max_length = 0xFF;
     uint8_t learn_timeout    = 112;
     uint8_t learn_steps      = 12;
 

@@ -291,8 +291,8 @@ void helper_simulate_credential_capabilites_report(
   std::vector<user_credential_type_t> credential_type,
   std::vector<uint8_t> cl_support,
   std::vector<uint16_t> supported_credential_slots,
-  std::vector<uint16_t> min_length,
-  std::vector<uint16_t> max_length,
+  std::vector<uint8_t> min_length,
+  std::vector<uint8_t> max_length,
   std::vector<uint8_t> cl_timeout,
   std::vector<uint8_t> cl_steps)
 {
@@ -335,8 +335,13 @@ void helper_simulate_credential_capabilites_report(
   }
 
   push_uint16(supported_credential_slots);
-  push_uint16(min_length);
-  push_uint16(max_length);
+
+  for (auto &c: min_length) {
+    report_frame.push_back(c);
+  }
+  for (auto &c: max_length) {
+    report_frame.push_back(c);
+  }
 
   for (auto &c: cl_timeout) {
     report_frame.push_back(c);
@@ -1252,11 +1257,11 @@ void test_user_credential_credential_capabilities_report_happy_case()
   std::vector<user_credential_type_t> credential_type = {1, 3, 4, 5};
   std::vector<uint8_t> cl_support                     = {1, 0, 0, 1};
   std::vector<uint16_t> supported_credential_slots = {1233, 11233, 21233, 33};
-  std::vector<uint16_t> min_length                 = {2, 2362, 255, 1255};
-  std::vector<uint16_t> max_length       = {5632, 15632, 25632, 32568};
-  std::vector<uint8_t> cl_timeout        = {100, 0, 0, 128};
-  std::vector<uint8_t> cl_steps          = {2, 0, 0, 12};
-  uint16_t expected_credential_type_mask = 0b11101;
+  std::vector<uint8_t> min_length                  = {2, 23, 255, 12};
+  std::vector<uint8_t> max_length                  = {56, 156, 255, 32};
+  std::vector<uint8_t> cl_timeout                  = {100, 0, 0, 128};
+  std::vector<uint8_t> cl_steps                    = {2, 0, 0, 12};
+  uint16_t expected_credential_type_mask           = 0b11101;
 
   auto test_report_values = [&]() {
     std::map<attribute_store_type_t, uint8_t> uint8_attribute_map
@@ -1289,16 +1294,14 @@ void test_user_credential_credential_capabilities_report_happy_case()
                                 "Incorrect credential type");
 
       uint8_attribute_map = {
+        {ATTRIBUTE(CREDENTIAL_MIN_LENGTH), min_length[i]},
+        {ATTRIBUTE(CREDENTIAL_MAX_LENGTH), max_length[i]},
         {ATTRIBUTE(CREDENTIAL_LEARN_SUPPORT), cl_support[i]},
         {ATTRIBUTE(CREDENTIAL_LEARN_RECOMMENDED_TIMEOUT), cl_timeout[i]},
         {ATTRIBUTE(CREDENTIAL_LEARN_NUMBER_OF_STEPS), cl_steps[i]},
       };
-      uint16_attribute_map = {
-        {ATTRIBUTE(CREDENTIAL_SUPPORTED_SLOT_COUNT),
-         supported_credential_slots[i]},
-        {ATTRIBUTE(CREDENTIAL_MIN_LENGTH), min_length[i]},
-        {ATTRIBUTE(CREDENTIAL_MAX_LENGTH), max_length[i]},
-      };
+      uint16_attribute_map = {{ATTRIBUTE(CREDENTIAL_SUPPORTED_SLOT_COUNT),
+                               supported_credential_slots[i]}};
       helper_test_attribute_store_values(uint8_attribute_map, type_node);
       helper_test_attribute_store_values(uint16_attribute_map, type_node);
     }
@@ -1322,7 +1325,7 @@ void test_user_credential_credential_capabilities_report_happy_case()
   cl_support                    = {0, 1, 1};
   supported_credential_slots    = {15, 1565, 153};
   min_length                    = {155, 15, 5};
-  max_length                    = {1111, 111, 11};
+  max_length                    = {180, 111, 11};
   cl_timeout                    = {0, 10, 12};
   cl_steps                      = {0, 1, 2};
   expected_credential_type_mask = 0b11100000;
@@ -2734,8 +2737,8 @@ void test_user_credential_add_credential_already_defined_cred_type_and_slot()
     = {ZCL_CRED_TYPE_PIN_CODE};
   std::vector<uint8_t> supported_cl                = {1};
   std::vector<uint16_t> supported_credential_slots = {1};
-  std::vector<uint16_t> supported_cred_min_length  = {2};
-  std::vector<uint16_t> supported_cred_max_length  = {6};
+  std::vector<uint8_t> supported_cred_min_length   = {2};
+  std::vector<uint8_t> supported_cred_max_length   = {6};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
                                                 supported_credential_type,
                                                 supported_cl,
@@ -2829,8 +2832,8 @@ void test_user_credential_add_credential_invalid_slot()
     = {ZCL_CRED_TYPE_PIN_CODE};
   std::vector<uint8_t> supported_cl                = {1};
   std::vector<uint16_t> supported_credential_slots = {1};
-  std::vector<uint16_t> supported_cred_min_length  = {2};
-  std::vector<uint16_t> supported_cred_max_length  = {6};
+  std::vector<uint8_t> supported_cred_min_length   = {2};
+  std::vector<uint8_t> supported_cred_max_length   = {6};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
                                                 supported_credential_type,
                                                 supported_cl,
@@ -3059,8 +3062,8 @@ void test_user_credential_credential_notification_add_modify_delete_happy_case()
     = {ZCL_CRED_TYPE_PIN_CODE};
   std::vector<uint8_t> supported_cl                = {1};
   std::vector<uint16_t> supported_credential_slots = {1};
-  std::vector<uint16_t> supported_cred_min_length  = {2};
-  std::vector<uint16_t> supported_cred_max_length  = {6};
+  std::vector<uint8_t> supported_cred_min_length   = {2};
+  std::vector<uint8_t> supported_cred_max_length   = {6};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
                                                 supported_credential_type,
                                                 supported_cl,
@@ -3485,8 +3488,8 @@ void test_user_credential_credential_add_capabilites_failure_cases()
     = {ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1};
   std::vector<uint16_t> supported_credential_slots = {1};
-  std::vector<uint16_t> supported_cred_min_length  = {2};
-  std::vector<uint16_t> supported_cred_max_length  = {6};
+  std::vector<uint8_t> supported_cred_min_length   = {2};
+  std::vector<uint8_t> supported_cred_max_length   = {6};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
                                                 supported_credential_type,
                                                 supported_cl,
@@ -3565,8 +3568,8 @@ void test_user_credential_credential_add_capabilites_happy_case()
     = {ZCL_CRED_TYPE_HAND_BIOMETRIC, ZCL_CRED_TYPE_PIN_CODE};
   std::vector<uint8_t> supported_cl                = {1, 0};
   std::vector<uint16_t> supported_credential_slots = {1, 5};
-  std::vector<uint16_t> supported_cred_min_length  = {2, 4};
-  std::vector<uint16_t> supported_cred_max_length  = {6, 8};
+  std::vector<uint8_t> supported_cred_min_length   = {2, 4};
+  std::vector<uint8_t> supported_cred_max_length   = {6, 8};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
                                                 supported_credential_type,
                                                 supported_cl,
@@ -3623,8 +3626,8 @@ void test_user_credential_credential_modify_capabilites_failure_cases()
     = {ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1};
   std::vector<uint16_t> supported_credential_slots = {1};
-  std::vector<uint16_t> supported_cred_min_length  = {2};
-  std::vector<uint16_t> supported_cred_max_length  = {7};
+  std::vector<uint8_t> supported_cred_min_length   = {2};
+  std::vector<uint8_t> supported_cred_max_length   = {7};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
                                                 supported_credential_type,
                                                 supported_cl,
@@ -4430,8 +4433,8 @@ void test_user_credential_credential_learn_start_add_happy_case()
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
   std::vector<uint16_t> supported_credential_slots = {1, 2};
-  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
-  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cred_min_length   = {2, 5};
+  std::vector<uint8_t> supported_cred_max_length   = {6, 10};
   std::vector<uint8_t> supported_cl_timeout        = {20, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
@@ -4523,8 +4526,8 @@ void test_user_credential_credential_learn_start_add_cl_not_supported()
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {0, 1};
   std::vector<uint16_t> supported_credential_slots = {1, 2};
-  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
-  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cred_min_length   = {2, 5};
+  std::vector<uint8_t> supported_cred_max_length   = {6, 10};
   std::vector<uint8_t> supported_cl_timeout        = {0, 2};
   std::vector<uint8_t> supported_cl_steps          = {0, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
@@ -4566,8 +4569,8 @@ void test_user_credential_credential_learn_start_add_slot_not_supported()
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
   std::vector<uint16_t> supported_credential_slots = {1, 2};
-  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
-  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cred_min_length   = {2, 5};
+  std::vector<uint8_t> supported_cred_max_length   = {6, 10};
   std::vector<uint8_t> supported_cl_timeout        = {10, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
@@ -4609,8 +4612,8 @@ void test_user_credential_credential_learn_start_add_type_not_supported()
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
   std::vector<uint16_t> supported_credential_slots = {1, 2};
-  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
-  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cred_min_length   = {2, 5};
+  std::vector<uint8_t> supported_cred_max_length   = {6, 10};
   std::vector<uint8_t> supported_cl_timeout        = {10, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
@@ -4665,8 +4668,8 @@ void test_user_credential_credential_learn_start_add_credential_already_exists()
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
   std::vector<uint16_t> supported_credential_slots = {1, 2};
-  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
-  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cred_min_length   = {2, 5};
+  std::vector<uint8_t> supported_cred_max_length   = {6, 10};
   std::vector<uint8_t> supported_cl_timeout        = {10, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
@@ -4709,8 +4712,8 @@ void test_user_credential_credential_learn_start_modify_happy_case()
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
   std::vector<uint16_t> supported_credential_slots = {1, 2};
-  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
-  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cred_min_length   = {2, 5};
+  std::vector<uint8_t> supported_cred_max_length   = {6, 10};
   std::vector<uint8_t> supported_cl_timeout        = {20, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
@@ -4785,8 +4788,8 @@ void test_user_credential_credential_learn_start_modify_cl_not_supported()
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {0, 1};
   std::vector<uint16_t> supported_credential_slots = {1, 2};
-  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
-  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cred_min_length   = {2, 5};
+  std::vector<uint8_t> supported_cred_max_length   = {6, 10};
   std::vector<uint8_t> supported_cl_timeout        = {0, 2};
   std::vector<uint8_t> supported_cl_steps          = {0, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
@@ -4829,8 +4832,8 @@ void test_user_credential_credential_learn_start_modify_credential_not_existing(
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {0, 1};
   std::vector<uint16_t> supported_credential_slots = {1, 2};
-  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
-  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cred_min_length   = {2, 5};
+  std::vector<uint8_t> supported_cred_max_length   = {6, 10};
   std::vector<uint8_t> supported_cl_timeout        = {0, 2};
   std::vector<uint8_t> supported_cl_steps          = {0, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
@@ -4888,8 +4891,8 @@ void test_user_credential_uuic_association_same_slot_different_user()
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
   std::vector<uint16_t> supported_credential_slots = {5, 2};
-  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
-  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cred_min_length   = {2, 5};
+  std::vector<uint8_t> supported_cred_max_length   = {6, 10};
   std::vector<uint8_t> supported_cl_timeout        = {20, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
@@ -5013,8 +5016,8 @@ void test_user_credential_uuic_association_different_slot_different_user_with_ex
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
   std::vector<uint16_t> supported_credential_slots = {5, 2};
-  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
-  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cred_min_length   = {2, 5};
+  std::vector<uint8_t> supported_cred_max_length   = {6, 10};
   std::vector<uint8_t> supported_cl_timeout        = {20, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
@@ -5143,8 +5146,8 @@ void test_user_credential_uuic_association_different_slot_same_user()
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
   std::vector<uint16_t> supported_credential_slots = {5, 2};
-  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
-  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cred_min_length   = {2, 5};
+  std::vector<uint8_t> supported_cred_max_length   = {6, 10};
   std::vector<uint8_t> supported_cl_timeout        = {20, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
@@ -5260,8 +5263,8 @@ void test_user_credential_uuic_association_error_code()
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
   std::vector<uint16_t> supported_credential_slots = {5, 2};
-  std::vector<uint16_t> supported_cred_min_length  = {2, 5};
-  std::vector<uint16_t> supported_cred_max_length  = {6, 10};
+  std::vector<uint8_t> supported_cred_min_length   = {2, 5};
+  std::vector<uint8_t> supported_cred_max_length   = {6, 10};
   std::vector<uint8_t> supported_cl_timeout        = {20, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
