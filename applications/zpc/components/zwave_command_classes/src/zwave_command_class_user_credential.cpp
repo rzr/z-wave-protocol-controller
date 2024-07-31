@@ -1915,13 +1915,9 @@ static sl_status_t zwave_command_class_user_credential_user_capabilities_get(
 {
   sl_log_debug(LOG_TAG, "User Capabilities Get");
 
-  (void)node;  // unused.
-  ZW_USER_CAPABILITIES_GET_FRAME *get_frame
-    = (ZW_USER_CAPABILITIES_GET_FRAME *)frame;
-  get_frame->cmdClass = COMMAND_CLASS_USER_CREDENTIAL;
-  get_frame->cmd      = USER_CAPABILITIES_GET;
-  *frame_length       = sizeof(ZW_USER_CAPABILITIES_GET_FRAME);
-  return SL_STATUS_OK;
+  return frame_generator.generate_no_args_frame(USER_CAPABILITIES_GET,
+                                                frame,
+                                                frame_length);
 }
 
 sl_status_t zwave_command_class_user_credential_user_capabilities_handle_report(
@@ -1929,99 +1925,56 @@ sl_status_t zwave_command_class_user_credential_user_capabilities_handle_report(
   const uint8_t *frame_data,
   uint16_t frame_length)
 {
-  constexpr uint8_t INDEX_USER_COUNT       = 2;
-  constexpr uint8_t INDEX_CREDENTIAL_RULES = 4;
-  constexpr uint8_t INDEX_MAX_LENGTH       = 5;
-  constexpr uint8_t INDEX_SUPPORT_BITS     = 6;
-  constexpr uint8_t INDEX_BITMASK_LENGTH   = 7;
-
-  if (frame_length < INDEX_BITMASK_LENGTH) {
-    return SL_STATUS_NOT_SUPPORTED;
-  }
+  attribute_store::attribute endpoint_node(
+    zwave_command_class_get_endpoint_node(connection_info));
 
   sl_log_debug(LOG_TAG, "User Capabilities Report");
+  const uint8_t expected_size = 9;
 
-  attribute_store_node_t endpoint_node
-    = zwave_command_class_get_endpoint_node(connection_info);
+  try {
+    zwave_frame_parser parser(frame_data, frame_length);
 
-  uint16_t user_count = get_uint16_value(frame_data, INDEX_USER_COUNT);
+    if (!parser.is_frame_size_valid(expected_size, expected_size + 4)) {
+      sl_log_error(LOG_TAG,
+                   "Invalid frame size for User Capabilities Report frame");
+      return SL_STATUS_FAIL;
+    }
 
-  attribute_store_set_child_reported(endpoint_node,
-                                     ATTRIBUTE(NUMBER_OF_USERS),
-                                     &user_count,
-                                     sizeof(user_count));
+    parser.read_sequential<uint16_t>(
+      2,
+      endpoint_node.emplace_node(ATTRIBUTE(NUMBER_OF_USERS)));
+    parser.read_byte(
+      endpoint_node.emplace_node(ATTRIBUTE(SUPPORTED_CREDENTIAL_RULES)));
+    parser.read_byte(
+      endpoint_node.emplace_node(ATTRIBUTE(MAX_USERNAME_LENGTH)));
 
-  user_credential_supported_credential_rules_t credential_rules
-    = frame_data[INDEX_CREDENTIAL_RULES];
-  attribute_store_set_child_reported(endpoint_node,
-                                     ATTRIBUTE(SUPPORTED_CREDENTIAL_RULES),
-                                     &credential_rules,
-                                     sizeof(credential_rules));
+    constexpr uint8_t SUPPORT_ALL_USERS_CHECKSUM_BITMASK
+      = USER_CAPABILITIES_REPORT_PROPERTIES1_ALL_USERS_CHECKSUM_SUPPORT_BIT_MASK;
+    auto support_bits = parser.read_byte_with_bitmask(
+      {{USER_CAPABILITIES_REPORT_PROPERTIES1_USER_SCHEDULE_SUPPORT_BIT_MASK,
+        endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_USER_SCHEDULE))},
+       {SUPPORT_ALL_USERS_CHECKSUM_BITMASK,
+        endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_ALL_USERS_CHECKSUM))},
+       {USER_CAPABILITIES_REPORT_PROPERTIES1_USER_CHECKSUM_SUPPORT_BIT_MASK,
+        endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_USER_CHECKSUM))}});
 
-  uint8_t max_length = frame_data[INDEX_MAX_LENGTH];
-  attribute_store_set_child_reported(endpoint_node,
-                                     ATTRIBUTE(MAX_USERNAME_LENGTH),
-                                     &max_length,
-                                     sizeof(max_length));
-
-  // Support bits
-  uint8_t support_bits = frame_data[INDEX_SUPPORT_BITS];
-  // Create a lambda function that do what we want for all of the 3 parameters
-  auto emplace_bool_value = [&support_bits,
-                             &endpoint_node](uint8_t bitmask,
-                                             attribute_store_type_t type) {
-    uint8_t bool_value = (support_bits & bitmask) > 0;
-
-    attribute_store_set_child_reported(endpoint_node,
-                                       type,
-                                       &bool_value,
-                                       sizeof(bool_value));
-
-    // CL:0083.XX.XX.XX.X : If the All Users Checksum Support field is set in the User Capabilities Report Command, the controlling
-    // node SHOULD send an All Users Checksum Get Command to check if there are existing Users or
-    // Credentials present on the supporting node.
-    if (type == ATTRIBUTE(SUPPORT_ALL_USERS_CHECKSUM) && bool_value) {
+    // SUPPORT_ALL_USERS_CHECKSUM support
+    if (support_bits[SUPPORT_ALL_USERS_CHECKSUM_BITMASK]) {
       sl_log_debug(LOG_TAG,
                    "SUPPORT_ALL_USERS_CHECKSUM is set, sending All Users "
                    "Checksum Get Command");
-      const attribute_store_type_t attributes[] = {
-        ATTRIBUTE(ALL_USERS_CHECKSUM),
-      };
-      // Trigger get ALL_USERS_CHECKSUM
-      attribute_store_add_if_missing(endpoint_node,
-                                     attributes,
-                                     COUNT_OF(attributes));
+      endpoint_node.emplace_node(ATTRIBUTE(ALL_USERS_CHECKSUM));
     }
-  };
 
-  emplace_bool_value(
-    USER_CAPABILITIES_REPORT_PROPERTIES1_USER_CHECKSUM_SUPPORT_BIT_MASK,
-    ATTRIBUTE(SUPPORT_USER_SCHEDULE));
-  emplace_bool_value(
-    USER_CAPABILITIES_REPORT_PROPERTIES1_ALL_USERS_CHECKSUM_SUPPORT_BIT_MASK,
-    ATTRIBUTE(SUPPORT_ALL_USERS_CHECKSUM));
-  emplace_bool_value(
-    USER_CAPABILITIES_REPORT_PROPERTIES1_USER_CHECKSUM_SUPPORT_BIT_MASK,
-    ATTRIBUTE(SUPPORT_USER_CHECKSUM));
+    parser.read_bitmask(
+      endpoint_node.emplace_node(ATTRIBUTE(SUPPORTED_USER_TYPES)));
 
-  // Bit mask support
-  user_credential_supported_user_type_bitmask_t bitmask = 0x0000;
-  uint8_t bitmask_length = frame_data[INDEX_BITMASK_LENGTH];
-  // Since we are using uint32_t we can't have more that 4 bit mask
-  if (bitmask_length > 4) {
+  } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
-                 "user_credential_supported_user_type_bitmask_t length is not "
-                 "supported\n");
-    return SL_STATUS_NOT_SUPPORTED;
+                 "Error while parsing User Capabilities Report frame : %s",
+                 e.what());
+    return SL_STATUS_FAIL;
   }
-  for (int i = bitmask_length; i > 0; i--) {
-    bitmask = (bitmask << 8) | frame_data[INDEX_BITMASK_LENGTH + i];
-  }
-
-  attribute_store_set_child_reported(endpoint_node,
-                                     ATTRIBUTE(SUPPORTED_USER_TYPES),
-                                     &bitmask,
-                                     sizeof(bitmask));
 
   return SL_STATUS_OK;
 }
@@ -2041,7 +1994,6 @@ static sl_status_t
   ;
 }
 
-
 sl_status_t
   zwave_command_class_user_credential_credential_capabilities_handle_report(
     const zwave_controller_connection_info_t *connection_info,
@@ -2049,7 +2001,7 @@ sl_status_t
     uint16_t frame_length)
 {
   sl_log_debug(LOG_TAG, "Credential Capabilities Report");
-  
+
   attribute_store::attribute endpoint_node(
     zwave_command_class_get_endpoint_node(connection_info));
 
@@ -2059,10 +2011,10 @@ sl_status_t
     zwave_frame_parser parser(frame_data, frame_length);
 
     // We only needs to check the minimum size here
-    if (!parser.is_frame_size_valid(min_expected_size,
-                                    UINT8_MAX)) {
-      sl_log_error(LOG_TAG,
-                   "Invalid frame size for Credential Capabilities Report frame");
+    if (!parser.is_frame_size_valid(min_expected_size, UINT8_MAX)) {
+      sl_log_error(
+        LOG_TAG,
+        "Invalid frame size for Credential Capabilities Report frame");
       return SL_STATUS_FAIL;
     }
 
@@ -2129,29 +2081,31 @@ sl_status_t
       for (uint8_t current_credential_type_index = 0;
            current_credential_type_index < supported_credential_types_count;
            current_credential_type_index++) {
-        auto node = credential_type_nodes[current_credential_type_index].add_node(type);
+        auto node
+          = credential_type_nodes[current_credential_type_index].add_node(type);
         parser.read_byte(node);
       }
     };
 
     create_and_store_uint8_value(ATTRIBUTE(CREDENTIAL_MIN_LENGTH));
     create_and_store_uint8_value(ATTRIBUTE(CREDENTIAL_MAX_LENGTH));
-    create_and_store_uint8_value(ATTRIBUTE(CREDENTIAL_LEARN_RECOMMENDED_TIMEOUT));
+    create_and_store_uint8_value(
+      ATTRIBUTE(CREDENTIAL_LEARN_RECOMMENDED_TIMEOUT));
     create_and_store_uint8_value(ATTRIBUTE(CREDENTIAL_LEARN_NUMBER_OF_STEPS));
-
 
     // Set UCL mask for supported user credential types
     endpoint_node
       .emplace_node(
         DOTDOT_ATTRIBUTE_ID_USER_CREDENTIAL_SUPPORTED_CREDENTIAL_TYPES)
       .set_reported(ucl_credential_type_mask);
-    } catch (const std::exception &e) {
-    sl_log_error(LOG_TAG,
-                 "Error while parsing Credential Capabilities Report frame : %s",
-                 e.what());
+  } catch (const std::exception &e) {
+    sl_log_error(
+      LOG_TAG,
+      "Error while parsing Credential Capabilities Report frame : %s",
+      e.what());
     return SL_STATUS_FAIL;
   }
- return SL_STATUS_OK;
+  return SL_STATUS_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -3404,120 +3358,124 @@ void trigger_get_user(attribute_store_node_t endpoint_node,
 }
 
 static sl_status_t zwave_command_class_user_credential_user_set(
-  attribute_store_node_t user_operation_type_node,
-  uint8_t *frame,
-  uint16_t *frame_length)
+  attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
 {
-  // Get user unique id node
-  attribute_store_node_t user_unique_id_node
-    = attribute_store_get_first_parent_with_type(user_operation_type_node,
-                                                 ATTRIBUTE(USER_UNIQUE_ID));
+  try {
+    // Node setup
+    attribute_store::attribute user_operation_type_node(node);
+    attribute_store::attribute user_unique_id_node
+      = user_operation_type_node.first_parent(ATTRIBUTE(USER_UNIQUE_ID));
 
-  user_credential_user_unique_id_t user_id = 0;
-  attribute_store_get_desired_else_reported(user_unique_id_node,
-                                            &user_id,
-                                            sizeof(user_id));
+    // Get Values
+    auto user_unique_id
+      = user_unique_id_node
+          .desired_or_reported<user_credential_user_unique_id_t>();
+    auto user_operation_type
+      = user_operation_type_node.desired<user_credential_operation_type_t>();
 
-  // If we can't get the user unique id we can't continue
-  if (!attribute_store_node_exists(user_unique_id_node)) {
-    return SL_STATUS_NOT_SUPPORTED;
-  }
+    const bool is_delete_operation
+      = (user_operation_type == USER_SET_OPERATION_TYPE_DELETE);
 
-  user_credential_operation_type_t user_operation_type = 0;
-  sl_status_t status = attribute_store_get_desired(user_operation_type_node,
-                                                   &user_operation_type,
-                                                   sizeof(user_operation_type));
+    uint8_t expected_frame_size = (is_delete_operation) ? 5 : 12;
+    uint8_t user_name_size      = 0;
 
-  sl_log_debug(LOG_TAG,
-               "User SET for user %d (operation type : %d)",
-               user_id,
-               user_operation_type);
+    if (!is_delete_operation) {
+      user_name_size = static_cast<uint8_t>(
+        user_unique_id_node.child_by_type(ATTRIBUTE(USER_NAME))
+          .reported<std::string>()
+          .size());
+    }
 
-  if (status != SL_STATUS_OK) {
+    // Append the user name size (will be 0 if is delete operation)
+    expected_frame_size += user_name_size;
+
+    sl_log_debug(LOG_TAG,
+                 "User SET for user %d (operation type : %d)",
+                 user_unique_id,
+                 user_operation_type);
+
+    // Creating the frame
+    frame_generator.initialize_frame(USER_SET, frame, expected_frame_size);
+
+    frame_generator.add_value(user_operation_type_node, DESIRED_ATTRIBUTE);
+    frame_generator.add_value(user_unique_id_node,
+                              DESIRED_OR_REPORTED_ATTRIBUTE);
+
+    if (!is_delete_operation) {
+      frame_generator.add_value(
+        user_unique_id_node.child_by_type(ATTRIBUTE(USER_TYPE)),
+        DESIRED_OR_REPORTED_ATTRIBUTE);
+      frame_generator.add_value(
+        user_unique_id_node.child_by_type(ATTRIBUTE(USER_ACTIVE_STATE)),
+        DESIRED_OR_REPORTED_ATTRIBUTE);
+      frame_generator.add_value(
+        user_unique_id_node.child_by_type(ATTRIBUTE(CREDENTIAL_RULE)),
+        DESIRED_OR_REPORTED_ATTRIBUTE);
+      frame_generator.add_value(user_unique_id_node.child_by_type(
+                                  ATTRIBUTE(USER_EXPIRING_TIMEOUT_MINUTES)),
+                                DESIRED_OR_REPORTED_ATTRIBUTE);
+      frame_generator.add_value(
+        user_unique_id_node.child_by_type(ATTRIBUTE(USER_NAME_ENCODING)),
+        DESIRED_OR_REPORTED_ATTRIBUTE);
+      frame_generator.add_raw_byte(user_name_size);
+      frame_generator.add_value(
+        user_unique_id_node.child_by_type(ATTRIBUTE(USER_NAME)),
+        DESIRED_OR_REPORTED_ATTRIBUTE);
+    }
+
+    frame_generator.validate_frame(frame_length);
+  } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
-                 "Can't get user operation type value. Not sending USER_SET.");
+                 "Error while generating User SET frame : %s",
+                 e.what());
     return SL_STATUS_NOT_SUPPORTED;
   }
-
-  std::vector<attribute_command_data> set_data
-    = {{ATTRIBUTE(USER_OPERATION_TYPE), DESIRED_ATTRIBUTE},
-       {ATTRIBUTE(USER_UNIQUE_ID),
-        DESIRED_OR_REPORTED_ATTRIBUTE,
-        user_unique_id_node}};
-
-  // If we are not deleting the user we need more data
-  if (user_operation_type != USER_SET_OPERATION_TYPE_DELETE) {
-    std::vector<attribute_command_data> extra_set_data = {
-      {ATTRIBUTE(USER_TYPE), DESIRED_OR_REPORTED_ATTRIBUTE},
-      {ATTRIBUTE(USER_ACTIVE_STATE), DESIRED_OR_REPORTED_ATTRIBUTE},
-      {ATTRIBUTE(CREDENTIAL_RULE), DESIRED_OR_REPORTED_ATTRIBUTE},
-      {ATTRIBUTE(USER_EXPIRING_TIMEOUT_MINUTES), DESIRED_OR_REPORTED_ATTRIBUTE},
-      {ATTRIBUTE(USER_NAME_ENCODING), DESIRED_OR_REPORTED_ATTRIBUTE},
-      {ATTRIBUTE(USER_NAME), DESIRED_OR_REPORTED_ATTRIBUTE},
-    };
-    std::copy(extra_set_data.begin(),
-              extra_set_data.end(),
-              std::back_inserter(set_data));
-  }
-
-  status = create_command_frame(USER_SET,
-                                set_data,
-                                user_unique_id_node,
-                                frame,
-                                frame_length);
-
-  if (status != SL_STATUS_OK) {
-    sl_log_error(LOG_TAG, "Can't create User SET frame");
-    return SL_STATUS_NOT_SUPPORTED;
-  }
-
   return SL_STATUS_OK;
 }
 
 static sl_status_t zwave_command_class_user_credential_user_get(
   attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
 {
-  user_credential_user_unique_id_t user_id = 0;
-  sl_status_t status
-    = attribute_store_get_desired(node, &user_id, sizeof(user_id));
+  attribute_store::attribute user_unique_id_node(node);
 
   // If we enter this state it means that something went badly wrong or
   // user initiate the interview process again.
   // In both cases we want to invalidate the user database so that the device
   // can send us the correct user database.
-  if (status != SL_STATUS_OK) {
-    sl_log_warning(LOG_TAG,
-                   "Can't get user unique id value. Reset user database.");
-    attribute_store_node_t endpoint_node
-      = attribute_store_get_node_parent(node);
-    // Get User node count
-    auto user_count
-      = attribute_store_get_node_child_count_by_type(endpoint_node,
-                                                     ATTRIBUTE(USER_UNIQUE_ID));
 
-    for (size_t j = 0; j < user_count; j++) {
-      // Delete the first attribute we find until we have no more left
-      attribute_store_node_t user_node
-        = attribute_store_get_node_child_by_type(endpoint_node,
-                                                 ATTRIBUTE(USER_UNIQUE_ID),
-                                                 0);
+  if (!user_unique_id_node.desired_exists()) {
+    sl_log_warning(LOG_TAG,
+                   "Can't get user unique id Desired value. Removing all users "
+                   "to perform interview again.");
+    attribute_store::attribute endpoint_node = user_unique_id_node.parent();
+
+    // Get User node count
+    for (auto user_node: endpoint_node.children(ATTRIBUTE(USER_UNIQUE_ID))) {
       attribute_store_delete_node(user_node);
     }
+
     // NOTE : In the case of user re-interviewing the device, it will be interviewed again when the node goes ONLINE.
     return SL_STATUS_NOT_SUPPORTED;
   }
 
+  user_credential_user_unique_id_t user_id
+    = user_unique_id_node.desired<user_credential_user_unique_id_t>();
   sl_log_debug(LOG_TAG, "User Get for user %d", user_id);
 
-  auto exploded_value = explode_uint16(user_id);
+  // Generate the frame
+  constexpr uint8_t expected_frame_size
+    = static_cast<uint8_t>(sizeof(ZW_USER_GET_FRAME));
+  try {
+    frame_generator.initialize_frame(USER_GET, frame, expected_frame_size);
+    frame_generator.add_value(user_unique_id_node, DESIRED_ATTRIBUTE);
+    frame_generator.validate_frame(frame_length);
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while generating USER_GET frame : %s",
+                 e.what());
+    return SL_STATUS_FAIL;
+  }
 
-  ZW_USER_GET_FRAME *get_frame     = (ZW_USER_GET_FRAME *)frame;
-  get_frame->cmdClass              = COMMAND_CLASS_USER_CREDENTIAL;
-  get_frame->cmd                   = USER_GET;
-  get_frame->userUniqueIdentifier1 = exploded_value.msb;
-  get_frame->userUniqueIdentifier2 = exploded_value.lsb;
-
-  *frame_length = sizeof(ZW_USER_GET_FRAME);
   return SL_STATUS_OK;
 }
 
@@ -3526,152 +3484,140 @@ sl_status_t zwave_command_class_user_credential_user_handle_report(
   const uint8_t *frame_data,
   uint16_t frame_length)
 {
-  constexpr uint8_t INDEX_NEXT_USER_ID                       = 2;
-  constexpr uint8_t INDEX_USER_MODIFIER_TYPE                 = 4;
-  constexpr uint8_t INDEX_USER_MODIFIER_ID                   = 5;
-  constexpr uint8_t INDEX_USER_ID                            = 7;
-  constexpr uint8_t INDEX_USER_TYPE                          = 9;
-  constexpr uint8_t INDEX_USER_ACTIVE_STATE                  = 10;
-  constexpr uint8_t INDEX_CREDENTIAL_RULE                    = 11;
-  constexpr uint8_t INDEX_USER_NAME_EXPIRING_TIMEOUT_MINUTES = 12;
-  constexpr uint8_t INDEX_USER_NAME_ENCODING                 = 14;
-  constexpr uint8_t INDEX_USER_NAME_LENGTH                   = 15;
-  constexpr uint8_t INDEX_USER_NAME                          = 16;
+  sl_log_debug(LOG_TAG, "User Report");
 
-  if (frame_length < INDEX_USER_NAME) {
-    return SL_STATUS_NOT_SUPPORTED;
-  }
+  attribute_store::attribute endpoint_node(
+    zwave_command_class_get_endpoint_node(connection_info));
 
-  attribute_store_node_t endpoint_node
-    = zwave_command_class_get_endpoint_node(connection_info);
+  const uint8_t expected_min_size = 16;
 
-  // Find the user
-  const user_credential_user_unique_id_t user_id
-    = get_uint16_value(frame_data, INDEX_USER_ID);
+  try {
+    zwave_frame_parser parser(frame_data, frame_length);
 
-  sl_log_debug(LOG_TAG, "User report for user %d", user_id);
+    if (!parser.is_frame_size_valid(expected_min_size, UINT8_MAX)) {
+      sl_log_error(LOG_TAG, "Invalid frame size for User Report frame");
+      return SL_STATUS_FAIL;
+    }
 
-  auto remove_node_0_if_exists = [&]() {
-    attribute_store_node_t node_0;
-    get_user_id_node(endpoint_node, 0, DESIRED_ATTRIBUTE, node_0);
-    return attribute_store_delete_node(node_0);
-  };
+    //parser.read_byte();  // TODO : use User Report Type;
 
-  // CC:0083.01.05.11.006: Zero is an invalid User Unique Identifier and MUST NOT be used by the node
-  if (user_id == 0) {
-    sl_log_info(LOG_TAG,
-                "User report with ID 0 received. This probably means that no "
-                "user is defined on the device.");
-    sl_log_debug(LOG_TAG,
-                 "Attempt to delete User Node ID with value %d",
-                 user_id);
-    sl_status_t deletion_status = remove_node_0_if_exists();
-    sl_log_debug(LOG_TAG, "Deletion returned status : %d", deletion_status);
-    return SL_STATUS_OK;
-  }
+    auto next_user_id
+      = parser.read_sequential<user_credential_user_unique_id_t>(2);
 
-  // Get User ID node
-  attribute_store_node_t user_unique_id_node;
+    user_credential_modifier_type_t user_modifier_type = parser.read_byte();
+    auto user_modifier_id
+      = parser.read_sequential<user_credential_modifier_node_id_t>(2);
 
-  // First we check if there this user already exists in our database (reported value)
-  if (!get_user_id_node(endpoint_node,
-                        user_id,
-                        REPORTED_ATTRIBUTE,
-                        user_unique_id_node)) {
-    sl_log_debug(LOG_TAG,
-                 "Could not find user %d with reported value, trying desired",
-                 user_id);
-    // If User node doesn't exists with given desired attribute
-    if (!get_user_id_node(endpoint_node,
-                          user_id,
-                          DESIRED_ATTRIBUTE,
-                          user_unique_id_node)) {
+    // Get User ID
+    auto current_user_id
+      = parser.read_sequential<user_credential_user_unique_id_t>(2);
+
+    sl_log_debug(LOG_TAG, "User report for user %d", current_user_id);
+
+    auto remove_node_0_if_exists = [&]() {
+      attribute_store_node_t node_0;
+      get_user_id_node(endpoint_node, 0, DESIRED_ATTRIBUTE, node_0);
+      return attribute_store_delete_node(node_0);
+    };
+
+    // CC:0083.01.05.11.006: Zero is an invalid User Unique Identifier and MUST NOT be used by the node
+    if (current_user_id == 0) {
+      sl_log_info(LOG_TAG,
+                  "User report with ID 0 received. This probably means that no "
+                  "user is defined on the device.");
+      sl_log_debug(LOG_TAG,
+                   "Attempt to delete User Node ID with value %d",
+                   current_user_id);
+      sl_status_t deletion_status = remove_node_0_if_exists();
+      sl_log_debug(LOG_TAG, "Deletion returned status : %d", deletion_status);
+      return SL_STATUS_OK;
+    }
+
+    // Find user id
+    auto current_user_id_node
+      = endpoint_node.child_by_type_and_value(ATTRIBUTE(USER_UNIQUE_ID),
+                                              current_user_id);
+    if (!current_user_id_node.is_valid()) {
+      sl_log_debug(LOG_TAG,
+                   "Could not find user %d with reported value, trying desired",
+                   current_user_id);
+      // If User node doesn't exists with given desired attribute
+      current_user_id_node = endpoint_node.child_by_type_and_value_desired(
+        ATTRIBUTE(USER_UNIQUE_ID),
+        current_user_id);
+
+      if (!current_user_id_node.is_valid()) {
+        sl_log_debug(
+          LOG_TAG,
+          "Could not find user %d with desired value, using the User ID 0",
+          current_user_id);
+        current_user_id_node = endpoint_node.child_by_type_and_value_desired<
+          user_credential_user_unique_id_t>(ATTRIBUTE(USER_UNIQUE_ID), 0);
+      }
+    }
+
+    // Check node existence
+    if (!current_user_id_node.is_valid()) {
+      sl_log_error(LOG_TAG,
+                   "Can't find user with ID %d in USER_REPORT",
+                   current_user_id);
+      return SL_STATUS_NOT_SUPPORTED;
+    }
+
+    if (user_modifier_type == USER_REPORT_DNE) {
       sl_log_debug(
         LOG_TAG,
-        "Could not find user %d with desired value, using the User ID 0",
-        user_id);
-
-      // If not found it will be checked in the next step
-      get_user_id_node(endpoint_node,
-                       0,
-                       DESIRED_ATTRIBUTE,
-                       user_unique_id_node);
+        "User %d does not exist anymore, removing from attribute store.",
+        current_user_id);
+      attribute_store_delete_node(current_user_id_node);
+      return SL_STATUS_OK;
     }
-  }
 
-  // Check node existence
-  if (!attribute_store_node_exists(user_unique_id_node)) {
-    sl_log_error(LOG_TAG, "Can't find user with ID %d in USER_REPORT", user_id);
-    return SL_STATUS_NOT_SUPPORTED;
-  }
+    // Everything is fine, set the reported value to the current user id node
+    current_user_id_node.set_reported(current_user_id);
+    current_user_id_node.clear_desired();
 
-  // Check if user still exists
-  if (frame_data[INDEX_USER_MODIFIER_TYPE] == USER_REPORT_DNE) {
-    sl_log_debug(
-      LOG_TAG,
-      "User %d does not exist anymore, removing from attribute store.",
-      user_id);
-    attribute_store_delete_node(user_unique_id_node);
-    return SL_STATUS_OK;
-  }
+    // Remove leftover of node 0 if it exists
+    // This is necessary if we are interviewing again the user as this node will be left undefined
+    // and causing a get loop.
+    remove_node_0_if_exists();
 
-  // Set reported value
-  attribute_store_set_reported(user_unique_id_node, &user_id, sizeof(user_id));
-  attribute_store_undefine_desired(user_unique_id_node);
+    // Set already parsed values
+    current_user_id_node.emplace_node(ATTRIBUTE(USER_MODIFIER_TYPE))
+      .set_reported(user_modifier_type);
+    current_user_id_node.emplace_node(ATTRIBUTE(USER_MODIFIER_NODE_ID))
+      .set_reported(user_modifier_id);
 
-  // Remove leftover of node 0 if it exists
-  // This is necessary if we are interviewing again the user as this node will be left undefined
-  // and causing a get loop.
-  remove_node_0_if_exists();
+    // Keep parsing the frame
+    parser.read_byte(current_user_id_node.emplace_node(ATTRIBUTE(USER_TYPE)));
+    parser.read_byte_with_bitmask(
+      {USER_REPORT_PROPERTIES1_USER_ACTIVE_STATE_BIT_MASK,
+       current_user_id_node.emplace_node(ATTRIBUTE(USER_ACTIVE_STATE))});
+    parser.read_byte(
+      current_user_id_node.emplace_node(ATTRIBUTE(CREDENTIAL_RULE)));
+    parser.read_sequential<user_credential_expiring_timeout_minutes_t>(
+      2,
+      current_user_id_node.emplace_node(
+        ATTRIBUTE(USER_EXPIRING_TIMEOUT_MINUTES)));
+    parser.read_byte_with_bitmask(
+      {USER_REPORT_PROPERTIES2_USER_NAME_ENCODING_MASK,
+       current_user_id_node.emplace_node(ATTRIBUTE(USER_NAME_ENCODING))});
+    parser.read_string(current_user_id_node.emplace_node(ATTRIBUTE(USER_NAME)));
 
-  // Set standard (uint8 & uint16) data
-  std::vector<user_field_data> user_data
-    = {{ATTRIBUTE(USER_MODIFIER_TYPE), INDEX_USER_MODIFIER_TYPE},
-       {ATTRIBUTE(USER_MODIFIER_NODE_ID), INDEX_USER_MODIFIER_ID},
-       {ATTRIBUTE(USER_TYPE), INDEX_USER_TYPE},
-       {ATTRIBUTE(USER_ACTIVE_STATE),
-        INDEX_USER_ACTIVE_STATE,
-        USER_REPORT_PROPERTIES1_USER_ACTIVE_STATE_BIT_MASK},
-       {ATTRIBUTE(USER_NAME_ENCODING),
-        INDEX_USER_NAME_ENCODING,
-        USER_REPORT_PROPERTIES2_USER_NAME_ENCODING_MASK},
-       {ATTRIBUTE(CREDENTIAL_RULE), INDEX_CREDENTIAL_RULE},
-       {ATTRIBUTE(USER_EXPIRING_TIMEOUT_MINUTES),
-        INDEX_USER_NAME_EXPIRING_TIMEOUT_MINUTES}};
+    // Get credentials
+    trigger_get_credential(current_user_id_node, 0, 0);
 
-  sl_status_t set_status
-    = set_reported_attributes(user_unique_id_node, frame_data, user_data);
-
-  if (set_status != SL_STATUS_OK) {
-    return set_status;
-  }
-
-  // User name
-  uint8_t user_name_length = frame_data[INDEX_USER_NAME_LENGTH];
-  std::string user_name
-    = get_string_value(frame_data, INDEX_USER_NAME, user_name_length);
-
-  // Prevent duplicate
-  auto user_name_node
-    = attribute_store_get_first_child_by_type(user_unique_id_node,
-                                              ATTRIBUTE(USER_NAME));
-  if (!attribute_store_node_exists(user_name_node)) {
-    user_name_node
-      = attribute_store_add_node(ATTRIBUTE(USER_NAME), user_unique_id_node);
-  }
-  attribute_store_set_reported_string(user_name_node, user_name.c_str());
-
-  // Get credentials
-  trigger_get_credential(user_unique_id_node, 0, 0);
-
-  // Interview next ID if needed
-  user_credential_user_unique_id_t next_user_id
-    = get_uint16_value(frame_data, INDEX_NEXT_USER_ID);
-  if (next_user_id != 0) {
-    sl_log_debug(LOG_TAG, "Trigger a get for next user (%d)", next_user_id);
-    trigger_get_user(endpoint_node, next_user_id);
-  } else {
-    sl_log_debug(LOG_TAG, "No more users to discover");
+    if (next_user_id != 0) {
+      sl_log_debug(LOG_TAG, "Trigger a get for next user (%d)", next_user_id);
+      trigger_get_user(endpoint_node, next_user_id);
+    } else {
+      sl_log_debug(LOG_TAG, "No more users to discover");
+    }
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while parsing User Report frame : %s",
+                 e.what());
+    return SL_STATUS_FAIL;
   }
 
   return SL_STATUS_OK;

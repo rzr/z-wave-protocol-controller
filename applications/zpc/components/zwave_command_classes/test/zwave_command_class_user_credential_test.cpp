@@ -1819,15 +1819,13 @@ void test_user_credential_user_report_happy_case()
   test_user_values(second_user_id_node);
 
   // Test structure
-
   // The report function should not have created an other user unique id node (next_user_id = 0)
   user_id_count
     = attribute_store_get_node_child_count_by_type(endpoint_id_node,
                                                    ATTRIBUTE(USER_UNIQUE_ID));
   TEST_ASSERT_EQUAL_MESSAGE(2,
                             user_id_count,
-                            "User node count mismatch. Should be 2 : 1 for "
-                            "the reported one and 1 for the next one");
+                            "User node count mismatch. Should only 2 users created.");
 
   user_credential_user_unique_id_t reported_id;
   attribute_store_get_reported(first_user_id_node,
