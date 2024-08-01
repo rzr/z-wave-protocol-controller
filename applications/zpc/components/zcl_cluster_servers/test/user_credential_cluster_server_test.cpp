@@ -14,6 +14,7 @@
 // Cpp
 #include <stdlib.h>
 #include "workaround_for_test.hpp"
+#include "attribute.hpp"
 
 extern "C" {
 #include "user_credential_cluster_server.h"
@@ -781,13 +782,6 @@ attribute_store_node_t
                              cpp_str_credential_data.end());
   }
 
-  uint8_t credential_data_length = credential_data_vector.size();
-  attribute_store_node_t credential_data_length_node
-    = attribute_store_emplace(credential_slot_node,
-                              ATTRIBUTE(CREDENTIAL_DATA_LENGTH),
-                              &credential_data_length,
-                              sizeof(credential_data_length));
-
   mock_expected_cred_mqtt_topic(
     user_id,
     credential_type,
@@ -795,7 +789,7 @@ attribute_store_node_t
     "CredentialData",
     // Credential data is published in UTF-8 no matter what the encoding is
     cpp_str_credential_data);
-  attribute_store_emplace(credential_data_length_node,
+  attribute_store_emplace(credential_slot_node,
                           ATTRIBUTE(CREDENTIAL_DATA),
                           credential_data_vector.data(),
                           credential_data_vector.size());
@@ -973,7 +967,6 @@ void helper_test_desired_credential_attributes(
                             reported_credential_slot,
                             "Credential Slot mismatch");
 
-  uint8_t expected_data_length;
   std::vector<uint8_t> expected_credential_data_vector;
   std::string str_credential_data(credential_data);
 
@@ -988,35 +981,19 @@ void helper_test_desired_credential_attributes(
       expected_credential_data_vector.push_back((uint8_t)(c >> 8));
       expected_credential_data_vector.push_back((uint8_t)c);
     }
-    expected_data_length = expected_credential_data_vector.size();
   } else {
-    expected_data_length = str_credential_data.size();
     expected_credential_data_vector
       = std::vector<uint8_t>(str_credential_data.begin(),
                              str_credential_data.end());
   }
-  // Credential Data Length
-  attribute_store_node_t credential_data_length_node
-    = attribute_store_get_first_child_by_type(
-      credential_slot_node,
-      ATTRIBUTE(CREDENTIAL_DATA_LENGTH));
-  uint8_t reported_credential_data_length;
-  attribute_store_get_desired(credential_data_length_node,
-                              &reported_credential_data_length,
-                              sizeof(reported_credential_data_length));
-  TEST_ASSERT_EQUAL_MESSAGE(expected_data_length,
-                            reported_credential_data_length,
-                            "Credential Data Length mismatch");
 
   // Credential Data
-  attribute_store_node_t credential_data_node
-    = attribute_store_get_first_child_by_type(credential_data_length_node,
+  attribute_store::attribute credential_data_node
+    = attribute_store_get_first_child_by_type(credential_slot_node,
                                               ATTRIBUTE(CREDENTIAL_DATA));
-  std::vector<uint8_t> reported_credential_data;
-  reported_credential_data.resize(reported_credential_data_length);
-  attribute_store_get_desired(credential_data_node,
-                              reported_credential_data.data(),
-                              reported_credential_data_length);
+  std::vector<uint8_t> reported_credential_data
+    = credential_data_node
+        .desired<std::vector<uint8_t>>();
 
   TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(expected_credential_data_vector.data(),
                                         reported_credential_data.data(),

@@ -12,6 +12,7 @@
  *****************************************************************************/
 #include <stdlib.h>
 #include "workaround_for_test.hpp"
+#include "attribute.hpp"
 
 extern "C" {
 
@@ -31,6 +32,7 @@ extern "C" {
 #include "attribute_store_type_registration.h"
 #include "zpc_attribute_store_type_registration.h"
 
+
 // Interface includes
 #include "attribute_store_defined_attribute_types.h"
 #include "ZW_classcmd.h"
@@ -47,6 +49,7 @@ extern "C" {
 #include "dotdot_mqtt_mock.h"
 #include "dotdot_mqtt_generated_commands_mock.h"
 #include "zwave_command_class_notification_mock.h"
+
 // Used for delayed interview
 #include "zwave_network_management_mock.h"
 
@@ -622,18 +625,8 @@ void helper_test_set_get_with_args(
       } break;
       // Variable length field
       case BYTE_ARRAY_STORAGE_TYPE: {
-        // Length node should be a parent of the data node
-        auto data_length_node = attribute_store_get_node_parent(node);
-
-        uint8_t data_length = 0;
-        attribute_store_read_value(data_length_node,
-                                   node_value_state,
-                                   &data_length,
-                                   sizeof(data_length));
-        if (data_length == 0) {
-          TEST_FAIL_MESSAGE(
-            "Can't get data_length for BYTE_ARRAY_STORAGE_TYPE type");
-        }
+        uint8_t data_length
+          = attribute_store_get_node_value_size(node, node_value_state);
 
         std::vector<uint8_t> data;
         data.resize(data_length);
@@ -832,14 +825,7 @@ void helper_fill_credential_data(attribute_store_node_t credential_slot_node,
                                  std::string credential_data,
                                  user_credential_modifier_type_t modifier_type)
 {
-  uint8_t credential_data_length = credential_data.size();
-  auto credential_data_length_node
-    = attribute_store_emplace(credential_slot_node,
-                              ATTRIBUTE(CREDENTIAL_DATA_LENGTH),
-                              &credential_data_length,
-                              sizeof(uint8_t));
-
-  attribute_store_emplace(credential_data_length_node,
+  attribute_store_emplace(credential_slot_node,
                           ATTRIBUTE(CREDENTIAL_DATA),
                           credential_data.data(),
                           credential_data.size());
@@ -849,29 +835,14 @@ void helper_fill_credential_data(attribute_store_node_t credential_slot_node,
                           &modifier_type,
                           sizeof(modifier_type));
 }
-void helper_test_credential_data(attribute_store_node_t credential_slot_node,
+
+void helper_test_credential_data(attribute_store::attribute credential_slot_node,
                                  std::string credential_data,
                                  user_credential_modifier_type_t modifier_type)
 {
-  uint8_t credential_data_length   = credential_data.size();
-  auto credential_data_length_node = attribute_store_get_first_child_by_type(
-    credential_slot_node,
-    ATTRIBUTE(CREDENTIAL_DATA_LENGTH));
-  uint8_t reported_credential_data_length;
-  attribute_store_get_reported(credential_data_length_node,
-                               &reported_credential_data_length,
-                               sizeof(reported_credential_data_length));
-  TEST_ASSERT_EQUAL_MESSAGE(credential_data_length,
-                            reported_credential_data_length,
-                            "Credential data length mismatch");
-
-  std::vector<uint8_t> reported_credential_data;
-  reported_credential_data.resize(reported_credential_data_length);
-
-  attribute_store_get_child_reported(credential_data_length_node,
-                                     ATTRIBUTE(CREDENTIAL_DATA),
-                                     reported_credential_data.data(),
-                                     reported_credential_data_length);
+  auto reported_credential_data
+    = credential_slot_node.child_by_type(ATTRIBUTE(CREDENTIAL_DATA))
+        .reported<std::vector<uint8_t>>();
 
   TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(credential_data.data(),
                                         reported_credential_data.data(),
@@ -1974,15 +1945,8 @@ void test_user_credential_credential_set_1byte_happy_case()
                                       &operation_type,
                                       sizeof(operation_type));
   // CREDENTIAL_DATA
-  uint8_t credential_data_length = credential_data.size();
-  auto credential_data_length_node
-    = attribute_store_emplace_desired(credential_slot_node,
-                                      ATTRIBUTE(CREDENTIAL_DATA_LENGTH),
-                                      &credential_data_length,
-                                      sizeof(uint8_t));
-
   auto credential_data_node
-    = attribute_store_emplace_desired(credential_data_length_node,
+    = attribute_store_emplace_desired(credential_slot_node,
                                       ATTRIBUTE(CREDENTIAL_DATA),
                                       credential_data.data(),
                                       credential_data.size());
@@ -2023,15 +1987,8 @@ void test_user_credential_credential_set_12byte_happy_case()
                                       &operation_type,
                                       sizeof(operation_type));
   // CREDENTIAL_DATA
-  uint8_t credential_data_length = credential_data.size();
-  auto credential_data_length_node
-    = attribute_store_emplace(credential_slot_node,
-                              ATTRIBUTE(CREDENTIAL_DATA_LENGTH),
-                              &credential_data_length,
-                              sizeof(uint8_t));
-
   auto credential_data_node
-    = attribute_store_emplace(credential_data_length_node,
+    = attribute_store_emplace(credential_slot_node,
                               ATTRIBUTE(CREDENTIAL_DATA),
                               credential_data.data(),
                               credential_data.size());
@@ -2279,21 +2236,12 @@ void test_user_credential_credential_report_happy_case()
     helper_test_attribute_store_values(uint16_attribute_map,
                                        credential_slot_node);
 
-    auto credential_length_node = attribute_store_get_first_child_by_type(
-      credential_slot_node,
-      ATTRIBUTE(CREDENTIAL_DATA_LENGTH));
-    uint8_t reported_credential_length;
-    attribute_store_get_reported(credential_length_node,
-                                 &reported_credential_length,
-                                 sizeof(reported_credential_length));
-    TEST_ASSERT_EQUAL_MESSAGE(credential_data.size(),
-                              reported_credential_length,
-                              "Credential data length value mismatch");
-
+   
+    size_t reported_credential_length = credential_data.size();
     std::vector<uint8_t> reported_credential_data;
     reported_credential_data.resize(reported_credential_length);
 
-    attribute_store_get_child_reported(credential_length_node,
+    attribute_store_get_child_reported(credential_slot_node,
                                        ATTRIBUTE(CREDENTIAL_DATA),
                                        reported_credential_data.data(),
                                        reported_credential_length);
@@ -3128,8 +3076,7 @@ void test_user_credential_credential_notification_add_modify_delete_happy_case()
                                        credential_type_node);
 
     uint8_attribute_map
-      = {{ATTRIBUTE(CREDENTIAL_MODIFIER_TYPE), credential_modifier_type},
-         {ATTRIBUTE(CREDENTIAL_DATA_LENGTH), credential_data.size()}};
+      = {{ATTRIBUTE(CREDENTIAL_MODIFIER_TYPE), credential_modifier_type}};
     helper_test_attribute_store_values(uint8_attribute_map,
                                        credential_slot_node);
 
