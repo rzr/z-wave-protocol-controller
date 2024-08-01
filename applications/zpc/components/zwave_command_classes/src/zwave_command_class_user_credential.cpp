@@ -121,6 +121,31 @@ struct attribute_command_data {
   attribute_store_node_t node = ATTRIBUTE_STORE_INVALID_NODE;
 };
 
+struct credential_nodes {
+  attribute_store::attribute slot_node;
+  attribute_store::attribute type_node;
+  attribute_store::attribute user_unique_id_node;
+};
+
+/**
+ * @brief
+ * @param node
+ * @return
+ */
+credential_nodes get_credential_nodes(attribute_store_node_t node)
+{
+  attribute_store::attribute slot_node(node);
+  slot_node = slot_node.first_parent_or_self(ATTRIBUTE(CREDENTIAL_SLOT));
+  attribute_store::attribute type_node
+    = slot_node.first_parent(ATTRIBUTE(CREDENTIAL_TYPE));
+  attribute_store::attribute user_unique_id_node
+    = type_node.first_parent(ATTRIBUTE(USER_UNIQUE_ID));
+
+  return {.slot_node           = slot_node,
+          .type_node           = type_node,
+          .user_unique_id_node = user_unique_id_node};
+}
+
 /////////////////////////////////////////////////////////////////////////////
 // Capabilites Data Structs
 /////////////////////////////////////////////////////////////////////////////
@@ -905,20 +930,9 @@ sl_status_t node_to_uint8_vector(attribute_store_node_t node,
     // Variable length field
     case BYTE_ARRAY_STORAGE_TYPE: {
       // First get the length
-      auto credential_length_node = attribute_store_get_node_parent(node);
-
-      uint8_t credential_data_length = 0;
-      status = attribute_store_read_value(credential_length_node,
-                                          value_state,
-                                          &credential_data_length,
-                                          sizeof(credential_data_length));
-
-      if (status != SL_STATUS_OK) {
-        sl_log_error(LOG_TAG,
-                     "Missing BYTE_ARRAY_STORAGE_TYPE length for attribute %s",
-                     attribute_description);
-        return SL_STATUS_NOT_SUPPORTED;
-      }
+      auto credential_data_length
+        = attribute_store_get_node_value_size(node, value_state);
+        
       // + 1 for the length
       data.resize(credential_data_length + 1);
       data[0] = credential_data_length;
@@ -1352,7 +1366,6 @@ void update_credential_reported_values(
      7},
     {ATTRIBUTE(CREDENTIAL_MODIFIER_TYPE), INDEX_CREDENTIAL_MODIFIER_TYPE},
     {ATTRIBUTE(CREDENTIAL_MODIFIER_NODE_ID), INDEX_CREDENTIAL_MODIFIER_NODE_ID},
-    {ATTRIBUTE(CREDENTIAL_DATA_LENGTH), INDEX_CREDENTIAL_LENGTH},
   };
 
   sl_status_t status = set_reported_attributes(credential_slot_node,
@@ -1364,11 +1377,8 @@ void update_credential_reported_values(
     return;
   }
 
-  auto credential_data_length_node = attribute_store_get_first_child_by_type(
-    credential_slot_node,
-    ATTRIBUTE(CREDENTIAL_DATA_LENGTH));
   auto credential_data_node
-    = attribute_store_get_first_child_by_type(credential_data_length_node,
+    = attribute_store_get_first_child_by_type(credential_slot_node,
                                               ATTRIBUTE(CREDENTIAL_DATA));
 
   status
@@ -2215,176 +2225,99 @@ void trigger_get_credential(attribute_store_node_t user_unique_id_node,
   }
 }
 
-static sl_status_t zwave_command_class_user_credential_credential_set(
+sl_status_t zwave_command_class_user_credential_credential_set(
   attribute_store_node_t credential_operation_type_node,
   uint8_t *frame,
   uint16_t *frame_length)
 {
-  // Identifiers nodes
-  attribute_store_node_t credential_slot_node
-    = attribute_store_get_first_parent_with_type(credential_operation_type_node,
-                                                 ATTRIBUTE(CREDENTIAL_SLOT));
-  attribute_store_node_t credential_type_node
-    = attribute_store_get_first_parent_with_type(credential_slot_node,
-                                                 ATTRIBUTE(CREDENTIAL_TYPE));
-  attribute_store_node_t user_unique_id_node
-    = attribute_store_get_first_parent_with_type(credential_type_node,
-                                                 ATTRIBUTE(USER_UNIQUE_ID));
+  sl_log_debug(LOG_TAG, "Credential Set");
+  try {
+    credential_nodes cred_nodes
+      = get_credential_nodes(credential_operation_type_node);
 
-  // Since CREDENTIAL_DATA is not directly under credential_slot_node we need to fetch it first
-  attribute_store_node_t credential_length_node
-    = attribute_store_get_first_child_by_type(
-      credential_slot_node,
-      ATTRIBUTE(CREDENTIAL_DATA_LENGTH));
-  attribute_store_node_t credential_node
-    = attribute_store_get_first_child_by_type(credential_length_node,
-                                              ATTRIBUTE(CREDENTIAL_DATA));
-  // Get operation type
-  user_credential_operation_type_t operation_type = 0;
-  sl_status_t status
-    = attribute_store_get_desired(credential_operation_type_node,
-                                  &operation_type,
-                                  sizeof(operation_type));
+    auto operation_type
+      = cred_nodes.slot_node.child_by_type(ATTRIBUTE(CREDENTIAL_OPERATION_TYPE))
+          .desired<user_credential_operation_type_t>();
 
-  if (status != SL_STATUS_OK) {
+    sl_log_debug(LOG_TAG, "Operation type : %d", operation_type);
+
+    // Generate the frame
+    const bool is_delete_operation
+      = (operation_type == CREDENTIAL_SET_OPERATION_TYPE_DELETE);
+
+    uint8_t expected_frame_size = 9;
+    uint8_t credential_size     = 0;
+    auto credential_data_node
+      = cred_nodes.slot_node.child_by_type(ATTRIBUTE(CREDENTIAL_DATA));
+
+    if (!is_delete_operation) {
+      auto state = REPORTED_ATTRIBUTE;
+      if (credential_data_node.desired_exists()) {
+        state = DESIRED_ATTRIBUTE;
+      }
+      credential_size = static_cast<uint8_t>(
+        credential_data_node.get<std::vector<uint8_t>>(state).size());
+    }
+
+    // Append the credential data
+    expected_frame_size += credential_size;
+
+    frame_generator.initialize_frame(CREDENTIAL_SET,
+                                     frame,
+                                     expected_frame_size);
+    frame_generator.add_value(cred_nodes.user_unique_id_node,
+                              DESIRED_OR_REPORTED_ATTRIBUTE);
+    frame_generator.add_value(cred_nodes.type_node,
+                              DESIRED_OR_REPORTED_ATTRIBUTE);
+    frame_generator.add_value(cred_nodes.slot_node,
+                              DESIRED_OR_REPORTED_ATTRIBUTE);
+    frame_generator.add_raw_byte(operation_type);
+    frame_generator.add_raw_byte(credential_size);
+    if (!is_delete_operation) {
+      frame_generator.add_value(credential_data_node,
+                                DESIRED_OR_REPORTED_ATTRIBUTE);
+    }
+
+    frame_generator.validate_frame(frame_length);
+
+  } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
-                 "Can't get operation type. Not sending CREDENTIAL_SET.");
+                 "Error while generating Credential Set frame : %s",
+                 e.what());
     return SL_STATUS_NOT_SUPPORTED;
-  }
-
-  sl_log_debug(LOG_TAG,
-               "Credential SET for Credential Slot %d, Credential Type %d, "
-               "User %d (operation type : %d)",
-               static_cast<user_credential_slot_t>(
-                 attribute_store_get_reported_number(credential_slot_node)),
-               static_cast<user_credential_type_t>(
-                 attribute_store_get_reported_number(credential_type_node)),
-               static_cast<user_credential_user_unique_id_t>(
-                 attribute_store_get_reported_number(user_unique_id_node)),
-               operation_type);
-
-  // Since the data is not linear we provide the node directly
-  std::vector<attribute_command_data> set_data
-    = {{ATTRIBUTE(USER_UNIQUE_ID),
-        DESIRED_OR_REPORTED_ATTRIBUTE,
-        user_unique_id_node},
-       {ATTRIBUTE(CREDENTIAL_TYPE),
-        DESIRED_OR_REPORTED_ATTRIBUTE,
-        credential_type_node},
-       {ATTRIBUTE(CREDENTIAL_SLOT),
-        DESIRED_OR_REPORTED_ATTRIBUTE,
-        credential_slot_node},
-       {ATTRIBUTE(CREDENTIAL_OPERATION_TYPE),
-        DESIRED_ATTRIBUTE,
-        credential_operation_type_node}};
-
-  // Add the credential data if we are not trying to remove a credential
-  if (operation_type != USER_CREDENTIAL_OPERATION_TYPE_DELETE) {
-    set_data.push_back({ATTRIBUTE(CREDENTIAL_DATA),
-                        DESIRED_OR_REPORTED_ATTRIBUTE,
-                        credential_node});
-  }
-  status = create_command_frame(CREDENTIAL_SET,
-                                set_data,
-                                credential_slot_node,
-                                frame,
-                                frame_length);
-
-  if (status != SL_STATUS_OK) {
-    sl_log_error(LOG_TAG, "Can't create Credential SET frame");
-    return SL_STATUS_NOT_SUPPORTED;
-  }
-  // If we are deleting the credential we are setting 0x00 as a credential length
-  if (operation_type == USER_CREDENTIAL_OPERATION_TYPE_DELETE) {
-    frame[*frame_length] = 0x00;
-    *frame_length += 1;
   }
 
   return SL_STATUS_OK;
 }
 
-/**
- * @brief Credential GET
- * 
- * Attribute store IN : 
- *  CREDENTIAL_TYPE : desired value  => get_frame->credentialType
- *  CREDENTIAL_SLOT : desired value  => get_frame->credentialSlot1 & credentialSlot2
- *  USER_UNIQUE_ID  : reported value => get_frame->userUniqueIdentifier1 & userUniqueIdentifier2
- * 
- * Attribute store OUT :
- *  CREDENTIAL_TYPE : set reported as desired & clear desired
- *  CREDENTIAL_SLOT : set reported as desired & clear desired
- * 
- * @param credential_slot_node
- * @param frame 
- * @param frame_length 
- * @return sl_status_t 
- */
 static sl_status_t zwave_command_class_user_credential_credential_get(
   attribute_store_node_t credential_slot_node,
   uint8_t *frame,
   uint16_t *frame_length)
 {
-  user_credential_slot_t credential_slot = 0;
-  sl_status_t status = attribute_store_get_desired(credential_slot_node,
-                                                   &credential_slot,
-                                                   sizeof(credential_slot));
-  if (status != SL_STATUS_OK) {
-    sl_log_error(
-      LOG_TAG,
-      "Can't get credential slot value. Not sending CREDENTIAL_GET.");
-    return SL_STATUS_NOT_SUPPORTED;
-  }
+  sl_log_debug(LOG_TAG, "Credential Get");
 
-  // Get Credential type
-  user_credential_type_t credential_type = 0;
-  attribute_store_node_t credential_type_node
-    = attribute_store_get_first_parent_with_type(credential_slot_node,
-                                                 ATTRIBUTE(CREDENTIAL_TYPE));
-  status = attribute_store_get_reported(credential_type_node,
-                                        &credential_type,
-                                        sizeof(credential_type));
-  if (status != SL_STATUS_OK) {
+  credential_nodes cred_nodes = get_credential_nodes(credential_slot_node);
+
+  // Generate the frame
+  constexpr auto expected_frame_size
+    = static_cast<uint8_t>(sizeof(ZW_CREDENTIAL_GET_FRAME));
+  try {
+    frame_generator.initialize_frame(CREDENTIAL_GET,
+                                     frame,
+                                     expected_frame_size);
+    frame_generator.add_value(cred_nodes.user_unique_id_node,
+                              REPORTED_ATTRIBUTE);
+    frame_generator.add_value(cred_nodes.type_node, REPORTED_ATTRIBUTE);
+    frame_generator.add_value(cred_nodes.slot_node, DESIRED_ATTRIBUTE);
+    frame_generator.validate_frame(frame_length);
+  } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
-                 "Can't get credential_type. Not sending CREDENTIAL_GET.");
+                 "Error while generating Credential Get frame : %s",
+                 e.what());
     return SL_STATUS_NOT_SUPPORTED;
   }
 
-  // Get User Node
-  attribute_store_node_t user_unique_id_node
-    = attribute_store_get_first_parent_with_type(credential_type_node,
-                                                 ATTRIBUTE(USER_UNIQUE_ID));
-  user_credential_user_unique_id_t user_unique_id;
-  status = attribute_store_get_reported(user_unique_id_node,
-                                        &user_unique_id,
-                                        sizeof(user_unique_id));
-  if (status != SL_STATUS_OK) {
-    sl_log_error(LOG_TAG,
-                 "Can't get user_unique_id. Not sending CREDENTIAL_GET.");
-    return SL_STATUS_NOT_SUPPORTED;
-  }
-
-  // Log credential node, type, and user ID
-  sl_log_debug(
-    LOG_TAG,
-    "Credential Get. Credential slot: %d / Credential Type: %d (User %d)",
-    credential_slot,
-    credential_type,
-    user_unique_id);
-
-  auto exploded_credential_slot = explode_uint16(credential_slot);
-  auto exploded_user_id         = explode_uint16(user_unique_id);
-
-  ZW_CREDENTIAL_GET_FRAME *get_frame = (ZW_CREDENTIAL_GET_FRAME *)frame;
-  get_frame->cmdClass                = COMMAND_CLASS_USER_CREDENTIAL;
-  get_frame->cmd                     = CREDENTIAL_GET;
-  get_frame->userUniqueIdentifier1   = exploded_user_id.msb;
-  get_frame->userUniqueIdentifier2   = exploded_user_id.lsb;
-  get_frame->credentialType          = credential_type;
-  get_frame->credentialSlot1         = exploded_credential_slot.msb;
-  get_frame->credentialSlot2         = exploded_credential_slot.lsb;
-
-  *frame_length = sizeof(ZW_CREDENTIAL_GET_FRAME);
   return SL_STATUS_OK;
 }
 
@@ -2567,21 +2500,8 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
     return status;
   }
 
-  // Set credential data
-  auto credential_data_length_node
-    = attribute_store_emplace(credential_slot_node,
-                              ATTRIBUTE(CREDENTIAL_DATA_LENGTH),
-                              &credential_length,
-                              sizeof(credential_length));
-
-  if (credential_data_length_node == ATTRIBUTE_STORE_INVALID_NODE) {
-    sl_log_error(LOG_TAG,
-                 "Can't set CREDENTIAL_DATA_LENGTH in attribute store");
-    return SL_STATUS_NOT_SUPPORTED;
-  }
-
   status
-    = attribute_store_set_child_reported(credential_data_length_node,
+    = attribute_store_set_child_reported(credential_slot_node,
                                          ATTRIBUTE(CREDENTIAL_DATA),
                                          &frame_data[INDEX_CREDENTIAL_DATA],
                                          credential_length);
@@ -3890,12 +3810,8 @@ sl_status_t zwave_command_class_user_credential_user_checksum_handle_report(
         return SL_STATUS_FAIL;
       }
 
-      auto credential_data_length_node
-        = attribute_store_get_first_child_by_type(
-          credential_slot_node,
-          ATTRIBUTE(CREDENTIAL_DATA_LENGTH));
       auto credential_data_node
-        = attribute_store_get_first_child_by_type(credential_data_length_node,
+        = attribute_store_get_first_child_by_type(credential_slot_node,
                                                   ATTRIBUTE(CREDENTIAL_DATA));
 
       // Add credential data to checksum
@@ -4056,12 +3972,8 @@ sl_status_t
         return SL_STATUS_FAIL;
       }
 
-      auto credential_data_length_node
-        = attribute_store_get_first_child_by_type(
-          credential_slot_node,
-          ATTRIBUTE(CREDENTIAL_DATA_LENGTH));
       auto credential_data_node
-        = attribute_store_get_first_child_by_type(credential_data_length_node,
+        = attribute_store_get_first_child_by_type(credential_slot_node,
                                                   ATTRIBUTE(CREDENTIAL_DATA));
 
       // Add credential data to checksum
@@ -4518,14 +4430,7 @@ sl_status_t zwave_command_class_user_credential_add_new_credential(
                                       sizeof(credential_slot));
 
   // Add data
-  uint8_t data_size = credential_data_vector.size();
-  auto credential_data_length_node
-    = attribute_store_emplace_desired(credential_slot_node,
-                                      ATTRIBUTE(CREDENTIAL_DATA_LENGTH),
-                                      &data_size,
-                                      sizeof(data_size));
-
-  attribute_store_emplace_desired(credential_data_length_node,
+  attribute_store_emplace_desired(credential_slot_node,
                                   ATTRIBUTE(CREDENTIAL_DATA),
                                   credential_data_vector.data(),
                                   credential_data_vector.size());
@@ -4614,24 +4519,8 @@ sl_status_t zwave_command_class_user_credential_modify_credential(
   }
 
   // Add data
-  uint8_t data_size = credential_data_vector.size();
-
-  auto credential_data_length_node = attribute_store_get_first_child_by_type(
-    credential_slot_node,
-    ATTRIBUTE(CREDENTIAL_DATA_LENGTH));
-
-  if (!attribute_store_node_exists(credential_data_length_node)) {
-    sl_log_error(LOG_TAG,
-                 "Can't find CREDENTIAL_DATA_LENGTH in attribute store. Not "
-                 "modifying credential.");
-    return SL_STATUS_FAIL;
-  }
-  attribute_store_set_desired(credential_data_length_node,
-                              &data_size,
-                              sizeof(data_size));
-
   sl_status_t status
-    = attribute_store_set_child_desired(credential_data_length_node,
+    = attribute_store_set_child_desired(credential_slot_node,
                                         ATTRIBUTE(CREDENTIAL_DATA),
                                         credential_data_vector.data(),
                                         credential_data_vector.size());
