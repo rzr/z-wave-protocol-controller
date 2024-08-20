@@ -122,18 +122,20 @@ struct attribute_command_data {
   attribute_store_node_t node = ATTRIBUTE_STORE_INVALID_NODE;
 };
 
-struct credential_nodes {
+struct credential_id_nodes {
   attribute_store::attribute slot_node;
   attribute_store::attribute type_node;
   attribute_store::attribute user_unique_id_node;
 };
 
 /**
- * @brief
- * @param node
- * @return
+ * @brief Get associated credential identifier nodes
+ * 
+ * @param node Not that have a CREDENTIAL_SLOT, CREDENTIAL_TYPE and USER_UNIQUE_ID as respective parents
+ 
+ * @return credential_id_nodes Credential identifier nodes
  */
-credential_nodes get_credential_nodes(attribute_store_node_t node)
+credential_id_nodes get_credential_identifier_nodes(attribute_store_node_t node)
 {
   attribute_store::attribute slot_node(node);
   slot_node = slot_node.first_parent_or_self(ATTRIBUTE(CREDENTIAL_SLOT));
@@ -1119,64 +1121,6 @@ bool add_node_to_checksum(std::vector<uint8_t> &current_checksum,
 
   return true;
 };
-/**
- * @brief Create a command frame (SET or GET) based on the attribute store
- * 
- * @param command       Command to send (will be in frame[1], e.g USER_SET)
- * @param command_data  Attributes that will be in the frame (in order of appearance in the frame)       
- * @param base_node     If not specified otherwise will fetch the attributes that are under this node
- * @param frame         Frame object from the callback
- * @param frame_length  Frame size from the callback
- * 
- * @return sl_status_t SL_STATUS_OK if everything was fine
- */
-sl_status_t
-  create_command_frame(uint8_t command,
-                       std::vector<attribute_command_data> command_data,
-                       attribute_store_node_t base_node,
-                       uint8_t *frame,
-                       uint16_t *frame_length)
-{
-  frame[0] = COMMAND_CLASS_USER_CREDENTIAL;
-  frame[1] = command;
-
-  uint16_t current_index = 2;
-
-  for (auto &attribute_info: command_data) {
-    auto attribute_description
-      = attribute_store_get_type_name(attribute_info.attribute_type);
-
-    attribute_store_node_t node;
-    if (attribute_info.node == ATTRIBUTE_STORE_INVALID_NODE) {
-      node = attribute_store_get_first_child_by_type(
-        base_node,
-        attribute_info.attribute_type);
-    } else {
-      node = attribute_info.node;
-    }
-
-    if (node == ATTRIBUTE_STORE_INVALID_NODE) {
-      sl_log_critical(LOG_TAG,
-                      "Can't find node for Attribute %s",
-                      attribute_description);
-      return SL_STATUS_FAIL;
-    }
-
-    std::vector<uint8_t> data;
-    sl_status_t status
-      = node_to_uint8_vector(node, data, attribute_info.attribute_state);
-    if (status != SL_STATUS_OK) {
-      return status;
-    }
-    for (auto &byte: data) {
-      frame[current_index++] = byte;
-    }
-  }
-
-  *frame_length = current_index;
-
-  return SL_STATUS_OK;
-}
 
 /**
  * @brief Updates the desired values of attributes in the attribute store.
@@ -2104,8 +2048,8 @@ sl_status_t zwave_command_class_user_credential_credential_set(
 {
   sl_log_debug(LOG_TAG, "Credential Set");
   try {
-    credential_nodes cred_nodes
-      = get_credential_nodes(credential_operation_type_node);
+    auto cred_nodes
+      = get_credential_identifier_nodes(credential_operation_type_node);
 
     auto operation_type
       = cred_nodes.slot_node.child_by_type(ATTRIBUTE(CREDENTIAL_OPERATION_TYPE))
@@ -2169,7 +2113,7 @@ static sl_status_t zwave_command_class_user_credential_credential_get(
 {
   sl_log_debug(LOG_TAG, "Credential Get");
 
-  credential_nodes cred_nodes = get_credential_nodes(credential_slot_node);
+  auto cred_nodes = get_credential_identifier_nodes(credential_slot_node);
 
   // Generate the frame
   constexpr auto expected_frame_size
@@ -2559,79 +2503,31 @@ sl_status_t
 // Credential Learn Start/Report/Stop
 /////////////////////////////////////////////////////////////////////////////
 static sl_status_t zwave_command_class_user_credential_credential_learn_start(
-  attribute_store_node_t credential_operation_type_node,
-  uint8_t *frame,
-  uint16_t *frame_length)
+  attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
 {
-  // Identifiers nodes
-  attribute_store_node_t credential_slot_node
-    = attribute_store_get_first_parent_with_type(credential_operation_type_node,
-                                                 ATTRIBUTE(CREDENTIAL_SLOT));
-  attribute_store_node_t credential_type_node
-    = attribute_store_get_first_parent_with_type(credential_slot_node,
-                                                 ATTRIBUTE(CREDENTIAL_TYPE));
-  attribute_store_node_t user_unique_id_node
-    = attribute_store_get_first_parent_with_type(credential_type_node,
-                                                 ATTRIBUTE(USER_UNIQUE_ID));
+  sl_log_debug(LOG_TAG, "Credential Learn Start");
+  attribute_store::attribute credential_operation_type_node(node);
 
-  // Get operation type
-  user_credential_operation_type_t operation_type = 0;
-  sl_status_t status
-    = attribute_store_get_desired(credential_operation_type_node,
-                                  &operation_type,
-                                  sizeof(operation_type));
+  try {
+    frame_generator.initialize_frame(CREDENTIAL_LEARN_START,
+                                     frame,
+                                     sizeof(ZW_CREDENTIAL_LEARN_START_FRAME));
+    auto nodes = get_credential_identifier_nodes(credential_operation_type_node);
 
-  if (status != SL_STATUS_OK) {
-    sl_log_error(
-      LOG_TAG,
-      "Can't get operation type. Not sending Credential Learn Start.");
-    return SL_STATUS_NOT_SUPPORTED;
-  }
-
-  auto credential_learn_timeout_node = attribute_store_get_first_child_by_type(
-    credential_slot_node,
-    ATTRIBUTE(CREDENTIAL_LEARN_TIMEOUT));
-
-  sl_log_debug(
-    LOG_TAG,
-    "Credential Learn Start for Credential Slot %d, Credential Type %d, "
-    "User %d (operation type : %d, timeout : %d)",
-    static_cast<user_credential_slot_t>(
-      attribute_store_get_reported_number(credential_slot_node)),
-    static_cast<user_credential_type_t>(
-      attribute_store_get_reported_number(credential_type_node)),
-    static_cast<user_credential_user_unique_id_t>(
-      attribute_store_get_reported_number(user_unique_id_node)),
-    operation_type,
-    static_cast<user_credential_learn_timeout_t>(
-      attribute_store_get_reported_number(credential_learn_timeout_node)));
-
-  // Since the data is not linear we provide the node directly
-  std::vector<attribute_command_data> set_data
-    = {{ATTRIBUTE(USER_UNIQUE_ID),
-        DESIRED_OR_REPORTED_ATTRIBUTE,
-        user_unique_id_node},
-       {ATTRIBUTE(CREDENTIAL_TYPE),
-        DESIRED_OR_REPORTED_ATTRIBUTE,
-        credential_type_node},
-       {ATTRIBUTE(CREDENTIAL_SLOT),
-        DESIRED_OR_REPORTED_ATTRIBUTE,
-        credential_slot_node},
-       {ATTRIBUTE(CREDENTIAL_LEARN_OPERATION_TYPE),
-        DESIRED_ATTRIBUTE,
-        credential_operation_type_node},
-       {ATTRIBUTE(CREDENTIAL_LEARN_TIMEOUT),
-        DESIRED_OR_REPORTED_ATTRIBUTE,
-        credential_learn_timeout_node}};
-
-  status = create_command_frame(CREDENTIAL_LEARN_START,
-                                set_data,
-                                credential_slot_node,
-                                frame,
-                                frame_length);
-
-  if (status != SL_STATUS_OK) {
-    sl_log_error(LOG_TAG, "Can't create Credential Learn Start");
+    frame_generator.add_value(nodes.user_unique_id_node,
+                              DESIRED_OR_REPORTED_ATTRIBUTE);
+    frame_generator.add_value(nodes.type_node, DESIRED_OR_REPORTED_ATTRIBUTE);
+    frame_generator.add_value(nodes.slot_node, DESIRED_OR_REPORTED_ATTRIBUTE);
+    frame_generator.add_value(credential_operation_type_node,
+                              DESIRED_ATTRIBUTE);
+    frame_generator.add_value(
+      nodes.slot_node.child_by_type(ATTRIBUTE(CREDENTIAL_LEARN_TIMEOUT)),
+      DESIRED_OR_REPORTED_ATTRIBUTE);
+    frame_generator.validate_frame(frame_length);
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while generating Credential Learn Start frame : %s",
+                 e.what());
     return SL_STATUS_NOT_SUPPORTED;
   }
 
@@ -2865,46 +2761,39 @@ sl_status_t zwave_command_class_user_credential_credential_learn_status_report(
 /////////////////////////////////////////////////////////////////////////////
 
 static sl_status_t zwave_command_class_user_credential_uuic_association_set(
-  attribute_store_node_t destination_credential_slot_node,
+  attribute_store_node_t node,
   uint8_t *frame,
   uint16_t *frame_length)
 {
-  // Get nodes
-  auto credential_slot_node = attribute_store_get_first_parent_with_type(
-    destination_credential_slot_node,
-    ATTRIBUTE(CREDENTIAL_SLOT));
-  auto credential_type_node
-    = attribute_store_get_first_parent_with_type(credential_slot_node,
-                                                 ATTRIBUTE(CREDENTIAL_TYPE));
-  auto user_id_node
-    = attribute_store_get_first_parent_with_type(credential_type_node,
-                                                 ATTRIBUTE(USER_UNIQUE_ID));
-
   sl_log_debug(LOG_TAG,
                "User Unique Identifier Credential Association Set command");
+  attribute_store::attribute destination_credential_slot_node(node);
 
-  // Set the frame
-  // Since the data is not linear we provide the node directly
-  std::vector<attribute_command_data> set_data
-    = {{ATTRIBUTE(USER_UNIQUE_ID), REPORTED_ATTRIBUTE, user_id_node},
-       {ATTRIBUTE(CREDENTIAL_TYPE), REPORTED_ATTRIBUTE, credential_type_node},
-       {ATTRIBUTE(CREDENTIAL_SLOT), REPORTED_ATTRIBUTE, credential_slot_node},
-       {ATTRIBUTE(ASSOCIATION_DESTINATION_USER_ID), DESIRED_ATTRIBUTE},
-       {ATTRIBUTE(ASSOCIATION_DESTINATION_CREDENTIAL_SLOT), DESIRED_ATTRIBUTE}};
+  try {
+    frame_generator.initialize_frame(
+      USER_CREDENTIAL_ASSOCIATION_SET,
+      frame,
+      sizeof(ZW_USER_CREDENTIAL_ASSOCIATION_SET_FRAME));
 
-  sl_status_t status = create_command_frame(USER_CREDENTIAL_ASSOCIATION_SET,
-                                            set_data,
-                                            credential_slot_node,
-                                            frame,
-                                            frame_length);
-
-  if (status != SL_STATUS_OK) {
-    sl_log_error(
-      LOG_TAG,
-      "Can't create User Unique Identifier Credential Association Set frame");
+    auto nodes = get_credential_identifier_nodes(destination_credential_slot_node);
+    frame_generator.add_value(nodes.user_unique_id_node,
+                              REPORTED_ATTRIBUTE);
+    frame_generator.add_value(nodes.type_node, REPORTED_ATTRIBUTE);
+    frame_generator.add_value(nodes.slot_node, REPORTED_ATTRIBUTE);
+    frame_generator.add_value(nodes.slot_node.child_by_type(ATTRIBUTE(ASSOCIATION_DESTINATION_USER_ID)),
+                              DESIRED_ATTRIBUTE);
+    frame_generator.add_value(destination_credential_slot_node,
+                              DESIRED_ATTRIBUTE);
+    frame_generator.validate_frame(frame_length);
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while generating User Unique Identifier Credential "
+                 "Association Set frame : %s",
+                 e.what());
+    return SL_STATUS_NOT_SUPPORTED;
   }
 
-  return status;
+  return SL_STATUS_OK;
 }
 
 sl_status_t zwave_command_class_user_credential_uuic_association_report(
