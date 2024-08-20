@@ -1486,6 +1486,7 @@ void test_user_credential_user_get_not_found()
 }
 
 std::vector<uint8_t> helper_create_user_report_frame(
+  uint8_t user_report_type,
   user_credential_user_unique_id_t next_user_id,
   user_credential_modifier_type_t user_modifier_type,
   user_credential_modifier_node_id_t user_modifier_node_id,
@@ -1499,6 +1500,8 @@ std::vector<uint8_t> helper_create_user_report_frame(
 {
   std::vector<uint8_t> report_frame
     = {COMMAND_CLASS_USER_CREDENTIAL, USER_REPORT};
+
+  report_frame.push_back(user_report_type);
 
   auto exploded_next_user_id = explode_uint16(next_user_id);
   report_frame.push_back(exploded_next_user_id.msb);
@@ -1683,7 +1686,9 @@ void test_user_credential_user_report_happy_case()
       "Credential Slot should be at 0 and should exists");
   };  // end test_user_values lambda
 
-  auto report_frame = helper_create_user_report_frame(next_user_id,
+  // Todo : update this value with define from zw_cmdclass.h when updated
+  auto report_frame = helper_create_user_report_frame(0x04,
+                                                      next_user_id,
                                                       user_modifier_type,
                                                       user_modifier_node_id,
                                                       user_id,
@@ -1717,30 +1722,29 @@ void test_user_credential_user_report_happy_case()
     handler.control_handler(&info, report_frame.data(), report_frame.size()),
     "User Report should have returned SL_STATUS_OK");
   // Test values
+  // For the first 
+  first_user_id_node
+    = attribute_store_get_node_child_by_type(endpoint_id_node,
+                                             ATTRIBUTE(USER_UNIQUE_ID),
+                                             1);
   test_user_values(first_user_id_node);
 
   // Test structure
   auto user_id_count
     = attribute_store_get_node_child_count_by_type(endpoint_id_node,
                                                    ATTRIBUTE(USER_UNIQUE_ID));
-  TEST_ASSERT_EQUAL_MESSAGE(2,
-                            user_id_count,
-                            "User node count mismatch. Should be 2 : 1 for "
-                            "the reported one and 1 for the next one");
+  TEST_ASSERT_EQUAL_MESSAGE(
+    3,
+    user_id_count,
+    "User node count mismatch. Should be 3 by now. One with special id 0, the "
+    "reported one and the new desired one");
+
   auto second_user_id_node
     = attribute_store_get_node_child_by_type(endpoint_id_node,
                                              ATTRIBUTE(USER_UNIQUE_ID),
-                                             1);
+                                             2);
 
   printf("Second and last user creation\n");
-
-  // Simulate a node with desired value of 0 to see if it is properly removed
-  // to prevent infinite loop
-  user_credential_user_unique_id_t id_zero = 0;
-  attribute_store_emplace_desired(endpoint_id_node,
-                                  ATTRIBUTE(USER_UNIQUE_ID),
-                                  &id_zero,
-                                  sizeof(id_zero));
 
   // Check second & not defined user id
   user_credential_user_unique_id_t second_user_id;
@@ -1772,7 +1776,8 @@ void test_user_credential_user_report_happy_case()
   user_name_encoding    = 1;
   user_name             = "NoDoUzE4YoU";
 
-  report_frame = helper_create_user_report_frame(next_user_id,
+  report_frame = helper_create_user_report_frame(0x04,
+                                                 next_user_id,
                                                  user_modifier_type,
                                                  user_modifier_node_id,
                                                  user_id,
@@ -1794,9 +1799,9 @@ void test_user_credential_user_report_happy_case()
   user_id_count
     = attribute_store_get_node_child_count_by_type(endpoint_id_node,
                                                    ATTRIBUTE(USER_UNIQUE_ID));
-  TEST_ASSERT_EQUAL_MESSAGE(2,
+  TEST_ASSERT_EQUAL_MESSAGE(3,
                             user_id_count,
-                            "User node count mismatch. Should only 2 users created.");
+                            "User node count mismatch. Should only 2 users + 1 with id 0 created.");
 
   user_credential_user_unique_id_t reported_id;
   attribute_store_get_reported(first_user_id_node,
@@ -1813,29 +1818,6 @@ void test_user_credential_user_report_happy_case()
                             "Second user id mismatch");
 }
 
-void test_user_credential_user_report_user_not_found()
-{
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-  auto report_frame
-    = helper_create_user_report_frame(0, 0, 0, 12, 0, 0, 0, 0, 0, "^^");
-
-  // Not found since we haven't created any user_unique_id
-  TEST_ASSERT_EQUAL_MESSAGE(
-    SL_STATUS_NOT_SUPPORTED,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()),
-    "User Report should have returned SL_STATUS_NOT_SUPPORTED");
-
-  // Check that no user_unique_id node has been created
-  auto user_id_count
-    = attribute_store_get_node_child_count_by_type(endpoint_id_node,
-                                                   ATTRIBUTE(USER_UNIQUE_ID));
-  TEST_ASSERT_EQUAL_MESSAGE(0,
-                            user_id_count,
-                            "No user_unique_id node should be created");
-}
 
 void test_user_credential_user_report_user_with_id0()
 {
@@ -1844,14 +1826,7 @@ void test_user_credential_user_report_user_with_id0()
   info.remote.endpoint_id                 = endpoint_id;
   info.local.is_multicast                 = false;
   auto report_frame
-    = helper_create_user_report_frame(0, 0, 0, 0, 0, 0, 0, 0, 0, "DOUZE");
-
-  // Create user id with reported ID of 0 to simulate user get of id 0
-  user_credential_user_unique_id_t user_id = 0;
-  attribute_store_emplace_desired(endpoint_id_node,
-                                  ATTRIBUTE(USER_UNIQUE_ID),
-                                  &user_id,
-                                  sizeof(user_id));
+    = helper_create_user_report_frame(0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, "DOUZE");
 
   // Not found since we haven't created any user_unique_id
   TEST_ASSERT_EQUAL_MESSAGE(
@@ -1891,7 +1866,8 @@ void test_user_credential_user_report_user_deleted()
                                                    ATTRIBUTE(USER_UNIQUE_ID));
   TEST_ASSERT_EQUAL_MESSAGE(1, user_id_count, "Should have one user by now");
 
-  auto report_frame = helper_create_user_report_frame(user_id,
+  auto report_frame = helper_create_user_report_frame(0x04,
+                                                      user_id,
                                                       USER_REPORT_DNE,
                                                       0,
                                                       0,
@@ -1914,6 +1890,11 @@ void test_user_credential_user_report_user_deleted()
   TEST_ASSERT_EQUAL_MESSAGE(1,
                             user_id_count,
                             "Should not have any user by now");
+}
+
+
+void test_user_credential_user_added_happy_case() {
+
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -2804,17 +2785,12 @@ void test_user_credential_add_credential_invalid_slot()
     "supported slot)");
 }
 
-void test_user_credential_user_notification_add_modify_delete_happy_case()
+void test_user_credential_user_add_modify_delete_happy_case()
 {
-  // Initialize the notification callback
-  const zwave_cc_version_t version = 1;
-  attribute_store_set_child_reported(endpoint_id_node,
-                                     ATTRIBUTE(VERSION),
-                                     &version,
-                                     sizeof(version));
-
-  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
-                               "Notification callback should be defined");
+  zwave_controller_connection_info_t info = {};
+  info.remote.node_id                     = node_id;
+  info.remote.endpoint_id                 = endpoint_id;
+  info.local.is_multicast                 = false;
 
   // Those functions are exposed and checks user values, so we need to setup the capabilities
   uint16_t number_of_users                                       = 12;
@@ -2870,21 +2846,25 @@ void test_user_credential_user_notification_add_modify_delete_happy_case()
   user_credential_modifier_type_t user_modifier_type       = 2;
   user_credential_modifier_node_id_t user_modifier_node_id = 1212;
 
-  auto user_notification_report_frame
-    = helper_create_user_notification_report(user_modifier_type,
-                                             user_modifier_node_id,
-                                             user_id,
-                                             user_type,
-                                             user_active_state,
-                                             credential_rule,
-                                             expiring_timeout);
+  auto user_report_frame
+    = helper_create_user_report_frame(0x00,  // user added
+                                      0,     // Next user id
+                                      user_modifier_type,
+                                      user_modifier_node_id,
+                                      user_id,
+                                      user_type,
+                                      user_active_state,
+                                      credential_rule,
+                                      expiring_timeout,
+                                      user_name_encoding,
+                                      user_name);
 
   // Endpoint send User Add notification
-  notification_callback(endpoint_id_node,
-                        NOTIFICATION_ACCESS_CONTROL,
-                        0x27,  // User added
-                        user_notification_report_frame.data(),
-                        user_notification_report_frame.size());
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
+                            handler.control_handler(&info,
+                                                    user_report_frame.data(),
+                                                    user_report_frame.size()),
+                            "Should have managed to create user");
 
   // Check values
   auto test_attribute_store_values = [&]() {
@@ -2912,39 +2892,46 @@ void test_user_credential_user_notification_add_modify_delete_happy_case()
   user_name_encoding = 2;
   user_name          = "JACKIE CAMION TURBO PLUS";
 
-  status = zwave_command_class_user_credential_modify_user(endpoint_id_node,
-                                                           user_id,
-                                                           user_type,
-                                                           credential_rule,
-                                                           user_active_state,
-                                                           expiring_timeout,
-                                                           user_name_encoding,
-                                                           user_name.c_str());
+  user_report_frame = helper_create_user_report_frame(0x01,  // modify user
+                                                      0,     // Next user id
+                                                      user_modifier_type,
+                                                      user_modifier_node_id,
+                                                      user_id,
+                                                      user_type,
+                                                      user_active_state,
+                                                      credential_rule,
+                                                      expiring_timeout,
+                                                      user_name_encoding,
+                                                      user_name);
 
+  // Endpoint send User Add notification
   TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
-                            status,
-                            "User modify should have returned SL_STATUS_OK");
+                            handler.control_handler(&info,
+                                                    user_report_frame.data(),
+                                                    user_report_frame.size()),
+                            "Should have managed to modify user");
 
   // Create notification report frame
   user_modifier_type    = 5;
   user_modifier_node_id = 12122;
 
-  user_notification_report_frame
-    = helper_create_user_notification_report(user_modifier_type,
-                                             user_modifier_node_id,
-                                             user_id,
-                                             user_type,
-                                             user_active_state,
-                                             credential_rule,
-                                             expiring_timeout);
+  user_report_frame = helper_create_user_report_frame(0x01,  //  modify user
+                                                      0,     // Next user id
+                                                      user_modifier_type,
+                                                      user_modifier_node_id,
+                                                      user_id,
+                                                      user_type,
+                                                      user_active_state,
+                                                      credential_rule,
+                                                      expiring_timeout,
+                                                      user_name_encoding,
+                                                      user_name);
 
-  // Endpoint send User Modify notification
-  notification_callback(endpoint_id_node,
-                        NOTIFICATION_ACCESS_CONTROL,
-                        0x28,  // User modified
-                        user_notification_report_frame.data(),
-                        user_notification_report_frame.size());
-
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
+                            handler.control_handler(&info,
+                                                    user_report_frame.data(),
+                                                    user_report_frame.size()),
+                            "Should have managed to modify user");
   // Check values
   test_attribute_store_values();
 
@@ -2955,25 +2942,22 @@ void test_user_credential_user_notification_add_modify_delete_happy_case()
                             status,
                             "User delete should have returned SL_STATUS_OK");
 
-  // Should be the same as existing user
-  user_notification_report_frame
-    = helper_create_user_notification_report(user_modifier_type,
-                                             user_modifier_node_id,
-                                             user_id,
-                                             user_type,
-                                             user_active_state,
-                                             credential_rule,
-                                             expiring_timeout);
-
-  // Endpoint send User Modify notification
-  notification_callback(endpoint_id_node,
-                        NOTIFICATION_ACCESS_CONTROL,
-                        0x29,  // User deleted
-                        user_notification_report_frame.data(),
-                        user_notification_report_frame.size());
-
-  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(user_node),
-                            "User node should be deleted");
+  user_report_frame = helper_create_user_report_frame(0x02,  //  modify user
+                                                      0,     // Next user id
+                                                      user_modifier_type,
+                                                      user_modifier_node_id,
+                                                      user_id,
+                                                      user_type,
+                                                      user_active_state,
+                                                      credential_rule,
+                                                      expiring_timeout,
+                                                      user_name_encoding,
+                                                      user_name);
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
+                            handler.control_handler(&info,
+                                                    user_report_frame.data(),
+                                                    user_report_frame.size()),
+                            "Should have managed to delete user");
 }
 
 void test_user_credential_credential_notification_add_modify_delete_happy_case()
@@ -3614,6 +3598,11 @@ void test_user_credential_credential_modify_capabilites_failure_cases()
 
 void test_user_credential_user_set_error_report_user_add_happy_case()
 {
+  zwave_controller_connection_info_t info = {};
+  info.remote.node_id                     = node_id;
+  info.remote.endpoint_id                 = endpoint_id;
+  info.local.is_multicast                 = false;
+
   user_credential_user_unique_id_t user_id = 12;
 
   // Simulate invalid user
@@ -3628,8 +3617,9 @@ void test_user_credential_user_set_error_report_user_add_happy_case()
                                                  &user_id,
                                                  sizeof(user_id));
 
-  helper_simulate_user_set_error_report(
-    USER_SET_ERROR_REPORT_USERADDREJECTEDLOCATIONOCCUPIED,
+  auto user_report_frame = helper_create_user_report_frame(
+    0x05,  //  USER_ADD_REJECTED_LOCATION_OCCUPIED
+    0,     // Next user id
     1,
     2,
     user_id,
@@ -3639,6 +3629,12 @@ void test_user_credential_user_set_error_report_user_add_happy_case()
     0,
     0,
     "TAJINE AUX EPICES");
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    handler.control_handler(&info,
+                            user_report_frame.data(),
+                            user_report_frame.size()),
+    "Should have managed to handle USER_ADD_REJECTED_LOCATION_OCCUPIED");
 
   TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(invalid_user_node),
                             "Invalid User node should not exist");
@@ -3648,6 +3644,11 @@ void test_user_credential_user_set_error_report_user_add_happy_case()
 
 void test_user_credential_user_set_error_report_user_modify_happy_case()
 {
+  zwave_controller_connection_info_t info = {};
+  info.remote.node_id                     = node_id;
+  info.remote.endpoint_id                 = endpoint_id;
+  info.local.is_multicast                 = false;
+  
   user_credential_user_unique_id_t user_id = 12;
 
   // Simulate invalid user (desired)
@@ -3657,8 +3658,9 @@ void test_user_credential_user_set_error_report_user_modify_happy_case()
                                       &user_id,
                                       sizeof(user_id));
 
-  helper_simulate_user_set_error_report(
-    USER_SET_ERROR_REPORT_USERMODIFYREJECTEDLOCATIONEMPTY,
+  auto user_report_frame = helper_create_user_report_frame(
+    0x06,  //  USER_MODIFY_REJECTED_LOCATION_EMPTY
+    0,     // Next user id
     1,
     2,
     user_id,
@@ -3668,27 +3670,12 @@ void test_user_credential_user_set_error_report_user_modify_happy_case()
     0,
     0,
     "SAUCISSE FUMEE");
-
-  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(invalid_user_node),
-                            "Invalid User node should not exist");
-
-  // Simulate invalid user (reported)
-  invalid_user_node = attribute_store_emplace(endpoint_id_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID),
-                                              &user_id,
-                                              sizeof(user_id));
-
-  helper_simulate_user_set_error_report(
-    USER_SET_ERROR_REPORT_USERMODIFYREJECTEDLOCATIONEMPTY,
-    1,
-    2,
-    user_id,
-    1,
-    0,
-    1,
-    0,
-    0,
-    "TURBO BARBEUC");
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    handler.control_handler(&info,
+                            user_report_frame.data(),
+                            user_report_frame.size()),
+    "Should have managed to handle USER_MODIFY_REJECTED_LOCATION_EMPTY");
 
   TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(invalid_user_node),
                             "Invalid User node should not exist");
@@ -5343,7 +5330,8 @@ void test_get_user_checksum_with_credentials_happy_case()
                                 user_id_node,
                                 {{user_id_node, DESIRED_ATTRIBUTE}});
 
-  auto user_report_frame = helper_create_user_report_frame(0,
+  auto user_report_frame = helper_create_user_report_frame(0x04,
+                                                           0,
                                                            0x02,  // Z-Wave
                                                            0,
                                                            user_id,
@@ -5450,7 +5438,8 @@ void test_get_user_checksum_without_credentials_happy_case()
                                 user_id_node,
                                 {{user_id_node, DESIRED_ATTRIBUTE}});
 
-  auto user_report_frame = helper_create_user_report_frame(0,
+  auto user_report_frame = helper_create_user_report_frame(0x04,
+                                                           0,
                                                            0x02,  // Z-Wave
                                                            0,
                                                            user_id,
@@ -5511,7 +5500,8 @@ void test_get_user_checksum_without_credentials_mismatch_checksum()
                                 user_id_node,
                                 {{user_id_node, DESIRED_ATTRIBUTE}});
 
-  auto user_report_frame = helper_create_user_report_frame(0,
+  auto user_report_frame = helper_create_user_report_frame(0x04,
+                                                           0,
                                                            0x02,  // Z-Wave
                                                            0,
                                                            user_id,
