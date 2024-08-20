@@ -128,27 +128,6 @@ struct credential_id_nodes {
   attribute_store::attribute user_unique_id_node;
 };
 
-/**
- * @brief Get associated credential identifier nodes
- * 
- * @param node Not that have a CREDENTIAL_SLOT, CREDENTIAL_TYPE and USER_UNIQUE_ID as respective parents
- 
- * @return credential_id_nodes Credential identifier nodes
- */
-credential_id_nodes get_credential_identifier_nodes(attribute_store_node_t node)
-{
-  attribute_store::attribute slot_node(node);
-  slot_node = slot_node.first_parent_or_self(ATTRIBUTE(CREDENTIAL_SLOT));
-  attribute_store::attribute type_node
-    = slot_node.first_parent(ATTRIBUTE(CREDENTIAL_TYPE));
-  attribute_store::attribute user_unique_id_node
-    = type_node.first_parent(ATTRIBUTE(USER_UNIQUE_ID));
-
-  return {.slot_node           = slot_node,
-          .type_node           = type_node,
-          .user_unique_id_node = user_unique_id_node};
-}
-
 /////////////////////////////////////////////////////////////////////////////
 // Capabilites Data Structs
 /////////////////////////////////////////////////////////////////////////////
@@ -930,6 +909,102 @@ attribute_store_node_t
 
   return credential_type_node;
 }
+
+/**
+ * @brief Get associated credential identifier nodes 
+ * 
+ * @param node Not that have a CREDENTIAL_SLOT, CREDENTIAL_TYPE and USER_UNIQUE_ID as respective parents
+ * 
+ * @throws std::runtime_error If one of the nodes is not found
+ * 
+ * @return credential_id_nodes Credential identifier nodes
+ */
+credential_id_nodes get_credential_identifier_nodes(attribute_store_node_t node)
+{
+  attribute_store::attribute slot_node(node);
+  slot_node = slot_node.first_parent_or_self(ATTRIBUTE(CREDENTIAL_SLOT));
+  attribute_store::attribute type_node
+    = slot_node.first_parent(ATTRIBUTE(CREDENTIAL_TYPE));
+  attribute_store::attribute user_unique_id_node
+    = type_node.first_parent(ATTRIBUTE(USER_UNIQUE_ID));
+
+  if (!slot_node.is_valid()) {
+    throw std::runtime_error(
+      "get_credential_identifier_nodes: Can't get credential slot node.");
+  }
+
+  if (!type_node.is_valid()) {
+    throw std::runtime_error(
+      "get_credential_identifier_nodes: Can't get credential type node.");
+  }
+
+  if (!user_unique_id_node.is_valid()) {
+    throw std::runtime_error(
+      "get_credential_identifier_nodes: Can't get user unique ID node.");
+  }
+
+  return {.slot_node           = slot_node,
+          .type_node           = type_node,
+          .user_unique_id_node = user_unique_id_node};
+}
+
+template<typename T> struct identifier_state {
+  T value;
+  attribute_store_node_value_state_t state;
+};
+/**
+ * @brief Get associated credential identifier nodes
+ * 
+ * @param endpoint_node Endpoint node
+ * @param user_id       User ID with given state
+ * @param credential_type Credential type with given state
+ * @param credential_slot Credential slot with given state
+ * 
+ * @return credential_id_nodes Credential identifier nodes
+ */
+credential_id_nodes get_credential_identifier_nodes(
+  const attribute_store::attribute &endpoint_node,
+  identifier_state<user_credential_user_unique_id_t> user_id,
+  identifier_state<user_credential_type_t> credential_type,
+  identifier_state<user_credential_slot_t> credential_slot)
+{
+  credential_id_nodes nodes;
+
+  nodes.user_unique_id_node
+    = get_user_unique_id_node(endpoint_node, user_id.value, user_id.state);
+
+  if (!nodes.user_unique_id_node.is_valid()) {
+    throw std::runtime_error(
+      "get_credential_identifier_nodes: Can't get user unique ID "
+      + std::to_string(user_id.value));
+  }
+
+  nodes.type_node = get_credential_type_node(nodes.user_unique_id_node,
+                                             credential_type.value,
+                                             credential_type.state);
+
+  if (!nodes.type_node.is_valid()) {
+    throw std::runtime_error(
+      (boost::format("get_credential_identifier_nodes: Can't get credential "
+                     "type %1% for user %2%")
+       % credential_type.value % user_id.value)
+        .str());
+  }
+
+  nodes.slot_node = get_credential_slot_node(nodes.type_node,
+                                             credential_slot.value,
+                                             credential_slot.state);
+
+  if (!nodes.slot_node.is_valid()) {
+    throw std::runtime_error(
+      (boost::format("get_credential_identifier_nodes: Can't get credential "
+                     "slot %1% for credential type %2% / user %3%")
+       % credential_slot.value % credential_type.value % user_id.value)
+        .str());
+  }
+  return nodes;
+}
+
 /////////////////////////////////////////////////////////////////////////////
 // Attributes helpers
 /////////////////////////////////////////////////////////////////////////////
@@ -1025,7 +1100,7 @@ sl_status_t node_to_uint8_vector(attribute_store_node_t node,
     } break;
     case U16_STORAGE_TYPE: {
       uint16_t uint16_value;
-      status               = attribute_store_read_value(node,
+      status = attribute_store_read_value(node,
                                           value_state,
                                           &uint16_value,
                                           sizeof(uint16_value));
@@ -2113,12 +2188,12 @@ static sl_status_t zwave_command_class_user_credential_credential_get(
 {
   sl_log_debug(LOG_TAG, "Credential Get");
 
-  auto cred_nodes = get_credential_identifier_nodes(credential_slot_node);
-
   // Generate the frame
   constexpr auto expected_frame_size
     = static_cast<uint8_t>(sizeof(ZW_CREDENTIAL_GET_FRAME));
   try {
+    auto cred_nodes = get_credential_identifier_nodes(credential_slot_node);
+
     frame_generator.initialize_frame(CREDENTIAL_GET,
                                      frame,
                                      expected_frame_size);
@@ -2512,7 +2587,8 @@ static sl_status_t zwave_command_class_user_credential_credential_learn_start(
     frame_generator.initialize_frame(CREDENTIAL_LEARN_START,
                                      frame,
                                      sizeof(ZW_CREDENTIAL_LEARN_START_FRAME));
-    auto nodes = get_credential_identifier_nodes(credential_operation_type_node);
+    auto nodes
+      = get_credential_identifier_nodes(credential_operation_type_node);
 
     frame_generator.add_value(nodes.user_unique_id_node,
                               DESIRED_OR_REPORTED_ATTRIBUTE);
@@ -2535,22 +2611,17 @@ static sl_status_t zwave_command_class_user_credential_credential_learn_start(
 }
 
 static sl_status_t zwave_command_class_user_credential_credential_learn_cancel(
-  attribute_store_node_t credential_learn_stop_node,
-  uint8_t *frame,
-  uint16_t *frame_length)
+  attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
 {
-  uint8_t stop_flag = 1;
-  attribute_store_set_reported(credential_learn_stop_node,
-                               &stop_flag,
-                               sizeof(stop_flag));
-  attribute_store_undefine_desired(credential_learn_stop_node);
+  sl_log_debug(LOG_TAG, "Credential Learn Cancel");
+  attribute_store::attribute credential_learn_stop_node(node);
 
-  frame[0] = COMMAND_CLASS_USER_CREDENTIAL;
-  frame[1] = CREDENTIAL_LEARN_CANCEL;
+  credential_learn_stop_node.set_reported<uint8_t>(1);
+  credential_learn_stop_node.clear_desired();
 
-  *frame_length = 2;
-
-  return SL_STATUS_OK;
+  return frame_generator.generate_no_args_frame(CREDENTIAL_LEARN_CANCEL,
+                                                frame,
+                                                frame_length);
 }
 
 sl_status_t zwave_command_class_user_credential_credential_learn_status_report(
@@ -2558,202 +2629,122 @@ sl_status_t zwave_command_class_user_credential_credential_learn_status_report(
   const uint8_t *frame_data,
   uint16_t frame_length)
 {
-  constexpr uint8_t EXPECTED_FRAME_LENGTH = 9;
-  if (frame_length != EXPECTED_FRAME_LENGTH) {
-    sl_log_error(LOG_TAG,
-                 "CREDENTIAL_LEARN_STATUS_REPORT frame length is not valid. "
-                 "Expected %d, got %d",
-                 EXPECTED_FRAME_LENGTH,
-                 frame_length);
-    return SL_STATUS_NOT_SUPPORTED;
-  }
-
-  constexpr uint8_t INDEX_LEARN_STATUS                    = 2;
-  constexpr uint8_t INDEX_USER_ID                         = 3;
-  constexpr uint8_t INDEX_CREDENTIAL_TYPE                 = 5;
-  constexpr uint8_t INDEX_CREDENTIAL_SLOT                 = 6;
-  constexpr uint8_t INDEX_CREDENTIAL_LEARN_STEP_REMAINING = 8;
-
-  attribute_store_node_t endpoint_node
+  attribute_store::attribute endpoint_node
     = zwave_command_class_get_endpoint_node(connection_info);
 
-  // Interpret frame
-  const uint8_t learn_status = frame_data[INDEX_LEARN_STATUS];
-  const user_credential_user_unique_id_t user_id
-    = get_uint16_value(frame_data, INDEX_USER_ID);
-  const user_credential_type_t credential_type
-    = frame_data[INDEX_CREDENTIAL_TYPE];
-  const user_credential_slot_t credential_slot
-    = get_uint16_value(frame_data, INDEX_CREDENTIAL_SLOT);
-  const uint8_t step_remaining
-    = frame_data[INDEX_CREDENTIAL_LEARN_STEP_REMAINING];
+  try {
+    zwave_frame_parser parser(frame_data, frame_length);
 
-  sl_log_debug(LOG_TAG,
-               "Credential Learn Status Report. Credential Type: %d / "
-               "Credential Slot: %d (User %d)",
-               credential_type,
-               credential_slot,
-               user_id);
+    if (!parser.is_frame_size_valid(sizeof(ZW_CREDENTIAL_LEARN_REPORT_FRAME))) {
+      sl_log_error(
+        LOG_TAG,
+        "Invalid frame size for Credential Learn Status Report frame");
+      return SL_STATUS_NOT_SUPPORTED;
+    }
 
-  // Get the nodes
-  attribute_store_node_t credential_type_node;
-  attribute_store_node_t credential_slot_node;
+    // Parse the frame
+    const uint8_t learn_status = parser.read_byte();
+    const auto user_id
+      = parser.read_sequential<user_credential_user_unique_id_t>(2);
+    const user_credential_type_t credential_type = parser.read_byte();
+    const auto credential_slot
+      = parser.read_sequential<user_credential_slot_t>(2);
+    const uint8_t step_remaining = parser.read_byte();
 
-  get_credential_type_node(endpoint_node,
-                           user_id,
-                           credential_type,
-                           DESIRED_ATTRIBUTE,
-                           credential_type_node);
-  if (!attribute_store_node_exists(credential_type_node)) {
-    get_credential_type_node(endpoint_node,
-                             user_id,
-                             credential_type,
-                             REPORTED_ATTRIBUTE,
-                             credential_type_node);
-  }
-  get_credential_slot_node(credential_type_node,
-                           credential_slot,
-                           DESIRED_ATTRIBUTE,
-                           credential_slot_node);
-  if (!attribute_store_node_exists(credential_slot_node)) {
-    get_credential_slot_node(credential_type_node,
-                             credential_slot,
-                             REPORTED_ATTRIBUTE,
-                             credential_slot_node);
-  }
-
-  if (!attribute_store_node_exists(credential_slot_node)
-      || !attribute_store_node_exists(credential_type_node)) {
-    sl_log_error(LOG_TAG,
-                 "Can't find User %d, Credential Type %d, "
-                 "Credential Slot %d reported by Credential Learn Status",
-                 user_id,
+    sl_log_debug(LOG_TAG,
+                 "Credential Learn Status Report. Credential Type: %d / "
+                 "Credential Slot: %d (User %d)",
                  credential_type,
-                 credential_slot);
-    return SL_STATUS_NOT_SUPPORTED;
-  }
+                 credential_slot,
+                 user_id);
 
-  // Get operation type so we can handle error cases
-  auto credential_learn_operation_type_node
-    = attribute_store_get_first_child_by_type(
-      credential_slot_node,
-      ATTRIBUTE(CREDENTIAL_LEARN_OPERATION_TYPE));
+    auto credential_id_nodes = get_credential_identifier_nodes(
+      endpoint_node,
+      {user_id, REPORTED_ATTRIBUTE},
+      {credential_type, DESIRED_OR_REPORTED_ATTRIBUTE},
+      {credential_slot, DESIRED_OR_REPORTED_ATTRIBUTE});
 
-  user_credential_operation_type_t operation_type = 0;
-  sl_status_t status
-    = attribute_store_get_desired(credential_learn_operation_type_node,
-                                  &operation_type,
-                                  sizeof(operation_type));
+    // Get operation type so we can handle error cases
+    auto operation_type
+      = credential_id_nodes.slot_node
+          .child_by_type(ATTRIBUTE(CREDENTIAL_LEARN_OPERATION_TYPE))
+          .desired<user_credential_operation_type_t>();
 
-  if (status != SL_STATUS_OK) {
+    // Action based of current learn status
+    std::string learn_status_str;
+    bool need_deletion       = false;
+    sl_log_level_t log_level = SL_LOG_INFO;
+
+    switch (learn_status) {
+      case CREDENTIAL_LEARN_REPORT_STARTED:
+        learn_status_str = "Credential Learn Started";
+        break;
+      case CREDENTIAL_LEARN_REPORT_SUCCESS:
+        learn_status_str = "Credential Learn Success";
+        break;
+      case CREDENTIAL_LEARN_REPORT_ALREADY_IN_PROGRESS:
+        log_level        = SL_LOG_WARNING;
+        learn_status_str = "Credential Learn already in progress";
+        break;
+      case CREDENTIAL_LEARN_REPORT_ENDED_NOT_DUE_TO_TIMEOUT:
+        learn_status_str = "Credential Learn ended not due to timeout";
+        need_deletion = (operation_type == USER_CREDENTIAL_OPERATION_TYPE_ADD);
+        break;
+      case CREDENTIAL_LEARN_REPORT_TIMEOUT:
+        log_level        = SL_LOG_WARNING;
+        learn_status_str = "Credential Learn Timeout";
+        need_deletion = (operation_type == USER_CREDENTIAL_OPERATION_TYPE_ADD);
+        break;
+      case 0x05:  // Credential Learn Step Retry
+        learn_status_str = "Credential Learn Step Needs a Retry";
+        need_deletion = (operation_type == USER_CREDENTIAL_OPERATION_TYPE_ADD);
+        break;
+      case CREDENTIAL_LEARN_REPORT_INVALID_CREDENTIAL_LEARN_ADD_OPERATION_TYPE:
+        log_level        = SL_LOG_ERROR;
+        learn_status_str = "Invalid Add Operation Types";
+        break;
+      case CREDENTIAL_LEARN_REPORT_INVALID_CREDENTIAL_LEARN_MODIFY_OPERATION_TYPE:
+        log_level        = SL_LOG_ERROR;
+        learn_status_str = "Invalid Modify Operation Type";
+        need_deletion = (operation_type == USER_CREDENTIAL_OPERATION_TYPE_ADD);
+        break;
+      default:
+        learn_status_str
+          = "Unknown Credential Learn Status " + std::to_string(learn_status);
+        log_level = SL_LOG_CRITICAL;
+    }
+
+    sl_log(LOG_TAG,
+           log_level,
+           "%s for User %d, Credential Type %d, "
+           "Credential Slot %d",
+           learn_status_str.c_str(),
+           user_id,
+           credential_type,
+           credential_slot);
+
+    if (need_deletion) {
+      credential_id_nodes.slot_node.delete_node();
+    }
+
+    // Update nodes
+    credential_id_nodes.slot_node.emplace_node(
+      ATTRIBUTE(CREDENTIAL_LEARN_STEPS_REMAINING),
+      step_remaining);
+    credential_id_nodes.slot_node.emplace_node(
+      ATTRIBUTE(CREDENTIAL_LEARN_STATUS),
+      learn_status);
+
+  } catch (const std::exception &e) {
     sl_log_error(
       LOG_TAG,
-      "Can't get learn operation type. Ignoring Credential Learn Report.");
+      "Error while parsing Credential Learn Status Report frame : %s",
+      e.what());
+
     return SL_STATUS_NOT_SUPPORTED;
   }
 
-  // Action based of current learn status
-  switch (learn_status) {
-    case CREDENTIAL_LEARN_REPORT_STARTED:
-      sl_log_info(LOG_TAG,
-                  "Credential Learn Started for User %d, Credential Type %d, "
-                  "Credential Slot %d",
-                  user_id,
-                  credential_type,
-                  credential_slot);
-      break;
-    case CREDENTIAL_LEARN_REPORT_SUCCESS:
-      sl_log_info(LOG_TAG,
-                  "Credential Learn Success for User %d, Credential Type %d, "
-                  "Credential Slot %d",
-                  user_id,
-                  credential_type,
-                  credential_slot);
-      break;
-    case CREDENTIAL_LEARN_REPORT_ALREADY_IN_PROGRESS:
-      sl_log_warning(
-        LOG_TAG,
-        "Credential Learn already in progress for User %d, Credential Type %d, "
-        "Credential Slot %d",
-        user_id,
-        credential_type,
-        credential_slot);
-      break;
-    case CREDENTIAL_LEARN_REPORT_ENDED_NOT_DUE_TO_TIMEOUT:
-      sl_log_info(LOG_TAG,
-                  "Credential Learn ended not due to timeout for User %d, "
-                  "Credential Type %d, Credential Slot %d",
-                  user_id,
-                  credential_type,
-                  credential_slot);
-      // Handle error case for add, remove the current slot
-      if (operation_type == USER_CREDENTIAL_OPERATION_TYPE_ADD) {
-        attribute_store_delete_node(credential_slot_node);
-      }
-      break;
-    case CREDENTIAL_LEARN_REPORT_TIMEOUT:
-      sl_log_warning(
-        LOG_TAG,
-        "Credential Learn Timeout for User %d, Credential Type %d, "
-        "Credential Slot %d",
-        user_id,
-        credential_type,
-        credential_slot);
-      // Handle error case for add, remove the current slot
-      if (operation_type == USER_CREDENTIAL_OPERATION_TYPE_ADD) {
-        attribute_store_delete_node(credential_slot_node);
-      }
-      break;
-    case 0x05:  // Credential Learn Step Retry
-      sl_log_info(
-        LOG_TAG,
-        "Credential Learn Step Needs a Retry for User %d, Credential Type %d, "
-        "Credential Slot %d",
-        user_id,
-        credential_type,
-        credential_slot);
-      // Handle error case for add, remove the current slot
-      if (operation_type == USER_CREDENTIAL_OPERATION_TYPE_ADD) {
-        attribute_store_delete_node(credential_slot_node);
-      }
-      break;
-    case CREDENTIAL_LEARN_REPORT_INVALID_CREDENTIAL_LEARN_ADD_OPERATION_TYPE:
-      sl_log_error(
-        LOG_TAG,
-        "Invalid Add Operation Type for User %d, Credential Type %d, "
-        "Credential Slot %d",
-        user_id,
-        credential_type,
-        credential_slot);
-      break;
-    case CREDENTIAL_LEARN_REPORT_INVALID_CREDENTIAL_LEARN_MODIFY_OPERATION_TYPE:
-      sl_log_error(
-        LOG_TAG,
-        "Invalid Modify Operation Type for User %d, Credential Type %d, "
-        "Credential Slot %d",
-        user_id,
-        credential_type,
-        credential_slot);
-      // Handle error case for add, remove the current slot
-      if (operation_type == USER_CREDENTIAL_OPERATION_TYPE_ADD) {
-        attribute_store_delete_node(credential_slot_node);
-      }
-      break;
-  }
-
-  // Update attribute store
-  status = attribute_store_set_child_reported(
-    credential_slot_node,
-    ATTRIBUTE(CREDENTIAL_LEARN_STEPS_REMAINING),
-    &step_remaining,
-    sizeof(step_remaining));
-
-  status
-    |= attribute_store_set_child_reported(credential_slot_node,
-                                          ATTRIBUTE(CREDENTIAL_LEARN_STATUS),
-                                          &learn_status,
-                                          sizeof(learn_status));
-  return status;
+  return SL_STATUS_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -2761,9 +2752,7 @@ sl_status_t zwave_command_class_user_credential_credential_learn_status_report(
 /////////////////////////////////////////////////////////////////////////////
 
 static sl_status_t zwave_command_class_user_credential_uuic_association_set(
-  attribute_store_node_t node,
-  uint8_t *frame,
-  uint16_t *frame_length)
+  attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
 {
   sl_log_debug(LOG_TAG,
                "User Unique Identifier Credential Association Set command");
@@ -2775,13 +2764,14 @@ static sl_status_t zwave_command_class_user_credential_uuic_association_set(
       frame,
       sizeof(ZW_USER_CREDENTIAL_ASSOCIATION_SET_FRAME));
 
-    auto nodes = get_credential_identifier_nodes(destination_credential_slot_node);
-    frame_generator.add_value(nodes.user_unique_id_node,
-                              REPORTED_ATTRIBUTE);
+    auto nodes
+      = get_credential_identifier_nodes(destination_credential_slot_node);
+    frame_generator.add_value(nodes.user_unique_id_node, REPORTED_ATTRIBUTE);
     frame_generator.add_value(nodes.type_node, REPORTED_ATTRIBUTE);
     frame_generator.add_value(nodes.slot_node, REPORTED_ATTRIBUTE);
-    frame_generator.add_value(nodes.slot_node.child_by_type(ATTRIBUTE(ASSOCIATION_DESTINATION_USER_ID)),
-                              DESIRED_ATTRIBUTE);
+    frame_generator.add_value(
+      nodes.slot_node.child_by_type(ATTRIBUTE(ASSOCIATION_DESTINATION_USER_ID)),
+      DESIRED_ATTRIBUTE);
     frame_generator.add_value(destination_credential_slot_node,
                               DESIRED_ATTRIBUTE);
     frame_generator.validate_frame(frame_length);
@@ -3235,7 +3225,7 @@ sl_status_t zwave_command_class_user_credential_user_handle_report(
 
           attribute_store_delete_node(user_node);
         }
-        
+
         return SL_STATUS_OK;
       } else {
         sl_log_error(LOG_TAG,
@@ -3304,7 +3294,8 @@ sl_status_t zwave_command_class_user_credential_user_handle_report(
         return SL_STATUS_OK;
       case user_report_type_t::NON_ZERO_EXPIRING_MINUTES_INVALID:
         sl_log_warning(LOG_TAG,
-                       "User %d was not modified/added since the expiring timeout minutes is invalid.",
+                       "User %d was not modified/added since the expiring "
+                       "timeout minutes is invalid.",
                        current_user_id);
         return SL_STATUS_OK;
       default:
