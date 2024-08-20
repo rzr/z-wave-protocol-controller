@@ -43,6 +43,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <boost/format.hpp>
 
 // Cpp Attribute store
 #include "attribute.hpp"
@@ -558,6 +559,8 @@ void set_credential_learn_operation_type(
 /**
  * @brief Get user id node 
  * 
+ * @deprecated
+ * 
  * @warning state can't be DESIRED_OR_REPORTED_ATTRIBUTE or it will not work
  * 
  * @param endpoint_node  Endpoint point node
@@ -587,6 +590,8 @@ bool get_user_id_node(attribute_store_node_t endpoint_node,
 /**
  * @brief Get node associated with user ID (reported)
  * 
+ * @deprecated
+ * 
  * @warning This function only checks the reported User Unique
  * 
  * @param endpoint_node  Current endpoint node 
@@ -609,6 +614,8 @@ attribute_store_node_t
  * 
  * @warning This function only checks the reported User Unique
  * 
+ * @deprecated
+ * 
  * @param endpoint_node  Current endpoint node 
  * @param user_id        User ID  
  * 
@@ -625,7 +632,130 @@ attribute_store_node_t
 }
 
 /**
+ * @brief Get node associated with user ID (desired or reported)
+ * 
+ * @param endpoint_node  Current endpoint node
+ * @param user_id        User ID
+ * 
+ * @return True is user exists, false otherwise
+ */
+bool user_exists(attribute_store::attribute endpoint_node,
+                 user_credential_user_unique_id_t user_id)
+{
+  return endpoint_node
+    .child_by_type_and_value(ATTRIBUTE(USER_UNIQUE_ID),
+                             user_id,
+                             REPORTED_ATTRIBUTE)
+    .is_valid();
+}
+
+/**
+ * @brief Get node associated with user ID (desired or reported)
+ * 
+ * @param endpoint_node  Current endpoint node
+ * @param user_id        User ID
+ * @param state          Check reported or desired value (or desired else reported)
+ * 
+ * @throws std::runtime_error If User ID does not exist with given state
+ * 
+ * @return User ID Node
+ */
+attribute_store::attribute
+  get_user_unique_id_node(attribute_store::attribute endpoint_node,
+                          user_credential_user_unique_id_t user_id,
+                          attribute_store_node_value_state_t state)
+{
+  attribute_store::attribute user_id_node
+    = endpoint_node.child_by_type_and_value(ATTRIBUTE(USER_UNIQUE_ID),
+                                            user_id,
+                                            state);
+
+  if (!user_id_node.is_valid()) {
+    throw std::runtime_error(
+      (boost::format("User ID %1% not found (state : %2%).") % user_id % state)
+        .str());
+  }
+
+  return user_id_node;
+}
+
+/**
+ * @brief Get credential type node associated with user ID
+ * 
+ * @param user_id_node  User ID node
+ * @param cred_type     Credential type
+ * @param state         Check reported or desired value (or desired else reported)
+ * 
+ * @throws std::runtime_error If Credential type for given user_id_node does not exist with given state
+ * 
+ * @return Credential type node
+ */
+attribute_store::attribute
+  get_credential_type_node(attribute_store::attribute user_id_node,
+                           user_credential_type_t cred_type,
+                           attribute_store_node_value_state_t state)
+{
+  if (!user_id_node.is_valid()) {
+    throw std::runtime_error(
+      "get_credential_type_node: User ID node is not valid.");
+  }
+
+  attribute_store::attribute cred_type_node
+    = user_id_node.child_by_type_and_value(ATTRIBUTE(CREDENTIAL_TYPE),
+                                           cred_type,
+                                           state);
+
+  if (!cred_type_node.is_valid()) {
+    throw std::runtime_error(
+      (boost::format("Credential type  %1% (state : %2%) not found for %3%.")
+       % cred_type % state % user_id_node.value_to_string())
+        .str());
+  }
+
+  return cred_type_node;
+}
+
+/**
+ * @brief Get credential slot node associated with credential type
+ * 
+ * @param cred_type_node  Credential type node
+ * @param cred_slot       Credential slot
+ * @param state           Check reported or desired value (or desired else reported)
+ * 
+ * @throws std::runtime_error If Credential slot for given cred_type_node does not exist with given state
+ * 
+ * @return Credential slot node
+ */
+attribute_store::attribute
+  get_credential_slot_node(attribute_store::attribute cred_type_node,
+                           user_credential_slot_t cred_slot,
+                           attribute_store_node_value_state_t state)
+{
+  if (!cred_type_node.is_valid()) {
+    throw std::runtime_error(
+      "get_credential_slot_node: Credential Type node is not valid.");
+  }
+
+  attribute_store::attribute cred_slot_node
+    = cred_type_node.child_by_type_and_value(ATTRIBUTE(CREDENTIAL_SLOT),
+                                             cred_slot,
+                                             state);
+
+  if (!cred_slot_node.is_valid()) {
+    throw std::runtime_error(
+      (boost::format(
+         "Credential type  %1% (state : %2%) not found for %3% / %4%.")
+       % cred_slot % state % cred_type_node.value_to_string())
+        .str());
+  }
+
+  return cred_slot_node;
+}
+
+/**
  * @brief Get credential node associated with credential_type and user_id.
+ * 
+ * @deprecated
  * 
  * @param endpoint_node         Current endpoint node
  * @param user_id               User ID
@@ -932,7 +1062,7 @@ sl_status_t node_to_uint8_vector(attribute_store_node_t node,
       // First get the length
       auto credential_data_length
         = attribute_store_get_node_value_size(node, value_state);
-        
+
       // + 1 for the length
       data.resize(credential_data_length + 1);
       data[0] = credential_data_length;
@@ -1133,115 +1263,6 @@ sl_status_t update_desired_values(
 
 namespace notification_handler
 {
-namespace user
-{
-// Indexes
-// User Notification Report Frame
-constexpr uint8_t INDEX_USER_MODIFIER_TYPE            = 0;
-constexpr uint8_t INDEX_USER_MODIFIER_NODE_ID         = 1;
-constexpr uint8_t INDEX_USER_UNIQUE_ID                = 3;
-constexpr uint8_t INDEX_USER_TYPE                     = 5;
-constexpr uint8_t INDEX_USER_ACTIVE_STATE             = 6;
-constexpr uint8_t INDEX_USER_CREDENTIAL_RULE          = 7;
-constexpr uint8_t INDEX_USER_EXPIRING_TIMEOUT_MINUTES = 8;
-constexpr uint8_t USER_NOTIFICATION_REPORT_FRAME_LENGTH
-  = INDEX_USER_EXPIRING_TIMEOUT_MINUTES + 2;
-
-// Constains the indexes mapped of the User Notification Report
-const std::vector<user_field_data> user_notification_report_data
-  = {{ATTRIBUTE(USER_MODIFIER_TYPE), INDEX_USER_MODIFIER_TYPE},
-     {ATTRIBUTE(USER_MODIFIER_NODE_ID), INDEX_USER_MODIFIER_NODE_ID},
-     {ATTRIBUTE(USER_TYPE), INDEX_USER_TYPE},
-     {ATTRIBUTE(USER_ACTIVE_STATE),
-      INDEX_USER_ACTIVE_STATE,
-      USER_REPORT_PROPERTIES1_USER_ACTIVE_STATE_BIT_MASK},
-     {ATTRIBUTE(CREDENTIAL_RULE), INDEX_USER_CREDENTIAL_RULE},
-     {ATTRIBUTE(USER_EXPIRING_TIMEOUT_MINUTES),
-      INDEX_USER_EXPIRING_TIMEOUT_MINUTES}};
-
-// Contains all the user data attributes
-const std::vector<attribute_store_type_t> user_data_attribute_types
-  = {ATTRIBUTE(USER_MODIFIER_TYPE),
-     ATTRIBUTE(USER_MODIFIER_NODE_ID),
-     ATTRIBUTE(USER_TYPE),
-     ATTRIBUTE(USER_ACTIVE_STATE),
-     ATTRIBUTE(CREDENTIAL_RULE),
-     ATTRIBUTE(USER_EXPIRING_TIMEOUT_MINUTES),
-     ATTRIBUTE(USER_NAME_ENCODING),
-     ATTRIBUTE(USER_NAME)};
-
-user_credential_user_unique_id_t get_user_id(const uint8_t *event_parameters)
-{
-  return get_uint16_value(event_parameters, INDEX_USER_UNIQUE_ID);
-}
-
-user_credential_modifier_type_t
-  get_user_modifier_type(const uint8_t *event_parameters)
-{
-  return event_parameters[INDEX_USER_MODIFIER_TYPE];
-}
-// Get user node reported in the notification parameters
-attribute_store_node_t get_user_node(attribute_store_node_t endpoint_node,
-                                     const uint8_t *event_parameters,
-                                     attribute_store_node_value_state_t state)
-{
-  user_credential_user_unique_id_t user_id
-    = get_uint16_value(event_parameters, INDEX_USER_UNIQUE_ID);
-
-  attribute_store_node_t user_node
-    = (state == REPORTED_ATTRIBUTE)
-        ? get_reported_user_id_node(endpoint_node, user_id)
-        : get_desired_user_id_node(endpoint_node, user_id);
-
-  if (user_node == ATTRIBUTE_STORE_INVALID_NODE) {
-    sl_log_debug(LOG_TAG,
-                 "Can't find user %d present in Notification Parameters",
-                 user_id);
-  }
-  return user_node;
-}
-
-void update_user_reported_values(attribute_store_node_t user_id_node,
-                                 const uint8_t *event_parameters)
-{
-  sl_status_t set_status
-    = set_reported_attributes(user_id_node,
-                              event_parameters,
-                              user_notification_report_data);
-
-  if (set_status != SL_STATUS_OK) {
-    sl_log_error(LOG_TAG, "Error while setting reported attributes");
-  }
-
-  // Those are not present in the User Notification command, we assume they stay the same
-  // FIXME: https://github.com/Z-Wave-Alliance/AWG/issues/168
-  auto user_name_encoding_node
-    = attribute_store_get_node_child_by_type(user_id_node,
-                                             ATTRIBUTE(USER_NAME_ENCODING),
-                                             0);
-  attribute_store_set_reported_as_desired(user_name_encoding_node);
-  auto user_name_node
-    = attribute_store_get_node_child_by_type(user_id_node,
-                                             ATTRIBUTE(USER_NAME),
-                                             0);
-  attribute_store_set_reported_as_desired(user_name_node);
-};
-
-bool is_report_size_conform(uint8_t event_parameters_length)
-{
-  if (event_parameters_length != USER_NOTIFICATION_REPORT_FRAME_LENGTH) {
-    sl_log_error(
-      LOG_TAG,
-      "Invalid User Notification Report size got %0xd, expected %0xd",
-      event_parameters_length,
-      USER_NOTIFICATION_REPORT_FRAME_LENGTH);
-    return false;
-  }
-  return true;
-};
-
-}  // namespace user
-
 namespace credential
 {
 // Indexes
@@ -1451,128 +1472,6 @@ void on_notification_event(attribute_store_node_t endpoint_node,
 
   // Logic
   switch (event_code) {
-    // User unchanged
-    case 0x2A: {
-      sl_log_debug(LOG_TAG, "Notification : User Unchanged");
-      if (!notification_handler::user::is_report_size_conform(
-            event_parameters_length)) {
-        return;
-      }
-      user_credential_user_unique_id_t user_id
-        = notification_handler::user::get_user_id(event_parameters);
-
-      attribute_store_node_t user_id_node
-        = notification_handler::user::get_user_node(endpoint_node,
-                                                    event_parameters,
-                                                    REPORTED_ATTRIBUTE);
-      if (!attribute_store_node_exists(user_id_node)) {
-        // Check desired value in case the Add operation didn't work
-        user_id_node
-          = notification_handler::user::get_user_node(endpoint_node,
-                                                      event_parameters,
-                                                      DESIRED_ATTRIBUTE);
-
-        // If still not exists we return an error
-        if (!attribute_store_node_exists(user_id_node)) {
-          sl_log_error(LOG_TAG, "Didn't find user ID %d.", user_id);
-          return;
-        }
-      }
-
-      // If user doesn't exists in the device we try to remove it also from our side
-      user_credential_modifier_type_t modifier_type
-        = notification_handler::user::get_user_modifier_type(event_parameters);
-      if (modifier_type == USER_REPORT_DNE) {
-        attribute_store_delete_node(user_id_node);
-      } else {
-        sl_log_info(LOG_TAG, "User Unchanged, clearing desired values.");
-
-        for (auto &user_data_type:
-             notification_handler::user::user_data_attribute_types) {
-          attribute_store_undefine_desired(
-            attribute_store_get_node_child_by_type(user_id_node,
-                                                   user_data_type,
-                                                   0));
-        }
-      }
-    } break;
-    // User Added
-    case 0x27: {
-      sl_log_debug(LOG_TAG, "Notification : User Added");
-
-      if (!notification_handler::user::is_report_size_conform(
-            event_parameters_length)) {
-        return;
-      }
-      // User node
-      attribute_store_node_t user_id_node
-        = notification_handler::user::get_user_node(endpoint_node,
-                                                    event_parameters,
-                                                    DESIRED_ATTRIBUTE);
-      user_credential_user_unique_id_t user_id
-        = notification_handler::user::get_user_id(event_parameters);
-
-      // Fallback if we didn't find the user in desired value, we check the reported ones
-      if (!attribute_store_node_exists(user_id_node)) {
-        sl_log_error(LOG_TAG,
-                     "Didn't find user ID %d in 'add state' (desired value). "
-                     "Can't add user.",
-                     user_id);
-        return;
-      } else {
-        // Do not use attribute_store_set_reported_as_desired here since it will introduce wired behavior for some reason
-        attribute_store_undefine_desired(user_id_node);
-        // If we found the user id, we mark it a reported now.
-        attribute_store_set_reported(user_id_node, &user_id, sizeof(user_id));
-      }
-
-      notification_handler::user::update_user_reported_values(user_id_node,
-                                                              event_parameters);
-
-    } break;
-    // User Modified
-    case 0x28: {
-      sl_log_debug(LOG_TAG, "Notification : User Modified");
-
-      if (!notification_handler::user::is_report_size_conform(
-            event_parameters_length)) {
-        return;
-      }
-
-      attribute_store_node_t user_id_node
-        = notification_handler::user::get_user_node(endpoint_node,
-                                                    event_parameters,
-                                                    REPORTED_ATTRIBUTE);
-
-      if (!attribute_store_node_exists(user_id_node)) {
-        user_credential_user_unique_id_t user_id
-          = notification_handler::user::get_user_id(event_parameters);
-        sl_log_error(LOG_TAG,
-                     "Didn't find user ID %d. Can't modify user.",
-                     user_id);
-        return;
-      }
-
-      notification_handler::user::update_user_reported_values(user_id_node,
-                                                              event_parameters);
-
-    } break;
-    // User Deleted
-    case 0x29: {
-      sl_log_debug(LOG_TAG, "Notification : User Deleted");
-
-      if (!notification_handler::user::is_report_size_conform(
-            event_parameters_length)) {
-        return;
-      }
-
-      // Get user node so we can remove it
-      attribute_store_node_t deleted_user_id_node
-        = notification_handler::user::get_user_node(endpoint_node,
-                                                    event_parameters,
-                                                    REPORTED_ATTRIBUTE);
-      attribute_store_delete_node(deleted_user_id_node);
-    } break;
     // Credential Added
     case 0x2B: {
       sl_log_debug(LOG_TAG, "Notification : Credential Added");
@@ -3396,8 +3295,27 @@ static sl_status_t zwave_command_class_user_credential_user_get(
     return SL_STATUS_FAIL;
   }
 
+  // This special user ID will contains the unaffected credentials.
+  if (user_id == 0) {
+    sl_log_debug(LOG_TAG, "Starting interview for all users on the device.");
+    user_unique_id_node.clear_desired();
+    user_unique_id_node.set_reported(user_id);
+  }
+
   return SL_STATUS_OK;
 }
+
+// TODO : Update with values in ZW_cmdclass.h
+enum class user_report_type_t : uint8_t {
+  USER_ADDED                          = 0x00,
+  USER_MODIFIED                       = 0x01,
+  USER_DELETED                        = 0x02,
+  USER_UNCHANGED                      = 0x03,
+  RESPONSE_TO_GET                     = 0x04,
+  USER_ADD_REJECTED_LOCATION_OCCUPIED = 0x05,
+  USER_MODIFY_REJECTED_LOCATION_EMPTY = 0x06,
+  NON_ZERO_EXPIRING_MINUTES_INVALID   = 0x07
+};
 
 sl_status_t zwave_command_class_user_credential_user_handle_report(
   const zwave_controller_connection_info_t *connection_info,
@@ -3419,7 +3337,7 @@ sl_status_t zwave_command_class_user_credential_user_handle_report(
       return SL_STATUS_FAIL;
     }
 
-    //parser.read_byte();  // TODO : use User Report Type;
+    auto user_report_type = static_cast<user_report_type_t>(parser.read_byte());
 
     auto next_user_id
       = parser.read_sequential<user_credential_user_unique_id_t>(2);
@@ -3432,75 +3350,114 @@ sl_status_t zwave_command_class_user_credential_user_handle_report(
     auto current_user_id
       = parser.read_sequential<user_credential_user_unique_id_t>(2);
 
-    sl_log_debug(LOG_TAG, "User report for user %d", current_user_id);
-
-    auto remove_node_0_if_exists = [&]() {
-      attribute_store_node_t node_0;
-      get_user_id_node(endpoint_node, 0, DESIRED_ATTRIBUTE, node_0);
-      return attribute_store_delete_node(node_0);
-    };
+    sl_log_debug(LOG_TAG,
+                 "User report for user %d. User report type %d",
+                 current_user_id,
+                 user_report_type);
 
     // CC:0083.01.05.11.006: Zero is an invalid User Unique Identifier and MUST NOT be used by the node
     if (current_user_id == 0) {
-      sl_log_info(LOG_TAG,
-                  "User report with ID 0 received. This probably means that no "
-                  "user is defined on the device.");
-      sl_log_debug(LOG_TAG,
-                   "Attempt to delete User Node ID with value %d",
-                   current_user_id);
-      sl_status_t deletion_status = remove_node_0_if_exists();
-      sl_log_debug(LOG_TAG, "Deletion returned status : %d", deletion_status);
-      return SL_STATUS_OK;
-    }
+      if (user_report_type == user_report_type_t::RESPONSE_TO_GET) {
+        sl_log_info(LOG_TAG, "No users was found on the device.");
+        return SL_STATUS_OK;
+      } else if (user_report_type == user_report_type_t::USER_DELETED) {
+        sl_log_info(LOG_TAG, "Request to delete all users");
 
-    // Find user id
-    auto current_user_id_node
-      = endpoint_node.child_by_type_and_value(ATTRIBUTE(USER_UNIQUE_ID),
-                                              current_user_id);
-    if (!current_user_id_node.is_valid()) {
-      sl_log_debug(LOG_TAG,
-                   "Could not find user %d with reported value, trying desired",
-                   current_user_id);
-      // If User node doesn't exists with given desired attribute
-      current_user_id_node = endpoint_node.child_by_type_and_value_desired(
-        ATTRIBUTE(USER_UNIQUE_ID),
-        current_user_id);
+        for (auto user_node:
+             endpoint_node.children(ATTRIBUTE(USER_UNIQUE_ID))) {
+          // Don't delete special user 0
+          if (user_node.reported_exists()
+              && user_node.reported<user_credential_user_unique_id_t>() == 0) {
+            continue;
+          }
 
-      if (!current_user_id_node.is_valid()) {
-        sl_log_debug(
-          LOG_TAG,
-          "Could not find user %d with desired value, using the User ID 0",
-          current_user_id);
-        current_user_id_node = endpoint_node.child_by_type_and_value_desired<
-          user_credential_user_unique_id_t>(ATTRIBUTE(USER_UNIQUE_ID), 0);
+          attribute_store_delete_node(user_node);
+        }
+        
+        return SL_STATUS_OK;
+      } else {
+        sl_log_error(LOG_TAG,
+                     "User report with ID 0 received. This is an invalid User "
+                     "Unique Identifier and MUST NOT be used by the node.");
+        return SL_STATUS_FAIL;
       }
     }
 
-    // Check node existence
-    if (!current_user_id_node.is_valid()) {
-      sl_log_error(LOG_TAG,
-                   "Can't find user with ID %d in USER_REPORT",
-                   current_user_id);
-      return SL_STATUS_NOT_SUPPORTED;
-    }
+    // Lambda function to remove user node in an invalid state
+    auto remove_current_user_node = [&]() {
+      get_user_unique_id_node(endpoint_node, current_user_id, DESIRED_ATTRIBUTE)
+        .delete_node();
+    };
 
-    if (user_modifier_type == USER_REPORT_DNE) {
-      sl_log_debug(
-        LOG_TAG,
-        "User %d does not exist anymore, removing from attribute store.",
-        current_user_id);
-      attribute_store_delete_node(current_user_id_node);
+    // Current user id node that will be used later
+    // Each report type has a different behavior
+    attribute_store::attribute current_user_id_node;
+    switch (user_report_type) {
+      // Need to create new user node
+      case user_report_type_t::USER_ADDED:
+        current_user_id_node
+          = endpoint_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID),
+                                       current_user_id);
+      // If this is the first user we get it might not exists yet so we create it.
+      // Otherwise we just update the reported value
+      case user_report_type_t::RESPONSE_TO_GET:
+        current_user_id_node
+          = endpoint_node.child_by_type_and_value(ATTRIBUTE(USER_UNIQUE_ID),
+                                                  current_user_id,
+                                                  DESIRED_ATTRIBUTE);
+        if (!current_user_id_node.is_valid()) {
+          current_user_id_node
+            = endpoint_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID),
+                                         current_user_id);
+        } else {
+          current_user_id_node.set_reported(current_user_id);
+          current_user_id_node.clear_desired();
+        }
+        break;
+      // We should have a record of given user ID
+      case user_report_type_t::USER_MODIFIED:
+      case user_report_type_t::USER_DELETED:
+        current_user_id_node = get_user_unique_id_node(endpoint_node,
+                                                       current_user_id,
+                                                       REPORTED_ATTRIBUTE);
+        break;
+      // Special/Errors cases
+      case user_report_type_t::USER_UNCHANGED:
+        sl_log_info(LOG_TAG, "User %d is unchanged", current_user_id);
+        return SL_STATUS_OK;
+        break;
+      case user_report_type_t::USER_ADD_REJECTED_LOCATION_OCCUPIED:
+        sl_log_warning(LOG_TAG,
+                       "User %d was not added since it already exists. Try to "
+                       "modify it instead.",
+                       current_user_id);
+        remove_current_user_node();
+        return SL_STATUS_OK;
+      case user_report_type_t::USER_MODIFY_REJECTED_LOCATION_EMPTY:
+        sl_log_warning(LOG_TAG,
+                       "User %d was not modified since it doesn't exists. Try "
+                       "to add it instead.",
+                       current_user_id);
+        remove_current_user_node();
+        return SL_STATUS_OK;
+      case user_report_type_t::NON_ZERO_EXPIRING_MINUTES_INVALID:
+        sl_log_warning(LOG_TAG,
+                       "User %d was not modified/added since the expiring timeout minutes is invalid.",
+                       current_user_id);
+        return SL_STATUS_OK;
+      default:
+        sl_log_error(LOG_TAG, "Invalid value for user report type.");
+        return SL_STATUS_FAIL;
+    };
+
+    // Deleted special case
+    if (user_report_type == user_report_type_t::USER_DELETED) {
+      // TODO : move all credential from this user to user 0
+      // Maybe it is done automatically by the credential report
+      sl_log_info(LOG_TAG, "User %d has been deleted", current_user_id);
+      current_user_id_node.delete_node();
       return SL_STATUS_OK;
     }
-
-    // Everything is fine, set the reported value to the current user id node
-    current_user_id_node.set_reported(current_user_id);
-    current_user_id_node.clear_desired();
-
-    // Remove leftover of node 0 if it exists
-    // This is necessary if we are interviewing again the user as this node will be left undefined
-    // and causing a get loop.
-    remove_node_0_if_exists();
 
     // Set already parsed values
     current_user_id_node.emplace_node(ATTRIBUTE(USER_MODIFIER_TYPE))
@@ -3527,12 +3484,21 @@ sl_status_t zwave_command_class_user_credential_user_handle_report(
     // Get credentials
     trigger_get_credential(current_user_id_node, 0, 0);
 
-    if (next_user_id != 0) {
-      sl_log_debug(LOG_TAG, "Trigger a get for next user (%d)", next_user_id);
-      trigger_get_user(endpoint_node, next_user_id);
+    if (next_user_id != 0
+        && user_report_type == user_report_type_t::RESPONSE_TO_GET) {
+      if (!user_exists(endpoint_node, next_user_id)) {
+        sl_log_debug(LOG_TAG, "Trigger a get for next user (%d)", next_user_id);
+        endpoint_node.add_node(ATTRIBUTE(USER_UNIQUE_ID))
+          .set_desired(next_user_id);
+      } else {
+        sl_log_error(LOG_TAG,
+                     "User %d already exists. Not discovering more users.",
+                     next_user_id);
+      }
     } else {
       sl_log_debug(LOG_TAG, "No more users to discover");
     }
+
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
                  "Error while parsing User Report frame : %s",
