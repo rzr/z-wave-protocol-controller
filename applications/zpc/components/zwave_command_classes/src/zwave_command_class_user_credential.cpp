@@ -473,32 +473,6 @@ uint16_t get_uint16_value(const uint8_t *frame, uint16_t start_index)
   return extracted_value;
 }
 
-// Transform a uint16_t into 2 uint8_t
-uint16_exploded explode_uint16(uint16_t value)
-{
-  uint8_t msb = (value & 0xFF00) >> 8;
-  uint8_t lsb = (value & 0x00FF);
-  return uint16_exploded {msb, lsb};
-}
-
-std::string get_string_value(const uint8_t *frame_data,
-                             uint16_t start_index,
-                             uint8_t str_size)
-{
-  std::string value;
-  // Check if our name fits our buffer ; if not it is truncated
-  if (str_size > MAX_CHAR_SIZE) {
-    sl_log_warning(LOG_TAG, "Invalid char size");
-    str_size = MAX_CHAR_SIZE;
-  }
-
-  for (int i = 0; i < str_size; i++) {
-    value += frame_data[start_index + i];
-  }
-
-  return value;
-}
-
 ///////////////////////////////////////////////////////////////////////
 // Mics helpers
 ///////////////////////////////////////////////////////////////////////
@@ -1053,9 +1027,8 @@ sl_status_t node_to_uint8_vector(attribute_store_node_t node,
                                           value_state,
                                           &uint16_value,
                                           sizeof(uint16_value));
-      auto exploded_uint16 = explode_uint16(uint16_value);
-      data.push_back(exploded_uint16.msb);
-      data.push_back(exploded_uint16.lsb);
+      data.push_back((uint16_value & 0xFF00) >> 8);
+      data.push_back((uint16_value & 0x00FF));
     } break;
     // Variable length field
     case BYTE_ARRAY_STORAGE_TYPE: {
@@ -3624,43 +3597,36 @@ user_credential_checksum_t compute_checksum_and_verify_integrity(
 /////////////////////////////////////////////////////////////////////////////
 // User Checksum Get/Report
 /////////////////////////////////////////////////////////////////////////////
-
 static sl_status_t zwave_command_class_user_credential_user_checksum_get(
   attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
 {
   sl_log_debug(LOG_TAG, "User Checksum Get");
+  attribute_store::attribute checksum_node(node);
 
-  auto user_id_node
-    = attribute_store_get_first_parent_with_type(node,
-                                                 ATTRIBUTE(USER_UNIQUE_ID));
+  auto user_id_node = checksum_node.first_parent(ATTRIBUTE(USER_UNIQUE_ID));
 
-  if (!attribute_store_node_exists(user_id_node)) {
+  if (!user_id_node.is_valid()) {
     sl_log_error(
       LOG_TAG,
       "Can't find User Unique ID node. Not sending User Checksum Get.");
     return SL_STATUS_NOT_SUPPORTED;
   }
 
-  user_credential_user_unique_id_t user_id = 0;
-  sl_status_t status
-    = attribute_store_get_reported(user_id_node, &user_id, sizeof(user_id));
+  constexpr uint8_t expected_frame_size
+    = static_cast<uint8_t>(sizeof(ZW_USER_CHECKSUM_GET_FRAME));
 
-  if (status != SL_STATUS_OK) {
-    sl_log_error(
-      LOG_TAG,
-      "Can't get user unique id value. Not sending User Checksum Get.");
+  try {
+    frame_generator.initialize_frame(USER_CHECKSUM_GET,
+                                     frame,
+                                     expected_frame_size);
+    frame_generator.add_value(user_id_node);
+    frame_generator.validate_frame(frame_length);
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while generating User Checksum Get frame : %s",
+                 e.what());
     return SL_STATUS_NOT_SUPPORTED;
   }
-
-  auto exploded_value = explode_uint16(user_id);
-
-  ZW_USER_CHECKSUM_GET_FRAME *get_frame = (ZW_USER_CHECKSUM_GET_FRAME *)frame;
-  get_frame->cmdClass                   = COMMAND_CLASS_USER_CREDENTIAL;
-  get_frame->cmd                        = USER_CHECKSUM_GET;
-  get_frame->userUniqueIdentifier1      = exploded_value.msb;
-  get_frame->userUniqueIdentifier2      = exploded_value.lsb;
-
-  *frame_length = sizeof(ZW_USER_CHECKSUM_GET_FRAME);
 
   return SL_STATUS_OK;
 }
