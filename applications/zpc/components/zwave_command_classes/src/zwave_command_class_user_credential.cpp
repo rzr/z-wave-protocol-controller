@@ -86,18 +86,6 @@ zwave_frame_generator frame_generator(COMMAND_CLASS_USER_CREDENTIAL);
 }
 
 /////////////////////////////////////////////////////////////////////////////
-// Preemptive declarations
-/////////////////////////////////////////////////////////////////////////////
-/**
- * @brief Trigger an User Get for given user_id
- * 
- * @param endpoint_node Endpoint node
- * @param user_id       User ID. Can be set to 0 to discover users
-*/
-void trigger_get_user(attribute_store_node_t endpoint_node,
-                      user_credential_user_unique_id_t user_id);
-
-/////////////////////////////////////////////////////////////////////////////
 // Data struct
 /////////////////////////////////////////////////////////////////////////////
 
@@ -2509,39 +2497,6 @@ sl_status_t zwave_command_class_user_credential_uuic_association_report(
 // User Set/Get/Report/Set Error Report
 /////////////////////////////////////////////////////////////////////////////
 
-// Start user interview process by starting a user get with ID 0
-void trigger_get_user(attribute_store_node_t endpoint_node,
-                      user_credential_user_unique_id_t user_id)
-{
-  // If we are not in the special case of user ID 0 we need to check if user is already here
-  if (user_id != 0) {
-    attribute_store_node_t user_node
-      = attribute_store_get_node_child_by_value(endpoint_node,
-                                                ATTRIBUTE(USER_UNIQUE_ID),
-                                                REPORTED_ATTRIBUTE,
-                                                (uint8_t *)&user_id,
-                                                sizeof(user_id),
-                                                0);
-    // If it exists we interview it again
-    if (attribute_store_node_exists(user_node)) {
-      sl_log_debug(
-        LOG_TAG,
-        "User Unique ID %d found. Undefine its reported value to update it.",
-        user_id);
-      attribute_store_set_desired(user_node, &user_id, sizeof(user_id));
-      attribute_store_undefine_reported(user_node);
-      return;
-    }
-  }
-
-  // If user id is 0 or not existant we create it
-  sl_log_debug(LOG_TAG, "Creating User Unique ID node %d", user_id);
-  attribute_store_emplace_desired(endpoint_node,
-                                  ATTRIBUTE(USER_UNIQUE_ID),
-                                  &user_id,
-                                  sizeof(user_id));
-}
-
 static sl_status_t zwave_command_class_user_credential_user_set(
   attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
 {
@@ -3260,72 +3215,65 @@ sl_status_t
 /////////////////////////////////////////////////////////////////////////////
 // Post interview actions
 /////////////////////////////////////////////////////////////////////////////
-void zwave_network_status_changed(attribute_store_node_t updated_node,
+void zwave_network_status_changed(attribute_store_node_t node,
                                   attribute_store_change_t change)
 {
-  attribute_store_node_t node_id_node
-    = attribute_store_get_first_parent_with_type(updated_node,
-                                                 ATTRIBUTE_NODE_ID);
+  // We englobe this in case we can't read an attribute or something goes wrong
+  try {
+    attribute_store::attribute network_status_node(node);
+    auto node_id_node = network_status_node.first_parent(ATTRIBUTE_NODE_ID);
 
-  zwave_node_id_t node_id;
-  attribute_store_get_reported(node_id_node, &node_id, sizeof(node_id));
+    // Should not happen but we check anyway to prevent an exception to raise
+    if (!node_id_node.reported_exists()) {
+      return;
+    }
 
-  // If we are updating the zpc node or if we trying to delete the attribute we don't want to do anything
-  if (change == ATTRIBUTE_DELETED || get_zpc_node_id_node() == node_id_node) {
-    return;
-  }
+    auto node_id = node_id_node.reported<zwave_node_id_t>();
 
-  NodeStateNetworkStatus network_status;
-  sl_status_t reported_value_status
-    = attribute_store_get_reported(updated_node,
-                                   &network_status,
-                                   sizeof(network_status));
+    // If we are updating the zpc node or if we trying to delete the attribute we don't want to do anything
+    if (change == ATTRIBUTE_DELETED || get_zpc_node_id_node() == node_id_node) {
+      return;
+    }
 
-  // If the endpoint report is marked as ONLINE_FUNCTIONAL
-  if (reported_value_status == SL_STATUS_OK
-      && network_status == ZCL_NODE_STATE_NETWORK_STATUS_ONLINE_FUNCTIONAL) {
-    sl_log_debug(LOG_TAG,
-                 "Node %d is now ONLINE_FUNCTIONAL : start the delayed "
-                 "interview process",
-                 node_id);
-    // Perform action on each endpoint that supports User Credential Command class
-    uint8_t endpoint_count
-      = attribute_store_get_node_child_count_by_type(node_id_node,
-                                                     ATTRIBUTE_ENDPOINT_ID);
-
-    sl_log_debug(LOG_TAG, "Checking endpoints (total : %d)...", endpoint_count);
-
-    for (uint8_t i = 0; i < endpoint_count; i++) {
-      // Get current endpoint node
-      attribute_store_node_t endpoint_node
-        = attribute_store_get_node_child_by_type(node_id_node,
-                                                 ATTRIBUTE_ENDPOINT_ID,
-                                                 i);
-
-      zwave_endpoint_id_t endpoint_id;
-      attribute_store_get_reported(endpoint_node,
-                                   &endpoint_id,
-                                   sizeof(endpoint_id));
-      // Check if the endpoint supports User Credential Command class
-      if (zwave_node_supports_command_class(COMMAND_CLASS_USER_CREDENTIAL,
-                                            node_id,
-                                            endpoint_id)) {
-        auto user_count = attribute_store_get_node_child_count_by_type(
-          endpoint_node,
-          ATTRIBUTE(USER_UNIQUE_ID));
-        sl_log_debug(LOG_TAG,
-                     "Endpoint %d supports User Credential.",
-                     endpoint_id);
-        if (user_count == 0) {
+    // If the endpoint report is marked as ONLINE_FUNCTIONAL
+    if (network_status_node.reported<NodeStateNetworkStatus>()
+        == ZCL_NODE_STATE_NETWORK_STATUS_ONLINE_FUNCTIONAL) {
+      sl_log_debug(LOG_TAG,
+                   "Node %d is now ONLINE_FUNCTIONAL : start the delayed "
+                   "interview process",
+                   node_id);
+      // Perform action on each endpoint that supports User Credential Command class
+      sl_log_debug(LOG_TAG, "Checking endpoints...");
+      for (auto endpoint_node: node_id_node.children(ATTRIBUTE_ENDPOINT_ID)) {
+        auto endpoint_id = endpoint_node.reported<zwave_endpoint_id_t>();
+        // Check if the endpoint supports User Credential Command class
+        if (zwave_node_supports_command_class(COMMAND_CLASS_USER_CREDENTIAL,
+                                              node_id,
+                                              endpoint_id)) {
           sl_log_debug(LOG_TAG,
-                       "No user found. Starting User and Credential interview");
-          // Start the interview process with user ID = 0
-          trigger_get_user(endpoint_node, 0);
-        } else {
-          sl_log_debug(LOG_TAG, "Users already discovered. No actions needed.");
+                       "Endpoint %d supports User Credential.",
+                       endpoint_id);
+          auto user_count
+            = endpoint_node.children(ATTRIBUTE(USER_UNIQUE_ID)).size();
+          if (user_count == 0) {
+            sl_log_debug(
+              LOG_TAG,
+              "No user found. Starting User and Credential interview");
+            // Start the interview process with user ID = 0
+            endpoint_node.add_node(ATTRIBUTE(USER_UNIQUE_ID))
+              .set_desired<user_credential_user_unique_id_t>(0);
+          } else {
+            sl_log_debug(LOG_TAG,
+                         "Users already discovered. No actions needed.");
+          }
         }
       }
+      sl_log_debug(LOG_TAG, "Done.");
     }
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while handling network status change : %s",
+                 e.what());
   }
 }
 
