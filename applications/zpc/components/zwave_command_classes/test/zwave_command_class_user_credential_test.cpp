@@ -297,15 +297,10 @@ void helper_test_credential_learn_structure(
                                   credential_slot_node,
                                   DESIRED_ATTRIBUTE);
 
-  auto credential_type_state
-    = expected_operation_type == USER_CREDENTIAL_OPERATION_TYPE_ADD
-        ? DESIRED_ATTRIBUTE
-        : REPORTED_ATTRIBUTE;
-
   user_credential_user_unique_id_t user_id
     = user_id_node.reported<user_credential_user_unique_id_t>();
   user_credential_type_t credential_type
-    = credential_type_node.get<user_credential_type_t>(credential_type_state);
+    = credential_type_node.reported<user_credential_type_t>();
   user_credential_slot_t credential_slot
     = credential_slot_node.reported<user_credential_slot_t>();
 
@@ -2820,8 +2815,7 @@ void test_user_credential_credential_learn_start_add_happy_case()
   auto update_credential_nodes = [&]() {
     credential_type_node
       = user_id_node.child_by_type_and_value(ATTRIBUTE(CREDENTIAL_TYPE),
-                                             credential_type,
-                                             DESIRED_ATTRIBUTE);
+                                             credential_type);
 
     credential_slot_node
       = credential_type_node.child_by_type_and_value(ATTRIBUTE(CREDENTIAL_SLOT),
