@@ -78,9 +78,6 @@ const zwave_struct_handler_args command_class_handler
      .supported_version = USER_CREDENTIAL_VERSION,
      .scheme            = ZWAVE_CONTROLLER_ENCAPSULATION_SECURITY_2_ACCESS};
 
-// Notification callback
-static notification_event_callback_t notification_callback;
-
 /////////////////////////////////////////////////////
 // HELPERS
 /////////////////////////////////////////////////////
@@ -133,30 +130,6 @@ credential_structure_nodes helper_create_credential_structure(
 ////////////////////////////////////////////////////
 // Report helpers
 ////////////////////////////////////////////////////
-
-void helper_simulate_credential_set_error_report(
-  uint8_t credential_set_error_type,
-  user_credential_user_unique_id_t user_id,
-  user_credential_type_t credential_type,
-  user_credential_slot_t credential_slot,
-  uint8_t crb,
-  std::string credential_data,
-  user_credential_modifier_type_t modifier_type,
-  user_credential_modifier_node_id_t modifier_node_id)
-{
-  zwave_frame report_frame;
-
-  report_frame.add(credential_set_error_type);
-  report_frame.add(user_id);
-  report_frame.add(credential_type);
-  report_frame.add(credential_slot);
-  report_frame.add(crb);
-  report_frame.add(credential_data);
-  report_frame.add(modifier_type);
-  report_frame.add(modifier_node_id);
-
-  helper_test_report_frame(CREDENTIAL_SET_ERROR_REPORT, report_frame);
-}
 
 void helper_simulate_user_capabilites_report(
   uint16_t number_of_users,
@@ -300,7 +273,6 @@ void helper_simulate_association_report_frame(
   helper_test_report_frame(USER_CREDENTIAL_ASSOCIATION_REPORT, report_frame);
 }
 
-
 void helper_test_credential_learn_structure(
   attribute_store::attribute user_id_node,
   attribute_store::attribute credential_type_node,
@@ -416,6 +388,7 @@ void helper_test_credential_data(
 }
 
 void helper_simulate_credential_report_frame(
+  uint8_t credential_report_type,
   user_credential_user_unique_id_t user_id,
   user_credential_type_t credential_type,
   user_credential_slot_t credential_slot,
@@ -428,7 +401,7 @@ void helper_simulate_credential_report_frame(
   sl_status_t expected_status = SL_STATUS_OK)
 {
   zwave_frame report_frame;
-
+  report_frame.add(credential_report_type);
   report_frame.add(user_id);
   report_frame.add(credential_type);
   report_frame.add(credential_slot);
@@ -441,6 +414,11 @@ void helper_simulate_credential_report_frame(
 
   helper_test_report_frame(CREDENTIAL_REPORT, report_frame, expected_status);
 };
+
+std::vector<uint8_t> string_to_uint8_vector(const std::string &str)
+{
+  return std::vector<uint8_t>(str.begin(), str.end());
+}
 
 void helper_create_credential_checksum_structure()
 {
@@ -497,16 +475,8 @@ void helper_create_credential_checksum_structure()
   }
 
   for (size_t i = 0; i < credential_types.size(); i++) {
-    // Simulate credential type and slot to get the credential report to work
-    auto user_credential_type_node
-      = user_id_nodes[credential_user_ids[i]].emplace_node(
-        ATTRIBUTE(CREDENTIAL_TYPE),
-        credential_types[i]);
-
-    user_credential_type_node.emplace_node(ATTRIBUTE(CREDENTIAL_SLOT),
-                                           credential_slots[i]);
-
-    helper_simulate_credential_report_frame(credential_user_ids[i],
+    helper_simulate_credential_report_frame(0x00,  // Credential Add
+                                            credential_user_ids[i],
                                             credential_types[i],
                                             credential_slots[i],
                                             0,
@@ -521,13 +491,6 @@ void helper_create_credential_checksum_structure()
 /////////////////////////////////////////////////////
 // Test case
 /////////////////////////////////////////////////////
-static void zwave_command_class_notification_register_event_callback_stub(
-  attribute_store_node_t endpoint_node,
-  notification_event_callback_t callback,
-  int cmock_num_calls)
-{
-  notification_callback = callback;
-}
 
 /// Setup the test suite (called once before all test_xxx functions are called)
 void suiteSetUp()
@@ -548,16 +511,9 @@ int suiteTearDown(int num_failures)
 /// Called before each and every test
 void setUp()
 {
-  zwave_network_management_get_node_id_IgnoreAndReturn(zpc_node_id);
-  zwave_network_management_get_home_id_IgnoreAndReturn(home_id);
-
   zwave_setUp(command_class_handler,
               &zwave_command_class_user_credential_init,
               attributes_binding);
-
-  notification_callback = NULL;
-  zwave_command_class_notification_register_event_callback_Stub(
-    &zwave_command_class_notification_register_event_callback_stub);
 }
 
 /// Called after each and every test
@@ -1249,13 +1205,23 @@ void test_user_credential_credential_report_no_credential()
   cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Should return ok since credential_type and credential node is 0
-  helper_simulate_credential_report_frame(user_id, 0, 0, 0, {}, 0, 0, 0, 0);
+  helper_simulate_credential_report_frame(0x04,  // Credential get,
+                                          user_id,
+                                          0,
+                                          0,
+                                          0,
+                                          {},
+                                          0,
+                                          0,
+                                          0,
+                                          0);
 }
 
 void test_user_credential_credential_report_missing_user()
 {
   // Not found since we haven't created any user_unique_id
-  helper_simulate_credential_report_frame(12,
+  helper_simulate_credential_report_frame(0x04,
+                                          12,
                                           1,
                                           1,
                                           0,
@@ -1264,48 +1230,7 @@ void test_user_credential_credential_report_missing_user()
                                           0,
                                           0,
                                           0,
-                                          SL_STATUS_NOT_SUPPORTED);
-}
-
-void test_user_credential_credential_report_missing_credential_type()
-{
-  user_credential_user_unique_id_t user_id = 12;
-  cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
-
-  // Not found since we haven't created any credential_type
-  helper_simulate_credential_report_frame(user_id,
-                                          1,
-                                          5,
-                                          0,
-                                          {},
-                                          0,
-                                          0,
-                                          0,
-                                          0,
-                                          SL_STATUS_NOT_SUPPORTED);
-}
-
-void test_user_credential_credential_report_missing_credential_slot()
-{
-  user_credential_user_unique_id_t user_id = 12;
-  user_credential_type_t credential_type   = 121;
-
-  auto user_id_node
-    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
-
-  user_id_node.emplace_node(ATTRIBUTE(CREDENTIAL_TYPE), credential_type);
-
-  // Not found since we haven't created any credential_slot
-  helper_simulate_credential_report_frame(user_id,
-                                          credential_type,
-                                          1212,
-                                          0,
-                                          {},
-                                          0,
-                                          0,
-                                          0,
-                                          0,
-                                          SL_STATUS_NOT_SUPPORTED);
+                                          SL_STATUS_FAIL);
 }
 
 void test_user_credential_credential_report_happy_case()
@@ -1413,7 +1338,8 @@ void test_user_credential_credential_report_happy_case()
                                        get_frame);
 
   // Call report
-  helper_simulate_credential_report_frame(user_id,
+  helper_simulate_credential_report_frame(0x04,  // Response to get
+                                          user_id,
                                           credential_type,
                                           credential_slot,
                                           crb,
@@ -1424,6 +1350,17 @@ void test_user_credential_credential_report_happy_case()
                                           next_credential_slot);
 
   // Test values
+  TEST_ASSERT_FALSE_MESSAGE(first_credential_type_node.is_valid(),
+                            "Credential type node 0 should have been deleted");
+  TEST_ASSERT_FALSE_MESSAGE(first_credential_slot_node.is_valid(),
+                            "Credential slot node 0 should have been deleted");
+
+  first_credential_type_node
+    = helper_test_and_get_node(ATTRIBUTE(CREDENTIAL_TYPE), user_id_node);
+  first_credential_slot_node
+    = helper_test_and_get_node(ATTRIBUTE(CREDENTIAL_SLOT),
+                               first_credential_type_node);
+
   test_credential_values(first_credential_type_node,
                          first_credential_slot_node);
   // We should have 1 credential type and 2 credential slot
@@ -1457,7 +1394,8 @@ void test_user_credential_credential_report_happy_case()
                                        get_frame);
 
   // Call report
-  helper_simulate_credential_report_frame(user_id,
+  helper_simulate_credential_report_frame(0x04,  // Response to get
+                                          user_id,
                                           credential_type,
                                           credential_slot,
                                           crb,
@@ -1503,7 +1441,8 @@ void test_user_credential_credential_report_happy_case()
                                        get_frame);
 
   // Call report
-  helper_simulate_credential_report_frame(user_id,
+  helper_simulate_credential_report_frame(0x04,  // Response to get
+                                          user_id,
                                           credential_type,
                                           credential_slot,
                                           crb,
@@ -1567,6 +1506,9 @@ void test_attribute_creation_no_version()
 
 void test_post_interview_discovery()
 {
+  zwave_network_management_get_node_id_IgnoreAndReturn(zpc_node_id);
+  zwave_network_management_get_home_id_IgnoreAndReturn(home_id);
+
   // Lambdas
   auto count_user_node = [](size_t expected_value) {
     auto user_id_node_count
@@ -1634,49 +1576,10 @@ void test_post_interview_discovery()
   helper_test_attribute_value(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 }
 
-void test_user_credential_notification_empty_parameters()
-{
-  // Initialize the notification callback
-  helper_set_version(1);
-
-  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
-                               "Notification callback should be defined");
-  std::vector<uint8_t> empty_event_parameters = {};
-  // Test all available notification types
-  // No error should occurs even if parameters are not well defined
-  std::vector<uint8_t> notification_access_control_event_types = {0x23,
-                                                                  0x24,
-                                                                  0x25,
-                                                                  0x26,
-                                                                  0x27,
-                                                                  0x28,
-                                                                  0x29,
-                                                                  0x2A,
-                                                                  0x2B,
-                                                                  0x2C,
-                                                                  0x2D,
-                                                                  0x2E,
-                                                                  0x2F,
-                                                                  0x30,
-                                                                  0x31,
-                                                                  0x32,
-                                                                  0x33};
-  for (auto event_type: notification_access_control_event_types) {
-    notification_callback(endpoint_id_node,
-                          NOTIFICATION_ACCESS_CONTROL,
-                          event_type,
-                          empty_event_parameters.data(),
-                          empty_event_parameters.size());
-  }
-}
-
 void test_user_credential_add_credential_already_defined_cred_type_and_slot()
 {
   // Initialize the notification callback
   helper_set_version(1);
-
-  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
-                               "Notification callback should be defined");
 
   user_credential_user_unique_id_t user_id = 12;
   user_credential_type_t credential_type   = ZCL_CRED_TYPE_PIN_CODE;
@@ -1687,12 +1590,9 @@ void test_user_credential_add_credential_already_defined_cred_type_and_slot()
   user_credential_modifier_node_id_t credential_modifier_node_id = 1212;
 
   // Simulate user
-  attribute_store_emplace(endpoint_id_node,
-                          ATTRIBUTE(USER_UNIQUE_ID),
-                          &user_id,
-                          sizeof(user_id));
+  cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
-  // Se capabilities
+  // Capabilities
   uint8_t supported_credential_checksum = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_PIN_CODE};
@@ -1721,22 +1621,17 @@ void test_user_credential_add_credential_already_defined_cred_type_and_slot()
                             status,
                             "Credential add should have returned SL_STATUS_OK");
 
-  // Simulate notification so that the credential is marked as reported
-  auto credential_notification_report
-    = helper_create_credential_notification_report(user_id,
-                                                   credential_type,
-                                                   credential_slot,
-                                                   crb,
-                                                   credential_data,
-                                                   credential_modifier_type,
-                                                   credential_modifier_node_id);
-
-  // Endpoint send User Add notification
-  notification_callback(endpoint_id_node,
-                        NOTIFICATION_ACCESS_CONTROL,
-                        0x2B,  // Credential added
-                        credential_notification_report.data(),
-                        credential_notification_report.size());
+  helper_simulate_credential_report_frame(
+    0x00,  // Credential added
+    user_id,
+    credential_type,
+    credential_slot,
+    crb,
+    string_to_uint8_vector(credential_data),
+    credential_modifier_type,
+    credential_modifier_node_id,
+    0,
+    0);
 
   // Try to add same credential type and slot on same user but with different credential data
   credential_data = "1234";
@@ -1755,10 +1650,7 @@ void test_user_credential_add_credential_already_defined_cred_type_and_slot()
 
   // Try to add same credential type/slot on other user
   user_id = 15;
-  attribute_store_emplace(endpoint_id_node,
-                          ATTRIBUTE(USER_UNIQUE_ID),
-                          &user_id,
-                          sizeof(user_id));
+  cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   status = zwave_command_class_user_credential_add_new_credential(
     endpoint_id_node,
@@ -1782,10 +1674,7 @@ void test_user_credential_add_credential_invalid_slot()
   std::string credential_data              = "12";
 
   // Simulate user
-  attribute_store_emplace(endpoint_id_node,
-                          ATTRIBUTE(USER_UNIQUE_ID),
-                          &user_id,
-                          sizeof(user_id));
+  cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Se capabilities
   uint8_t supported_credential_checksum = 1;
@@ -1969,17 +1858,9 @@ void test_user_credential_user_add_modify_delete_happy_case()
                                     user_name);
 }
 
-void test_user_credential_credential_notification_add_modify_delete_happy_case()
+void test_user_credential_credential_add_modify_delete_happy_case()
 {
-  // Initialize the notification callback
-  const zwave_cc_version_t version = 1;
-  attribute_store_set_child_reported(endpoint_id_node,
-                                     ATTRIBUTE(VERSION),
-                                     &version,
-                                     sizeof(version));
-
-  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
-                               "Notification callback should be defined");
+  helper_set_version(1);
 
   user_credential_user_unique_id_t user_id = 12;
   user_credential_type_t credential_type   = ZCL_CRED_TYPE_PIN_CODE;
@@ -1990,10 +1871,8 @@ void test_user_credential_credential_notification_add_modify_delete_happy_case()
   user_credential_modifier_node_id_t credential_modifier_node_id = 1212;
 
   // Simulate user
-  auto user_id_node = attribute_store_emplace(endpoint_id_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID),
-                                              &user_id,
-                                              sizeof(user_id));
+  auto user_id_node
+    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Se capabilities
   uint8_t supported_credential_checksum = 1;
@@ -2026,36 +1905,30 @@ void test_user_credential_credential_notification_add_modify_delete_happy_case()
 
   // Get credential type
   auto credential_type_node
-    = attribute_store_get_first_child_by_type(user_id_node,
-                                              ATTRIBUTE(CREDENTIAL_TYPE));
+    = user_id_node.child_by_type(ATTRIBUTE(CREDENTIAL_TYPE));
 
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(credential_type_node),
+  TEST_ASSERT_TRUE_MESSAGE(credential_type_node.is_valid(),
                            "Credential type node should exist");
 
   // Get credential slot
   auto credential_slot_node
-    = attribute_store_get_first_child_by_type(credential_type_node,
-                                              ATTRIBUTE(CREDENTIAL_SLOT));
+    = credential_type_node.child_by_type(ATTRIBUTE(CREDENTIAL_SLOT));
 
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(credential_slot_node),
+  TEST_ASSERT_TRUE_MESSAGE(credential_slot_node.is_valid(),
                            "Credential slot node should exist");
 
   // Create notification report frame
-  auto credential_notification_report
-    = helper_create_credential_notification_report(user_id,
-                                                   credential_type,
-                                                   credential_slot,
-                                                   crb,
-                                                   credential_data,
-                                                   credential_modifier_type,
-                                                   credential_modifier_node_id);
-
-  // Endpoint send User Add notification
-  notification_callback(endpoint_id_node,
-                        NOTIFICATION_ACCESS_CONTROL,
-                        0x2B,  // Credential added
-                        credential_notification_report.data(),
-                        credential_notification_report.size());
+  helper_simulate_credential_report_frame(
+    0x00,  // Credential add
+    user_id,
+    credential_type,
+    credential_slot,
+    crb,
+    string_to_uint8_vector(credential_data),
+    credential_modifier_type,
+    credential_modifier_node_id,
+    0,
+    0);
 
   // Check values
   auto test_attribute_store_values = [&]() {
@@ -2080,35 +1953,36 @@ void test_user_credential_credential_notification_add_modify_delete_happy_case()
   credential_modifier_node_id = 15;
 
   // Modify credential
-  credential_notification_report
-    = helper_create_credential_notification_report(user_id,
-                                                   credential_type,
-                                                   credential_slot,
-                                                   crb,
-                                                   credential_data,
-                                                   credential_modifier_type,
-                                                   credential_modifier_node_id);
-
-  notification_callback(endpoint_id_node,
-                        NOTIFICATION_ACCESS_CONTROL,
-                        0x2C,  // Credential modified
-                        credential_notification_report.data(),
-                        credential_notification_report.size());
+  helper_simulate_credential_report_frame(
+    0x01,  // Credential modify
+    user_id,
+    credential_type,
+    credential_slot,
+    crb,
+    string_to_uint8_vector(credential_data),
+    credential_modifier_type,
+    credential_modifier_node_id,
+    0,
+    0);
 
   test_attribute_store_values();
 
-  // Delete credential
-  notification_callback(endpoint_id_node,
-                        NOTIFICATION_ACCESS_CONTROL,
-                        0x2D,  // Credential deleted
-                        credential_notification_report.data(),
-                        credential_notification_report.size());
-
-  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(credential_slot_node),
+  helper_simulate_credential_report_frame(
+    0x02,  // Credential remove
+    user_id,
+    credential_type,
+    credential_slot,
+    0,
+    string_to_uint8_vector(credential_data),
+    credential_modifier_type,
+    credential_modifier_node_id,
+    0,
+    0);
+  TEST_ASSERT_FALSE_MESSAGE(credential_slot_node.is_valid(),
                             "Credential slot node should be deleted");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(credential_type_node),
+  TEST_ASSERT_TRUE_MESSAGE(credential_type_node.is_valid(),
                            "Credential type node should still exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(user_id_node),
+  TEST_ASSERT_TRUE_MESSAGE(user_id_node.is_valid(),
                            "User ID node should still exist");
 }
 
@@ -2116,9 +1990,6 @@ void test_user_credential_user_add_capabilites_failure_cases()
 {
   // Initialize the notification callback
   helper_set_version(1);
-
-  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
-                               "Notification callback should be defined");
 
   // Those functions are exposed and checks user values, so we need to setup the capabilities
   uint16_t number_of_users                                       = 1;
@@ -2301,9 +2172,6 @@ void test_user_credential_user_modify_capabilites_failure_cases()
   // Initialize the notification callback
   helper_set_version(1);
 
-  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
-                               "Notification callback should be defined");
-
   // Those functions are exposed and checks user values, so we need to setup the capabilities
   uint16_t number_of_users                                       = 1;
   user_credential_supported_credential_rules_t cred_rule_bitmask = 2;
@@ -2381,9 +2249,6 @@ void test_user_credential_credential_add_capabilites_failure_cases()
   // Initialize the notification callback
   helper_set_version(1);
 
-  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
-                               "Notification callback should be defined");
-
   user_credential_user_unique_id_t user_id = 12;
 
   // Simulate user
@@ -2457,16 +2322,10 @@ void test_user_credential_credential_add_capabilites_happy_case()
   // Initialize the notification callback
   helper_set_version(1);
 
-  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
-                               "Notification callback should be defined");
-
   user_credential_user_unique_id_t user_id = 12;
 
   // Simulate user
-  attribute_store_emplace(endpoint_id_node,
-                          ATTRIBUTE(USER_UNIQUE_ID),
-                          &user_id,
-                          sizeof(user_id));
+  cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Se capabilities
   uint8_t supported_credential_checksum = 1;
@@ -2511,16 +2370,10 @@ void test_user_credential_credential_modify_capabilites_failure_cases()
   // Initialize the notification callback
   helper_set_version(1);
 
-  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
-                               "Notification callback should be defined");
-
   user_credential_user_unique_id_t user_id = 12;
 
   // Simulate user
-  attribute_store_emplace(endpoint_id_node,
-                          ATTRIBUTE(USER_UNIQUE_ID),
-                          &user_id,
-                          sizeof(user_id));
+  cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Se capabilities
   uint8_t supported_credential_checksum = 1;
@@ -2569,233 +2422,79 @@ void test_user_credential_credential_modify_capabilites_failure_cases()
     "Should not be able to modify credential data : it's too long");
 }
 
-// TODO : to be refactored
+void helper_test_credential_rejected_case(uint8_t report_type)
+{
+  user_credential_user_unique_id_t user_id = 12;
+  user_credential_type_t credential_type   = 1;
+  user_credential_slot_t credential_slot   = 1;
+
+  auto valid_user_node
+    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
+  auto valid_cred_type_node
+    = valid_user_node.emplace_node(ATTRIBUTE(CREDENTIAL_TYPE), credential_type);
+  auto valid_cred_slot_node
+    = valid_cred_type_node.emplace_node(ATTRIBUTE(CREDENTIAL_SLOT),
+                                        credential_slot,
+                                        REPORTED_ATTRIBUTE);
+  auto invalid_cred_slot_node
+    = valid_cred_type_node.emplace_node(ATTRIBUTE(CREDENTIAL_SLOT),
+                                        credential_slot,
+                                        DESIRED_ATTRIBUTE);
+
+  helper_simulate_credential_report_frame(report_type,  // Duplicate credential
+                                          user_id,
+                                          credential_type,
+                                          credential_slot,
+                                          1,
+                                          string_to_uint8_vector("1212"),
+                                          0,
+                                          2,
+                                          0,
+                                          0);
+
+  // Here the Credential Report command should remove this not this report
+  TEST_ASSERT_FALSE_MESSAGE(invalid_cred_slot_node.is_valid(),
+                            "Invalid Credential Slot node should NOT exist");
+  TEST_ASSERT_TRUE_MESSAGE(valid_cred_slot_node.is_valid(),
+                           "Valid Credential Slot node SHOULD exist");
+  TEST_ASSERT_TRUE_MESSAGE(valid_cred_type_node.is_valid(),
+                           "Valid User node should exist");
+  TEST_ASSERT_TRUE_MESSAGE(valid_user_node.is_valid(),
+                           "Valid Credential type node should exist");
+}
+
 void test_user_credential_credential_set_error_report_cred_add_happy_case()
 {
-  user_credential_user_unique_id_t user_id = 12;
-  user_credential_type_t credential_type   = 1;
-  user_credential_slot_t credential_slot   = 1;
-
-  auto valid_user_node = attribute_store_emplace(endpoint_id_node,
-                                                 ATTRIBUTE(USER_UNIQUE_ID),
-                                                 &user_id,
-                                                 sizeof(user_id));
-
-  auto valid_cred_type_node
-    = attribute_store_emplace(valid_user_node,
-                              ATTRIBUTE(CREDENTIAL_TYPE),
-                              &credential_type,
-                              sizeof(credential_type));
-  auto invalid_cred_slot_node
-    = attribute_store_emplace_desired(valid_cred_type_node,
-                                      ATTRIBUTE(CREDENTIAL_SLOT),
-                                      &credential_slot,
-                                      sizeof(credential_slot));
-
-  helper_simulate_credential_set_error_report(
-    CREDENTIAL_SET_ERROR_REPORT_CREDENTIALADDREJECTEDLOCATIONOCCUPIED,
-    user_id,
-    credential_type,
-    credential_slot,
-    1,
-    "1212",
-    1,
-    2);
-
-  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(invalid_cred_slot_node),
-                            "Invalid Credential Slot node should not exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_cred_type_node),
-                           "Valid User node should exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_user_node),
-                           "Valid Credential type node should exist");
+  helper_test_credential_rejected_case(0x05);
 }
 
-// TODO : to be refactored
 void test_user_credential_credential_set_error_report_cred_modify_happy_case()
 {
-  user_credential_user_unique_id_t user_id = 12;
-  user_credential_type_t credential_type   = 1;
-  user_credential_slot_t credential_slot   = 1;
+  // Common case
+  helper_test_credential_rejected_case(0x06);
 
-  auto valid_user_node = attribute_store_emplace(endpoint_id_node,
-                                                 ATTRIBUTE(USER_UNIQUE_ID),
-                                                 &user_id,
-                                                 sizeof(user_id));
-  auto valid_cred_type_node
-    = attribute_store_emplace(valid_user_node,
-                              ATTRIBUTE(CREDENTIAL_TYPE),
-                              &credential_type,
-                              sizeof(credential_type));
-  auto invalid_cred_slot_node
-    = attribute_store_emplace_desired(valid_cred_type_node,
-                                      ATTRIBUTE(CREDENTIAL_SLOT),
-                                      &credential_slot,
-                                      sizeof(credential_slot));
-
-  helper_simulate_credential_set_error_report(
-    CREDENTIAL_SET_ERROR_REPORT_CREDENTIALMODIFYREJECTEDLOCATIONEMPTY,
-    user_id,
-    credential_type,
-    credential_slot,
-    1,
-    "1212",
-    1,
-    2);
-
-  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(invalid_cred_slot_node),
-                            "Invalid Credential Slot node should not exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_cred_type_node),
-                           "Valid User node should exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_user_node),
-                           "Valid Credential type node should exist");
-
-  invalid_cred_slot_node = attribute_store_emplace(valid_cred_type_node,
-                                                   ATTRIBUTE(CREDENTIAL_SLOT),
-                                                   &credential_slot,
-                                                   sizeof(credential_slot));
-
-  helper_simulate_credential_set_error_report(
-    CREDENTIAL_SET_ERROR_REPORT_CREDENTIALMODIFYREJECTEDLOCATIONEMPTY,
-    user_id,
-    credential_type,
-    credential_slot,
-    1,
-    "1212",
-    1,
-    2);
-
-  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(invalid_cred_slot_node),
-                            "Invalid Credential Slot node should not exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_cred_type_node),
-                           "Valid User node should exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_user_node),
-                           "Valid Credential type node should exist");
+  // See if that works even without credential type
+  cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), 12);
+  helper_simulate_credential_report_frame(0x06,
+                                          12,
+                                          5,
+                                          1,
+                                          1,
+                                          string_to_uint8_vector("1212"),
+                                          0,
+                                          0,
+                                          0,
+                                          0);
 }
 
-// TODO : to be refactored
 void test_user_credential_credential_set_error_report_cred_duplicate_happy_case()
 {
-  user_credential_user_unique_id_t user_id = 12;
-  user_credential_type_t credential_type   = 1;
-  user_credential_slot_t credential_slot   = 1;
-
-  auto valid_user_node = attribute_store_emplace(endpoint_id_node,
-                                                 ATTRIBUTE(USER_UNIQUE_ID),
-                                                 &user_id,
-                                                 sizeof(user_id));
-  auto valid_cred_type_node
-    = attribute_store_emplace(valid_user_node,
-                              ATTRIBUTE(CREDENTIAL_TYPE),
-                              &credential_type,
-                              sizeof(credential_type));
-  auto invalid_cred_slot_node
-    = attribute_store_emplace_desired(valid_cred_type_node,
-                                      ATTRIBUTE(CREDENTIAL_SLOT),
-                                      &credential_slot,
-                                      sizeof(credential_slot));
-
-  helper_simulate_credential_set_error_report(
-    CREDENTIAL_SET_ERROR_REPORT_DUPLICATECREDENTIAL,
-    user_id,
-    credential_type,
-    credential_slot,
-    1,
-    "1212",
-    1,
-    2);
-
-  // Here the Credential Report command should remove this not this report
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(invalid_cred_slot_node),
-                           "Invalid Credential Slot node SHOULD exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_cred_type_node),
-                           "Valid User node should exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_user_node),
-                           "Valid Credential type node should exist");
-
-  // Now actually send the report
-  std::vector<uint8_t> cred_data = {1, 2, 3, 4};
-
-  // Do the report
-  helper_simulate_credential_report_frame(user_id,
-                                          credential_type,
-                                          credential_slot,
-                                          1,
-                                          cred_data,
-                                          CREDENTIAL_REPORT_DNE,
-                                          2,
-                                          0,
-                                          0);
-
-  // Now it should not exists
-  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(invalid_cred_slot_node),
-                            "Invalid Credential Slot node should NOT exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_cred_type_node),
-                           "Valid User node should exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_user_node),
-                           "Valid Credential type node should exist");
+  helper_test_credential_rejected_case(0x07);
 }
 
-// TODO : to be refactored
-// Note : same as test_user_credential_credential_set_error_report_cred_duplicate_happy_case
-// but with CREDENTIAL_SET_ERROR_REPORT_MANUFACTURERSECURITYRULES in the report
 void test_user_credential_credential_set_error_report_cred_security_rule_happy_case()
 {
-  user_credential_user_unique_id_t user_id = 12;
-  user_credential_type_t credential_type   = 1;
-  user_credential_slot_t credential_slot   = 1;
-
-  auto valid_user_node = attribute_store_emplace(endpoint_id_node,
-                                                 ATTRIBUTE(USER_UNIQUE_ID),
-                                                 &user_id,
-                                                 sizeof(user_id));
-  auto valid_cred_type_node
-    = attribute_store_emplace(valid_user_node,
-                              ATTRIBUTE(CREDENTIAL_TYPE),
-                              &credential_type,
-                              sizeof(credential_type));
-  auto invalid_cred_slot_node
-    = attribute_store_emplace_desired(valid_cred_type_node,
-                                      ATTRIBUTE(CREDENTIAL_SLOT),
-                                      &credential_slot,
-                                      sizeof(credential_slot));
-
-  helper_simulate_credential_set_error_report(
-    CREDENTIAL_SET_ERROR_REPORT_MANUFACTURERSECURITYRULES,
-    user_id,
-    credential_type,
-    credential_slot,
-    1,
-    "1212",
-    1,
-    2);
-
-  // Here the Credential Report command should remove this not this report
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(invalid_cred_slot_node),
-                           "Invalid Credential Slot node SHOULD exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_cred_type_node),
-                           "Valid User node should exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_user_node),
-                           "Valid Credential type node should exist");
-
-  // Now actually send the report
-  std::vector<uint8_t> cred_data = {1, 2, 3, 4};
-  helper_simulate_credential_report_frame(user_id,
-                                          credential_type,
-                                          credential_slot,
-                                          1,
-                                          cred_data,
-                                          CREDENTIAL_REPORT_DNE,
-                                          2,
-                                          0,
-                                          0);
-
-  // Now it should not exists
-  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(invalid_cred_slot_node),
-                            "Invalid Credential Slot node should NOT exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_cred_type_node),
-                           "Valid User node should exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_user_node),
-                           "Valid Credential type node should exist");
+  helper_test_credential_rejected_case(0x08);
 }
 
 void test_user_credential_remove_all_users_happy_case()
@@ -2847,9 +2546,6 @@ void test_user_credential_remove_all_credentials_happy_case()
 {
   helper_set_version(1);
 
-  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
-                               "Notification callback should be defined");
-
   std::vector<credential_structure_nodes> expected_nodes;
   // WARNING : All those vectors should be the same size
   std::vector<user_credential_user_unique_id_t> user_ids = {12, 12, 12, 15, 19};
@@ -2873,48 +2569,42 @@ void test_user_credential_remove_all_credentials_happy_case()
     status,
     "Remove all credentials should have returned SL_STATUS_OK");
 
-  std::vector<uint8_t> notification_parameters = {0, 0, 0, 0, 0};
-  // This will handle the deletion
-  notification_callback(endpoint_id_node,
-                        NOTIFICATION_ACCESS_CONTROL,
-                        0x26,  // All Credential deleted
-                        // No need to have arguments here
-                        notification_parameters.data(),
-                        notification_parameters.size());
+  helper_simulate_credential_report_frame(0x02, 0, 0, 0, 0, {}, 0, 0, 0, 0);
 
   for (auto &node: expected_nodes) {
-    TEST_ASSERT_FALSE_MESSAGE(
-      attribute_store_node_exists(node.credential_type_node),
-      "Credential type node should have been removed");
-    TEST_ASSERT_FALSE_MESSAGE(
-      attribute_store_node_exists(node.credential_slot_node),
-      "Credential slot node should have been removed");
+    TEST_ASSERT_FALSE_MESSAGE(node.credential_type_node.is_valid(),
+                              "Credential type node should have been removed");
+    TEST_ASSERT_FALSE_MESSAGE(node.credential_slot_node.is_valid(),
+                              "Credential slot node should have been removed");
   }
-
-  user_credential_user_unique_id_t user_id = 0;
-  auto user_0_node
-    = attribute_store_get_node_child_by_value(endpoint_id_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID),
-                                              REPORTED_ATTRIBUTE,
-                                              (uint8_t *)&user_id,
-                                              sizeof(user_id),
-                                              0);
-
-  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(user_0_node),
-                            "User 0 should not exists");
 }
 
-// TODO : to be refactored
+/**
+ * @brief Test the removal of credentials of a user
+ * 
+ * @param nodes Nodes to tests
+ * @param deletion_condition If true will test if credential types and slots have been removed, otherwise will test if they still exist
+ * 
+ */
+void helper_test_credential_structure_exists(credential_structure_nodes nodes,
+                                             bool deletion_condition)
+{
+  if (deletion_condition) {
+    TEST_ASSERT_FALSE_MESSAGE(nodes.credential_type_node.is_valid(),
+                              "Credential type node should have been removed");
+    TEST_ASSERT_FALSE_MESSAGE(nodes.credential_slot_node.is_valid(),
+                              "Credential slot node should have been removed");
+  } else {
+    TEST_ASSERT_TRUE_MESSAGE(nodes.credential_type_node.is_valid(),
+                             "Credential type node should still exist");
+    TEST_ASSERT_TRUE_MESSAGE(nodes.credential_slot_node.is_valid(),
+                             "Credential slot node should still exist");
+  }
+}
+
 void test_user_credential_remove_all_credentials_of_user()
 {
-  const zwave_cc_version_t version = 1;
-  attribute_store_set_child_reported(endpoint_id_node,
-                                     ATTRIBUTE(VERSION),
-                                     &version,
-                                     sizeof(version));
-
-  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
-                               "Notification callback should be defined");
+  helper_set_version(1);
 
   user_credential_user_unique_id_t user_to_delete = 12;
 
@@ -2944,78 +2634,38 @@ void test_user_credential_remove_all_credentials_of_user()
     status,
     "Remove all credentials for user should have returned SL_STATUS_OK");
 
-  zwave_frame notification_parameters;
-  notification_parameters.add(user_to_delete);
-  for (size_t i = 0; i < 3; i++) {
-    notification_parameters.add(static_cast<uint8_t>(0));
-  }
-
-  // This will handle the deletion
-  notification_callback(endpoint_id_node,
-                        NOTIFICATION_ACCESS_CONTROL,
-                        0x26,  // All Credential deleted
-                        // No need to have arguments here
-                        notification_parameters.data(),
-                        notification_parameters.size());
-
-  attribute_store_log();
+  helper_simulate_credential_report_frame(0x02,
+                                          user_to_delete,
+                                          0,
+                                          0,
+                                          0,
+                                          {},
+                                          0,
+                                          0,
+                                          0,
+                                          0);
 
   for (auto &node: expected_nodes) {
-    user_credential_user_unique_id_t reported_user_id;
-    attribute_store_get_reported(node.user_id_node,
-                                 &reported_user_id,
-                                 sizeof(reported_user_id));
+    auto reported_user_id
+      = node.user_id_node.reported<user_credential_user_unique_id_t>();
     node.print();
 
-    if (reported_user_id == user_to_delete) {
-      TEST_ASSERT_FALSE_MESSAGE(
-        attribute_store_node_exists(node.credential_type_node),
-        "Credential type node should have been removed");
-      TEST_ASSERT_FALSE_MESSAGE(
-        attribute_store_node_exists(node.credential_slot_node),
-        "Credential slot node should have been removed");
-    } else {
-      TEST_ASSERT_TRUE_MESSAGE(
-        attribute_store_node_exists(node.credential_type_node),
-        "Credential type node should still exist");
-      TEST_ASSERT_TRUE_MESSAGE(
-        attribute_store_node_exists(node.credential_slot_node),
-        "Credential slot node should still exist");
-    }
+    helper_test_credential_structure_exists(node,
+                                            reported_user_id == user_to_delete);
   }
-
-  user_credential_user_unique_id_t user_id = 0;
-  auto user_0_node
-    = attribute_store_get_node_child_by_value(endpoint_id_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID),
-                                              REPORTED_ATTRIBUTE,
-                                              (uint8_t *)&user_id,
-                                              sizeof(user_id),
-                                              0);
-
-  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(user_0_node),
-                            "User 0 should not exists");
 }
 
-// TODO : to be refactored
+struct expected_node_data {
+  credential_structure_nodes nodes;
+  bool deletion_condition;
+};
 void test_user_credential_remove_all_credentials_of_user_by_type()
 {
-  const zwave_cc_version_t version = 1;
-  attribute_store_set_child_reported(endpoint_id_node,
-                                     ATTRIBUTE(VERSION),
-                                     &version,
-                                     sizeof(version));
-
-  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
-                               "Notification callback should be defined");
+  helper_set_version(1);
 
   user_credential_user_unique_id_t user_to_delete  = 12;
   user_credential_type_t credential_type_to_delete = 1;
 
-  struct expected_node_data {
-    credential_structure_nodes nodes;
-    bool should_not_exist;
-  };
   std::vector<expected_node_data> expected_nodes_data;
   // WARNING : All those vectors should be the same size
   std::vector<user_credential_user_unique_id_t> user_ids
@@ -3046,77 +2696,32 @@ void test_user_credential_remove_all_credentials_of_user_by_type()
     status,
     "Remove all credentials for user should have returned SL_STATUS_OK");
 
-  zwave_frame notification_parameters;
-  notification_parameters.add(user_to_delete);
-  notification_parameters.add(credential_type_to_delete);
-  for (size_t i = 0; i < 2; i++) {
-    notification_parameters.add(static_cast<uint8_t>(0));
-  }
-
-  // This will handle the deletion
-  notification_callback(endpoint_id_node,
-                        NOTIFICATION_ACCESS_CONTROL,
-                        0x26,  // All Credential deleted
-                        // No need to have arguments here
-                        notification_parameters.data(),
-                        notification_parameters.size());
-
-  attribute_store_log();
+  helper_simulate_credential_report_frame(0x02,
+                                          user_to_delete,
+                                          credential_type_to_delete,
+                                          0,
+                                          0,
+                                          {},
+                                          0,
+                                          0,
+                                          0,
+                                          0);
 
   for (auto &node_data: expected_nodes_data) {
-    auto nodes            = node_data.nodes;
-    auto should_not_exist = node_data.should_not_exist;
+    auto nodes              = node_data.nodes;
+    auto deletion_condition = node_data.deletion_condition;
 
     nodes.print();
-
-    if (should_not_exist) {
-      TEST_ASSERT_FALSE_MESSAGE(
-        attribute_store_node_exists(nodes.credential_type_node),
-        "Credential type node should have been removed");
-      TEST_ASSERT_FALSE_MESSAGE(
-        attribute_store_node_exists(nodes.credential_slot_node),
-        "Credential slot node should have been removed");
-    } else {
-      TEST_ASSERT_TRUE_MESSAGE(
-        attribute_store_node_exists(nodes.credential_type_node),
-        "Credential type node should still exist");
-      TEST_ASSERT_TRUE_MESSAGE(
-        attribute_store_node_exists(nodes.credential_slot_node),
-        "Credential slot node should still exist");
-    }
+    helper_test_credential_structure_exists(nodes, deletion_condition);
   }
-
-  user_credential_user_unique_id_t user_id = 0;
-  auto user_0_node
-    = attribute_store_get_node_child_by_value(endpoint_id_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID),
-                                              REPORTED_ATTRIBUTE,
-                                              (uint8_t *)&user_id,
-                                              sizeof(user_id),
-                                              0);
-
-  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(user_0_node),
-                            "User 0 should not exists");
 }
 
-// TODO : to be refactored
 void test_user_credential_remove_all_credentials_by_type()
 {
-  const zwave_cc_version_t version = 1;
-  attribute_store_set_child_reported(endpoint_id_node,
-                                     ATTRIBUTE(VERSION),
-                                     &version,
-                                     sizeof(version));
-
-  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
-                               "Notification callback should be defined");
+  helper_set_version(1);
 
   user_credential_type_t credential_type_to_delete = 1;
 
-  struct expected_node_data {
-    credential_structure_nodes nodes;
-    bool should_not_exist;
-  };
   std::vector<expected_node_data> expected_nodes_data;
   // WARNING : All those vectors should be the same size
   std::vector<user_credential_user_unique_id_t> user_ids = {12, 12, 12, 15, 19};
@@ -3148,53 +2753,24 @@ void test_user_credential_remove_all_credentials_by_type()
     status,
     "Remove all credentials for user should have returned SL_STATUS_OK");
 
-  std::vector<uint8_t> notification_parameters
-    = {0, 0, credential_type_to_delete, 0, 0};
-
-  // This will handle the deletion
-  notification_callback(endpoint_id_node,
-                        NOTIFICATION_ACCESS_CONTROL,
-                        0x26,  // All Credential deleted
-                        // No need to have arguments here
-                        notification_parameters.data(),
-                        notification_parameters.size());
-
-  attribute_store_log();
+  helper_simulate_credential_report_frame(0x02,
+                                          0,
+                                          credential_type_to_delete,
+                                          0,
+                                          0,
+                                          {},
+                                          0,
+                                          0,
+                                          0,
+                                          0);
 
   for (auto &node_data: expected_nodes_data) {
-    auto nodes            = node_data.nodes;
-    auto should_not_exist = node_data.should_not_exist;
+    auto nodes              = node_data.nodes;
+    auto deletion_condition = node_data.deletion_condition;
 
     nodes.print();
-
-    if (should_not_exist) {
-      TEST_ASSERT_FALSE_MESSAGE(
-        attribute_store_node_exists(nodes.credential_type_node),
-        "Credential type node should have been removed");
-      TEST_ASSERT_FALSE_MESSAGE(
-        attribute_store_node_exists(nodes.credential_slot_node),
-        "Credential slot node should have been removed");
-    } else {
-      TEST_ASSERT_TRUE_MESSAGE(
-        attribute_store_node_exists(nodes.credential_type_node),
-        "Credential type node should still exist");
-      TEST_ASSERT_TRUE_MESSAGE(
-        attribute_store_node_exists(nodes.credential_slot_node),
-        "Credential slot node should still exist");
-    }
+    helper_test_credential_structure_exists(nodes, deletion_condition);
   }
-
-  user_credential_user_unique_id_t user_id = 0;
-  auto user_0_node
-    = attribute_store_get_node_child_by_value(endpoint_id_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID),
-                                              REPORTED_ATTRIBUTE,
-                                              (uint8_t *)&user_id,
-                                              sizeof(user_id),
-                                              0);
-
-  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(user_0_node),
-                            "User 0 should not exists");
 }
 
 void test_user_credential_credential_learn_start_add_happy_case()
@@ -4123,6 +3699,7 @@ void test_get_user_checksum_with_credentials_happy_case()
 
   for (size_t i = 0; i < credential_types.size(); i++) {
     helper_simulate_credential_report_frame(
+      0x00,
       user_id,
       credential_types[i],
       credential_slots[i],
@@ -4225,7 +3802,6 @@ void test_get_user_checksum_without_credentials_mismatch_checksum()
   zwave_frame user_get_frame;
   user_get_frame.add(user_id);
   helper_test_get_set_frame_happy_case(USER_GET, user_id_node, user_get_frame);
-
 
   helper_simulate_user_report_frame(0x04,
                                     0,
