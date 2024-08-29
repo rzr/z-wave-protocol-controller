@@ -947,7 +947,7 @@ void helper_test_desired_credential_attributes(
                                               ATTRIBUTE(CREDENTIAL_TYPE));
   user_credential_type_t reported_credential_type;
   attribute_store_read_value(credential_type_node,
-                             credential_identifier_state,
+                             REPORTED_ATTRIBUTE,
                              &reported_credential_type,
                              sizeof(reported_credential_type));
   TEST_ASSERT_EQUAL_MESSAGE(credential_type,
@@ -2047,7 +2047,7 @@ void test_user_credential_cluster_learn_start_add_happy_case()
   auto credential_type_node
     = attribute_store_get_node_child_by_value(user_id_node,
                                               ATTRIBUTE(CREDENTIAL_TYPE),
-                                              DESIRED_ATTRIBUTE,
+                                              REPORTED_ATTRIBUTE,
                                               (uint8_t *)&credential_type,
                                               sizeof(credential_type),
                                               0);
