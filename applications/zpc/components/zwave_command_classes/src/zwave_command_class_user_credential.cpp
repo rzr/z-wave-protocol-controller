@@ -87,31 +87,7 @@ zwave_frame_generator frame_generator(COMMAND_CLASS_USER_CREDENTIAL);
 /////////////////////////////////////////////////////////////////////////////
 // Data struct
 /////////////////////////////////////////////////////////////////////////////
-
-struct uint16_exploded {
-  uint8_t msb;  // Most Significant Bit
-  uint8_t lsb;  // Less Significant Bit
-};
-
-// Used to define reported values
-struct user_field_data {
-  attribute_store_type_t node_type;
-  uint8_t report_index;
-  uint8_t bitmask     = 0;
-  uint8_t shift_right = 0;
-};
-
-// Used to create command frame
-struct attribute_command_data {
-  // Attribute type that will be fetched from the base_node
-  attribute_store_type_t attribute_type;
-  // Attribute value state (reported, desired,...)
-  attribute_store_node_value_state_t attribute_state;
-  // If not ATTRIBUTE_STORE_INVALID_NODE, the function will not fetch attribute_type
-  // but will use this node directly
-  attribute_store_node_t node = ATTRIBUTE_STORE_INVALID_NODE;
-};
-
+// Represent a credential ID (slot, type, user unique ID)
 struct credential_id_nodes {
   attribute_store::attribute slot_node;
   attribute_store::attribute type_node;
@@ -1082,64 +1058,6 @@ credential_id_nodes get_credential_identifier_nodes(
 /////////////////////////////////////////////////////////////////////////////
 // Attributes helpers
 /////////////////////////////////////////////////////////////////////////////
-
-/** @brief Set reported attributes based on user_data
- * 
- * @note This function also undefine all desired values
- * 
- * @param base_node  Parent node of the newly created attributes
- * @param frame_data Frame data to interpret
- * @param user_data  User data to interpret frame_data
- * 
- * @return sl_status_t SL_STATUS_OK if everything was fine
-*/
-sl_status_t
-  set_reported_attributes(attribute_store_node_t base_node,
-                          const uint8_t *frame_data,
-                          const std::vector<user_field_data> &user_data)
-{
-  sl_status_t status = SL_STATUS_OK;
-
-  for (const auto &field: user_data) {
-    attribute_store_storage_type_t storage_type
-      = attribute_store_get_storage_type(field.node_type);
-
-    switch (storage_type) {
-      case U8_STORAGE_TYPE: {
-        uint8_t uint8_value = frame_data[field.report_index];
-        if (field.bitmask != 0) {
-          uint8_value = (uint8_value & field.bitmask) >> field.shift_right;
-        }
-        status |= attribute_store_set_child_reported(base_node,
-                                                     field.node_type,
-                                                     &uint8_value,
-                                                     sizeof(uint8_value));
-      } break;
-      // Unsigned 16-bit integers are used for this attribute
-      case U16_STORAGE_TYPE: {
-        uint16_t uint16_value
-          = get_uint16_value(frame_data, field.report_index);
-        status |= attribute_store_set_child_reported(base_node,
-                                                     field.node_type,
-                                                     &uint16_value,
-                                                     sizeof(uint16_value));
-
-        break;
-      }
-      default:
-        sl_log_error(LOG_TAG,
-                     "Internal error : unsupported storage_type in "
-                     "set_reported_attributes");
-        return SL_STATUS_NOT_SUPPORTED;
-    }
-
-    // Undefined desired value
-    status
-      |= attribute_store_set_child_desired(base_node, field.node_type, NULL, 0);
-  }
-
-  return status;
-}
 
 /**
  * @brief Get value inside the node and store it in a uint8_t vector
