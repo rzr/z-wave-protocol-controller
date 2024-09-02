@@ -51,18 +51,13 @@
 // Private helpers
 #include "private/user_credential/user_credential_user_capabilities.h"
 #include "private/user_credential/user_credential_credential_capabilities.h"
+#include "private/user_credential/user_credential_checksum_calculator.h"
 
 // Macro
 #define ATTRIBUTE(type) ATTRIBUTE_COMMAND_CLASS_USER_CREDENTIAL_##type
 
 // Constexpr
 constexpr char LOG_TAG[] = "zwave_command_class_user_credential";
-// Used to get user names
-// If the user name has a size > to this number, we will truncate it
-// Specification says that payload data should not exceeded 64 bytes.
-constexpr uint8_t MAX_CHAR_SIZE = 64;
-// Used to compute checksums
-constexpr uint16_t CRC_INITIALIZATION_VALUE = 0x1D0F;
 
 // Using
 using attribute_callback = std::function<void(attribute_store::attribute &)>;
@@ -734,136 +729,6 @@ credential_id_nodes get_credential_identifier_nodes(
 /////////////////////////////////////////////////////////////////////////////
 
 /**
- * @brief Get value inside the node and store it in a uint8_t vector
- * 
- * @param node Node to get the value from
- * @param data Vector to store the value (output). It will be cleared before any data is stored in it
- * @param value_state Value state (reported, desired,...). Default to Reported
- * 
- * @return sl_status_t SL_STATUS_OK if everything was fine
- * @return SL_STATUS_NOT_SUPPORTED If the storage type is not supported or other errors
-*/
-sl_status_t node_to_uint8_vector(attribute_store_node_t node,
-                                 std::vector<uint8_t> &data,
-                                 attribute_store_node_value_state_t value_state
-                                 = REPORTED_ATTRIBUTE)
-{
-  data.clear();
-
-  auto node_type             = attribute_store_get_node_type(node);
-  auto node_storage_type     = attribute_store_get_storage_type(node_type);
-  auto attribute_description = attribute_store_get_type_name(node_type);
-
-  sl_status_t status;
-  switch (node_storage_type) {
-    case U8_STORAGE_TYPE: {
-      uint8_t uint8_value;
-      status = attribute_store_read_value(node,
-                                          value_state,
-                                          &uint8_value,
-                                          sizeof(uint8_value));
-      data.push_back(uint8_value);
-    } break;
-    case U16_STORAGE_TYPE: {
-      uint16_t uint16_value;
-      status = attribute_store_read_value(node,
-                                          value_state,
-                                          &uint16_value,
-                                          sizeof(uint16_value));
-      data.push_back((uint16_value & 0xFF00) >> 8);
-      data.push_back((uint16_value & 0x00FF));
-    } break;
-    // Variable length field
-    case BYTE_ARRAY_STORAGE_TYPE: {
-      // First get the length
-      auto credential_data_length
-        = attribute_store_get_node_value_size(node, value_state);
-
-      // + 1 for the length
-      data.resize(credential_data_length + 1);
-      data[0] = credential_data_length;
-      status
-        = attribute_store_read_value(node,
-                                     value_state,
-                                     data.data() + 1,  // Offset for the length
-                                     credential_data_length);
-    } break;
-
-    case C_STRING_STORAGE_TYPE: {
-      char c_user_name[MAX_CHAR_SIZE];
-      // Unfortunately attribute_store_get_string is not exposed so we need to do this
-      switch (value_state) {
-        case DESIRED_OR_REPORTED_ATTRIBUTE:
-          status
-            = attribute_store_get_desired_else_reported_string(node,
-                                                               c_user_name,
-                                                               MAX_CHAR_SIZE);
-          break;
-        case DESIRED_ATTRIBUTE:
-          status = attribute_store_get_desired_string(node,
-                                                      c_user_name,
-                                                      MAX_CHAR_SIZE);
-          break;
-        case REPORTED_ATTRIBUTE:
-          status = attribute_store_get_reported_string(node,
-                                                       c_user_name,
-                                                       MAX_CHAR_SIZE);
-          break;
-      }
-
-      std::string user_name = c_user_name;
-      data.push_back(user_name.length());
-      for (const char &c: user_name) {
-        data.push_back(c);
-      }
-    } break;
-    default:
-      sl_log_critical(LOG_TAG,
-                      "Not supported type for %s",
-                      attribute_description);
-      return SL_STATUS_FAIL;
-  }
-
-  if (status != SL_STATUS_OK) {
-    sl_log_error(LOG_TAG,
-                 "Can't get value of Attribute %s",
-                 attribute_description);
-    return SL_STATUS_NOT_SUPPORTED;
-  }
-
-  return SL_STATUS_OK;
-}
-
-/**
- * @brief Compute a node value and add it to the current checksum
- * 
- * @param current_checksum Current checksum (can be empty)
- * @param node             Node to compute the checksum from
- * 
- * @return true  If the node was added to the checksum
- * @return false If the node was not added to the checksum
-*/
-bool add_node_to_checksum(std::vector<uint8_t> &current_checksum,
-                          attribute_store_node_t node)
-{
-  if (!attribute_store_node_exists(node)) {
-    sl_log_error(LOG_TAG, "Can't find node %d. Not adding to checksum.", node);
-    return false;
-  }
-  std::vector<uint8_t> data;
-  if (node_to_uint8_vector(node, data) != SL_STATUS_OK) {
-    sl_log_error(
-      LOG_TAG,
-      "Can't convert node %d to uint8_t vector. Not adding to checksum.",
-      node);
-    return false;
-  }
-  current_checksum.insert(current_checksum.end(), data.begin(), data.end());
-
-  return true;
-};
-
-/**
  * @brief Updates the desired values of attributes in the attribute store.
  *
  * This function takes a map of attribute values and their corresponding sizes, and updates the desired values
@@ -948,11 +813,6 @@ static void zwave_command_class_user_credential_on_version_attribute_update(
   attribute_store_add_if_missing(endpoint_node,
                                  attributes,
                                  COUNT_OF(attributes));
-
-  // Listen to
-  // zwave_command_class_notification_register_event_callback(
-  //   endpoint_node,
-  //   &on_notification_event);
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -1164,13 +1024,9 @@ static sl_status_t zwave_command_class_user_credential_all_user_checksum_get(
 {
   sl_log_debug(LOG_TAG, "All User Checksum Get");
 
-  ZW_ALL_USERS_CHECKSUM_GET_FRAME *get_frame
-    = (ZW_ALL_USERS_CHECKSUM_GET_FRAME *)frame;
-  get_frame->cmdClass = COMMAND_CLASS_USER_CREDENTIAL;
-  get_frame->cmd      = ALL_USERS_CHECKSUM_GET;
-  *frame_length       = sizeof(ZW_ALL_USERS_CHECKSUM_GET_FRAME);
-
-  return SL_STATUS_OK;
+  return frame_generator.generate_no_args_frame(ALL_USERS_CHECKSUM_GET,
+                                                frame,
+                                                frame_length);
 }
 
 sl_status_t zwave_command_class_user_credential_all_user_checksum_handle_report(
@@ -1178,22 +1034,30 @@ sl_status_t zwave_command_class_user_credential_all_user_checksum_handle_report(
   const uint8_t *frame_data,
   uint16_t frame_length)
 {
-  if (frame_length != 4) {
-    return SL_STATUS_NOT_SUPPORTED;
-  }
+  constexpr uint8_t expected_size = sizeof(ZW_ALL_USERS_CHECKSUM_REPORT_FRAME);
 
-  sl_log_debug(LOG_TAG, "All User Checksum Report");
-
-  attribute_store_node_t endpoint_node
+  attribute_store::attribute endpoint_node
     = zwave_command_class_get_endpoint_node(connection_info);
 
-  user_credential_all_users_checksum_t all_users_checksum
-    = get_uint16_value(frame_data, 2);
+  try {
+    zwave_frame_parser parser(frame_data, frame_length);
 
-  attribute_store_set_child_reported(endpoint_node,
-                                     ATTRIBUTE(ALL_USERS_CHECKSUM),
-                                     &all_users_checksum,
-                                     sizeof(all_users_checksum));
+    if (!parser.is_frame_size_valid(expected_size)) {
+      sl_log_error(LOG_TAG,
+                   "Invalid frame size for All User Checksum Report frame");
+      return SL_STATUS_NOT_SUPPORTED;
+    }
+
+    parser.read_sequential<uint16_t>(
+      2,
+      endpoint_node.emplace_node(ATTRIBUTE(ALL_USERS_CHECKSUM)));
+
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while parsing All User Checksum Report frame : %s",
+                 e.what());
+    return SL_STATUS_NOT_SUPPORTED;
+  }
 
   return SL_STATUS_OK;
 }
@@ -2426,38 +2290,29 @@ sl_status_t zwave_command_class_user_credential_user_handle_report(
  * @param checksum_data The data to compute the checksum. Checksum will be 0 if empty.
  * @param expected_checksum The expected checksum
  * 
- * @return The computed checksum of checksum_data
+ * @return SL_STATUS_OK if checksum is correct, SL_STATUS_FAIL otherwise
 */
-user_credential_checksum_t compute_checksum_and_verify_integrity(
-  attribute_store_node_t base_node,
-  attribute_store_type_t checksum_error_type,
-  std::vector<uint8_t> checksum_data,
-  user_credential_checksum_t expected_checksum)
+sl_status_t check_checksum_value(attribute_store::attribute base_node,
+                                 attribute_store_type_t checksum_error_type,
+                                 user_credential_checksum_t computed_checksum,
+                                 user_credential_checksum_t expected_checksum)
 {
-  user_credential_checksum_t computed_checksum = 0;
-  // If checksum data is empty, the checksum is 0. The guard is present to avoid
-  // zwave_controller_crc16 to return CRC_INITIALIZATION_VALUE if checksum_data is empty.
-  // See CC:0083.01.19.11.016 & CC:0083.01.17.11.013
-  if (checksum_data.size() > 0) {
-    computed_checksum = zwave_controller_crc16(CRC_INITIALIZATION_VALUE,
-                                               checksum_data.data(),
-                                               checksum_data.size());
-  }
+  sl_status_t status = SL_STATUS_FAIL;
 
   if (computed_checksum != expected_checksum) {
-    // Set checksum mismatch error
-    attribute_store_set_child_reported(base_node,
-                                       checksum_error_type,
-                                       &computed_checksum,
-                                       sizeof(computed_checksum));
+    sl_log_error(LOG_TAG,
+                 "Checksum mismatch (%s). Expected 0x%X, got 0x%X",
+                 base_node.value_to_string().c_str(),
+                 expected_checksum,
+                 computed_checksum);
+    base_node.emplace_node(checksum_error_type).set_reported(computed_checksum);
   } else {
     // If we don't have any errors we remove the checksum_error_type node
-    auto checksum_mismatch_node
-      = attribute_store_get_first_child_by_type(base_node, checksum_error_type);
-    attribute_store_delete_node(checksum_mismatch_node);
+    base_node.child_by_type(checksum_error_type).delete_node();
+    status = SL_STATUS_OK;
   }
 
-  return computed_checksum;
+  return status;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -2502,140 +2357,90 @@ sl_status_t zwave_command_class_user_credential_user_checksum_handle_report(
   const uint8_t *frame_data,
   uint16_t frame_length)
 {
-  constexpr uint8_t EXPECTED_FRAME_LENGTH = 6;
-  if (frame_length != EXPECTED_FRAME_LENGTH) {
-    sl_log_error(LOG_TAG,
-                 "USER_CHECKSUM_REPORT  frame length is not "
-                 "valid. Expected %d, got %d",
-                 EXPECTED_FRAME_LENGTH,
-                 frame_length);
-    return SL_STATUS_NOT_SUPPORTED;
-  }
+  sl_status_t result = SL_STATUS_FAIL;
 
-  constexpr uint8_t INDEX_SOURCE_USER_ID = 2;
-  constexpr uint8_t INDEX_USER_CHECKSUM  = 4;
+  constexpr uint8_t expected_frame_length
+    = sizeof(ZW_USER_CHECKSUM_REPORT_FRAME);
 
-  attribute_store_node_t endpoint_node
+  attribute_store::attribute endpoint_node
     = zwave_command_class_get_endpoint_node(connection_info);
 
-  // Interpret frame
-  const user_credential_user_unique_id_t user_id
-    = get_uint16_value(frame_data, INDEX_SOURCE_USER_ID);
-  const user_credential_checksum_t user_checksum
-    = get_uint16_value(frame_data, INDEX_USER_CHECKSUM);
+  try {
+    zwave_frame_parser parser(frame_data, frame_length);
 
-  sl_log_debug(LOG_TAG,
-               "User Checksum Report. Source User ID: %d / "
-               "Checksum: 0x%X",
-               user_id,
-               user_checksum);
+    if (!parser.is_frame_size_valid(expected_frame_length)) {
+      sl_log_error(LOG_TAG,
+                   "Invalid frame size for User Checksum Report frame");
+      return SL_STATUS_NOT_SUPPORTED;
+    }
 
-  attribute_store_node_t user_id_node;
-  if (!get_user_id_node(endpoint_node,
-                        user_id,
-                        REPORTED_ATTRIBUTE,
-                        user_id_node)) {
+    // Parse the frame
+    const auto user_id
+      = parser.read_sequential<user_credential_user_unique_id_t>(2);
+    const auto user_checksum
+      = parser.read_sequential<user_credential_checksum_t>(2);
+
+    sl_log_debug(LOG_TAG,
+                 "User Checksum Report. Source User ID: %d / "
+                 "Checksum: 0x%X",
+                 user_id,
+                 user_checksum);
+
+    auto user_node
+      = get_user_unique_id_node(endpoint_node, user_id, REPORTED_ATTRIBUTE);
+
+    user_node.emplace_node(ATTRIBUTE(USER_CHECKSUM))
+      .set_reported(user_checksum);
+
+    // Compute checksum ourselves to see if it matches
+    user_credential::checksum_calculator checksum_calculator;
+
+    // First gather all the User values
+    const std::vector<attribute_store_type_t> user_attributes = {
+      ATTRIBUTE(USER_TYPE),
+      ATTRIBUTE(USER_ACTIVE_STATE),
+      ATTRIBUTE(CREDENTIAL_RULE),
+      ATTRIBUTE(USER_NAME_ENCODING),
+      ATTRIBUTE(USER_NAME),
+    };
+    for (auto attribute: user_attributes) {
+      checksum_calculator.add_node(user_node.child_by_type(attribute));
+    }
+
+    // The all credential data
+    for (auto credential_type_node:
+         user_node.children(ATTRIBUTE(CREDENTIAL_TYPE))) {
+      for (auto credential_slot_node:
+           credential_type_node.children(ATTRIBUTE(CREDENTIAL_SLOT))) {
+        if (!credential_slot_node.reported_exists()) {
+          sl_log_debug(
+            LOG_TAG,
+            "%d reported value is not defined. Not adding to checksum.",
+            credential_slot_node.value_to_string());
+          continue;
+        }
+
+        // Add credential type to checksum
+        checksum_calculator.add_node(credential_type_node);
+        // Add credential slot to checksum
+        checksum_calculator.add_node(credential_slot_node);
+        checksum_calculator.add_node(
+          credential_slot_node.child_by_type(ATTRIBUTE(CREDENTIAL_DATA)));
+      }
+    }
+
+    result = check_checksum_value(user_node,
+                                  ATTRIBUTE(USER_CHECKSUM_MISMATCH_ERROR),
+                                  checksum_calculator.compute_checksum(),
+                                  user_checksum);
+  } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
-                 "Can't find User %d reported by User Checksum Report",
-                 user_id);
+                 "Error while parsing User Checksum Report frame : %s",
+                 e.what());
     return SL_STATUS_NOT_SUPPORTED;
   }
 
-  // Set reported value
-  attribute_store_set_child_reported(user_id_node,
-                                     ATTRIBUTE(USER_CHECKSUM),
-                                     &user_checksum,
-                                     sizeof(user_checksum));
-
-  // Compute checksum ourselves to see if it matches
-  std::vector<uint8_t> checksum_data;
-
-  // First gather all the User values
-  const std::vector<attribute_store_type_t> user_attributes = {
-    ATTRIBUTE(USER_TYPE),
-    ATTRIBUTE(USER_ACTIVE_STATE),
-    ATTRIBUTE(CREDENTIAL_RULE),
-    ATTRIBUTE(USER_NAME_ENCODING),
-    ATTRIBUTE(USER_NAME),
-  };
-  attribute_store::attribute cpp_user_id_node(user_id_node);
-  for (auto attribute: user_attributes) {
-    if (!add_node_to_checksum(checksum_data,
-                              cpp_user_id_node.child_by_type(attribute))) {
-      return SL_STATUS_FAIL;
-    }
-  }
-
-  // The all credential data
-  auto credential_type_node_count
-    = attribute_store_get_node_child_count_by_type(user_id_node,
-                                                   ATTRIBUTE(CREDENTIAL_TYPE));
-
-  for (size_t credential_index = 0;
-       credential_index < credential_type_node_count;
-       credential_index++) {
-    attribute_store_node_t credential_type_node
-      = attribute_store_get_node_child_by_type(user_id_node,
-                                               ATTRIBUTE(CREDENTIAL_TYPE),
-                                               credential_index);
-    auto credential_slot_node_count
-      = attribute_store_get_node_child_count_by_type(
-        credential_type_node,
-        ATTRIBUTE(CREDENTIAL_SLOT));
-
-    for (size_t slot_index = 0; slot_index < credential_slot_node_count;
-         slot_index++) {
-      attribute_store_node_t credential_slot_node
-        = attribute_store_get_node_child_by_type(credential_type_node,
-                                                 ATTRIBUTE(CREDENTIAL_SLOT),
-                                                 slot_index);
-      // We don't have all the data for this slot, skipping it.
-      if (!attribute_store_is_reported_defined(credential_slot_node)) {
-        sl_log_debug(
-          LOG_TAG,
-          "Credential Slot #%d is not defined. Not adding to checksum.",
-          slot_index);
-        continue;
-      }
-
-      // Add credential type to checksum
-      if (!add_node_to_checksum(checksum_data, credential_type_node)) {
-        return SL_STATUS_FAIL;
-      }
-
-      // Add credential slot to checksum
-      if (!add_node_to_checksum(checksum_data, credential_slot_node)) {
-        return SL_STATUS_FAIL;
-      }
-
-      auto credential_data_node
-        = attribute_store_get_first_child_by_type(credential_slot_node,
-                                                  ATTRIBUTE(CREDENTIAL_DATA));
-
-      // Add credential data to checksum
-      if (!add_node_to_checksum(checksum_data, credential_data_node)) {
-        return SL_STATUS_FAIL;
-      }
-    }
-  }
-
-  user_credential_checksum_t computed_checksum
-    = compute_checksum_and_verify_integrity(
-      user_id_node,
-      ATTRIBUTE(USER_CHECKSUM_MISMATCH_ERROR),
-      checksum_data,
-      user_checksum);
-
-  if (computed_checksum != user_checksum) {
-    sl_log_error(LOG_TAG,
-                 "Checksum mismatch for user %d. Expected 0x%X, got 0x%X",
-                 user_id,
-                 user_checksum,
-                 computed_checksum);
-    return SL_STATUS_FAIL;
-  }
-
-  return SL_STATUS_OK;
+  return result;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -2647,36 +2452,30 @@ static sl_status_t zwave_command_class_user_credential_credential_checksum_get(
 {
   sl_log_debug(LOG_TAG, "Credential Checksum Get");
 
-  auto credential_type_node = attribute_store_get_first_parent_with_type(
-    node,
-    ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE));
+  attribute_store::attribute credential_checksum_node(node);
+  try {
+    auto credential_type_node = credential_checksum_node.first_parent(
+      ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE));
 
-  if (!attribute_store_node_exists(credential_type_node)) {
-    sl_log_error(
-      LOG_TAG,
-      "Can't find Credential Type node. Not sending Credential Checksum Get.");
+    if (!credential_type_node.is_valid()) {
+      sl_log_error(LOG_TAG,
+                   "Can't find Credential Type node. Not sending Credential "
+                   "Checksum Get.");
+      return SL_STATUS_NOT_SUPPORTED;
+    }
+
+    frame_generator.initialize_frame(CREDENTIAL_CHECKSUM_GET,
+                                     frame,
+                                     sizeof(ZW_CREDENTIAL_CHECKSUM_GET_FRAME));
+
+    frame_generator.add_value(credential_type_node, REPORTED_ATTRIBUTE);
+    frame_generator.validate_frame(frame_length);
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while generating Credential Checksum Get frame : %s",
+                 e.what());
     return SL_STATUS_NOT_SUPPORTED;
   }
-
-  user_credential_type_t credential_type = 0;
-  sl_status_t status = attribute_store_get_reported(credential_type_node,
-                                                    &credential_type,
-                                                    sizeof(credential_type));
-
-  if (status != SL_STATUS_OK) {
-    sl_log_error(
-      LOG_TAG,
-      "Can't get credential type value. Not sending Credential Checksum Get.");
-    return SL_STATUS_NOT_SUPPORTED;
-  }
-
-  ZW_CREDENTIAL_CHECKSUM_GET_FRAME *get_frame
-    = (ZW_CREDENTIAL_CHECKSUM_GET_FRAME *)frame;
-  get_frame->cmdClass       = COMMAND_CLASS_USER_CREDENTIAL;
-  get_frame->cmd            = CREDENTIAL_CHECKSUM_GET;
-  get_frame->credentialType = credential_type;
-
-  *frame_length = sizeof(ZW_CREDENTIAL_CHECKSUM_GET_FRAME);
 
   return SL_STATUS_OK;
 }
@@ -2687,118 +2486,82 @@ sl_status_t
     const uint8_t *frame_data,
     uint16_t frame_length)
 {
-  constexpr uint8_t EXPECTED_FRAME_LENGTH = 5;
-  if (frame_length != EXPECTED_FRAME_LENGTH) {
-    sl_log_error(LOG_TAG,
-                 "CREDENTIAL_CHECKSUM_REPORT frame length is not "
-                 "valid. Expected %d, got %d",
-                 EXPECTED_FRAME_LENGTH,
-                 frame_length);
-    return SL_STATUS_NOT_SUPPORTED;
-  }
+  sl_status_t result = SL_STATUS_FAIL;
 
-  constexpr uint8_t INDEX_CREDENTIAL_TYPE = 2;
-  constexpr uint8_t INDEX_USER_CHECKSUM   = 3;
-
-  attribute_store_node_t endpoint_node
+  attribute_store::attribute endpoint_node
     = zwave_command_class_get_endpoint_node(connection_info);
 
-  // Interpret frame
-  const user_credential_type_t credential_type
-    = frame_data[INDEX_CREDENTIAL_TYPE];
-  const user_credential_checksum_t credential_checksum
-    = get_uint16_value(frame_data, INDEX_USER_CHECKSUM);
+  constexpr uint8_t expected_frame_length
+    = sizeof(ZW_CREDENTIAL_CHECKSUM_REPORT_FRAME);
+  try {
+    zwave_frame_parser parser(frame_data, frame_length);
 
-  sl_log_debug(LOG_TAG,
-               "Credential Checksum Report. Credential type: %d / "
-               "Checksum: 0x%X",
-               credential_type,
-               credential_checksum);
+    if (!parser.is_frame_size_valid(expected_frame_length)) {
+      sl_log_error(LOG_TAG,
+                   "Invalid frame size for Credential Checksum Report frame");
+      return SL_STATUS_NOT_SUPPORTED;
+    }
 
-  attribute_store_node_t credential_type_node
-    = attribute_store_get_node_child_by_value(
-      endpoint_node,
+    // Parse the frame
+    const user_credential_type_t credential_type = parser.read_byte();
+    const auto credential_checksum
+      = parser.read_sequential<user_credential_checksum_t>(2);
+
+    sl_log_debug(LOG_TAG,
+                 "Credential Checksum Report. Credential type: %d / "
+                 "Checksum: 0x%X",
+                 credential_type,
+                 credential_checksum);
+
+    // Get the credential type node
+    auto credential_type_node = endpoint_node.child_by_type_and_value(
       ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE),
-      REPORTED_ATTRIBUTE,
-      (uint8_t *)&credential_type,
-      sizeof(credential_type),
-      0);
-
-  if (!attribute_store_node_exists(credential_type_node)) {
-    sl_log_error(
-      LOG_TAG,
-      "Can't find Credential Type %d reported by Credential Checksum "
-      "Report",
       credential_type);
+    if (!credential_type_node.is_valid()) {
+      sl_log_error(
+        LOG_TAG,
+        "Can't find Credential Type %d reported by Credential Checksum Report",
+        credential_type);
+      return SL_STATUS_FAIL;
+    }
+
+    credential_type_node.emplace_node(ATTRIBUTE(CREDENTIAL_CHECKSUM))
+      .set_reported(credential_checksum);
+
+    // Compute checksum ourselves to see if it matches
+    user_credential::checksum_calculator checksum_calculator;
+    for_each_credential_type_nodes(
+      endpoint_node,
+      [&](auto credential_type_node) {
+        for (auto credential_slot_node:
+             credential_type_node.children(ATTRIBUTE(CREDENTIAL_SLOT))) {
+          if (!credential_slot_node.reported_exists()) {
+            sl_log_debug(
+              LOG_TAG,
+              "%s reported value is not defined. Not adding to checksum.",
+              credential_slot_node.value_to_string());
+            continue;
+          }
+
+          checksum_calculator.add_node(credential_slot_node);
+          checksum_calculator.add_node(
+            credential_slot_node.child_by_type(ATTRIBUTE(CREDENTIAL_DATA)));
+        }
+      },
+      credential_type);
+
+    result = check_checksum_value(credential_type_node,
+                                  ATTRIBUTE(CREDENTIAL_CHECKSUM_MISMATCH_ERROR),
+                                  checksum_calculator.compute_checksum(),
+                                  credential_checksum);
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while parsing Credential Checksum Report frame : %s",
+                 e.what());
     return SL_STATUS_NOT_SUPPORTED;
   }
 
-  // Set reported value
-  attribute_store_set_child_reported(credential_type_node,
-                                     ATTRIBUTE(CREDENTIAL_CHECKSUM),
-                                     &credential_checksum,
-                                     sizeof(credential_checksum));
-
-  // Compute checksum ourselves to see if it matches
-  std::vector<uint8_t> checksum_data;
-
-  auto credential_type_nodes
-    = get_all_credential_type_nodes(endpoint_node, credential_type);
-  for (auto credential_type_node: credential_type_nodes) {
-    auto credential_slot_node_count
-      = attribute_store_get_node_child_count_by_type(
-        credential_type_node,
-        ATTRIBUTE(CREDENTIAL_SLOT));
-
-    for (size_t slot_index = 0; slot_index < credential_slot_node_count;
-         slot_index++) {
-      attribute_store_node_t credential_slot_node
-        = attribute_store_get_node_child_by_type(credential_type_node,
-                                                 ATTRIBUTE(CREDENTIAL_SLOT),
-                                                 slot_index);
-      // We don't have all the data for this slot, skipping it.
-      if (!attribute_store_is_reported_defined(credential_slot_node)) {
-        sl_log_debug(
-          LOG_TAG,
-          "Credential Slot #%d is not defined. Not adding to checksum.",
-          slot_index);
-        continue;
-      }
-
-      // Add credential slot to checksum
-      if (!add_node_to_checksum(checksum_data, credential_slot_node)) {
-        return SL_STATUS_FAIL;
-      }
-
-      auto credential_data_node
-        = attribute_store_get_first_child_by_type(credential_slot_node,
-                                                  ATTRIBUTE(CREDENTIAL_DATA));
-
-      // Add credential data to checksum
-      if (!add_node_to_checksum(checksum_data, credential_data_node)) {
-        return SL_STATUS_FAIL;
-      }
-    }
-  }
-
-  user_credential_checksum_t computed_checksum
-    = compute_checksum_and_verify_integrity(
-      credential_type_node,
-      ATTRIBUTE(CREDENTIAL_CHECKSUM_MISMATCH_ERROR),
-      checksum_data,
-      credential_checksum);
-
-  if (computed_checksum != credential_checksum) {
-    sl_log_error(
-      LOG_TAG,
-      "Checksum mismatch for credential type %d. Expected 0x%X, got 0x%X",
-      credential_type,
-      credential_checksum,
-      computed_checksum);
-    return SL_STATUS_FAIL;
-  }
-
-  return SL_STATUS_OK;
+  return result;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -3074,7 +2837,6 @@ sl_status_t zwave_command_class_user_credential_modify_user(
 
   return status;
 }
-
 
 sl_status_t zwave_command_class_user_credential_add_new_credential(
   attribute_store_node_t endpoint_node,
@@ -3518,7 +3280,6 @@ sl_status_t zwave_command_class_user_credential_uuic_association_set(
   user_credential_user_unique_id_t destination_user_id,
   user_credential_slot_t destination_credential_slot)
 {
-
   try {
     auto nodes = get_credential_identifier_nodes(
       endpoint_node,
@@ -3533,7 +3294,7 @@ sl_status_t zwave_command_class_user_credential_uuic_association_set(
     nodes.slot_node
       .emplace_node(ATTRIBUTE(ASSOCIATION_DESTINATION_CREDENTIAL_SLOT))
       .set_desired(destination_credential_slot);
-  } catch (std::exception& e) {
+  } catch (std::exception &e) {
     sl_log_error(LOG_TAG,
                  "Error while setting up uuic asociation set : %s",
                  e.what());
@@ -3555,7 +3316,7 @@ sl_status_t zwave_command_class_user_credential_get_user_checksum(
     // If node already exists, we clear its value to trigger the GET
     checksum_node.clear_reported();
     checksum_node.clear_desired();
-  } catch(const std::exception& e) {
+  } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
                  "Error while setting up user get checksum : %s",
                  e.what());
@@ -3583,8 +3344,8 @@ sl_status_t zwave_command_class_user_credential_get_credential_checksum(
       return SL_STATUS_FAIL;
     }
 
-    auto checksum_node
-      = supported_credential_type_node.emplace_node(ATTRIBUTE(CREDENTIAL_CHECKSUM));
+    auto checksum_node = supported_credential_type_node.emplace_node(
+      ATTRIBUTE(CREDENTIAL_CHECKSUM));
     // If node already exists, we clear its value to trigger the GET
     checksum_node.clear_reported();
     checksum_node.clear_desired();
