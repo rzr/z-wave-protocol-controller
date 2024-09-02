@@ -48,10 +48,9 @@
 #include "zwave_frame_generator.hpp"
 #include "zwave_frame_parser.hpp"
 
-// UTF16 conversion (deprecated in C++17)
-// Needed for credential data (password) per specification
-#include <locale>
-#include <codecvt>
+// Private helpers
+#include "private/user_credential/user_credential_user_capabilities.h"
+#include "private/user_credential/user_credential_credential_capabilities.h"
 
 // Macro
 #define ATTRIBUTE(type) ATTRIBUTE_COMMAND_CLASS_USER_CREDENTIAL_##type
@@ -95,319 +94,6 @@ struct credential_id_nodes {
 };
 
 /////////////////////////////////////////////////////////////////////////////
-// Capabilites Data Structs
-/////////////////////////////////////////////////////////////////////////////
-// User capabilities
-struct user_capabilities {
-  // Maximum number of users that can be stored in the device
-  uint16_t max_user_count = 0;
-  // Credential rules supported
-  uint8_t supported_credential_rules_bitmask = 0;
-  // User types supported
-  uint32_t supported_user_types_bitmask = 0;
-  // Max length for the user names
-  uint8_t max_user_name_length = 0;
-  // Device support for scheduling users
-  uint8_t support_user_schedule = 0;
-  // Device support for getting the checksum of all users
-  uint8_t support_all_user_checksum = 0;
-  // Device support for getting the checksum of a specific user
-  uint8_t support_by_user_checksum = 0;
-
-  // True if the data is valid inside this struct
-  bool is_data_valid = false;
-
-  /**
-   * @brief Check if the user proprieties are valid
-   * 
-   * @note Will return false if is_data_valid is false
-   * 
-   * @param user_id          User ID
-   * @param user_type        User type
-   * @param credential_rule  Credential rule
-   * @param user_name        User name
-   * 
-   * @return true  User is valid
-   * @return false User is not valid
-  */
-  bool is_user_valid(user_credential_user_unique_id_t user_id,
-                     user_credential_type_t user_type,
-                     user_credential_rule_t credential_rule,
-                     const char *user_name)
-  {
-    if (!is_data_valid) {
-      sl_log_error(
-        LOG_TAG,
-        "User capabilities are not valid. Try restarting the device.");
-      return false;
-    }
-
-    if (!is_user_id_valid(user_id)) {
-      sl_log_error(LOG_TAG, "User ID is not valid.");
-      return false;
-    }
-
-    if (!is_user_type_supported(user_type)) {
-      sl_log_error(LOG_TAG, "User type is not supported.");
-      return false;
-    }
-
-    if (!is_credential_rule_supported(credential_rule)) {
-      sl_log_error(LOG_TAG, "Credential rule is not supported.");
-      return false;
-    }
-
-    if (!is_user_name_valid(user_name)) {
-      sl_log_error(LOG_TAG, "User name is not valid.");
-      return false;
-    }
-    return true;
-  }
-
-  /**
-   * @brief Checks if the given user name is valid.
-   * @param user_name The user name to be validated.
-   * @return true User name is valid
-   * @return false User name is not valid
-   */
-  bool is_user_name_valid(const char *user_name) const
-  {
-    std::string str_user_name(user_name);
-    return str_user_name.length() <= max_user_name_length;
-  }
-
-  /**
-   * @brief Check if a user id is valid
-   * @param user_id User ID to check
-   * @return true User ID is valid
-   * @return false User ID is not valid
-  */
-  bool is_user_id_valid(user_credential_user_unique_id_t user_id)
-  {
-    return user_id <= max_user_count;
-  }
-  /** 
-   * @brief Check if a user type is supported
-   * @param user_type User type to check
-   * @return true User type is supported
-   * @return false User type is not supported
-  */
-  bool is_user_type_supported(user_credential_type_t user_type) const
-  {
-    return (supported_user_types_bitmask & (1 << user_type));
-  }
-
-  /**
-   * @brief Check if a credential rule is supported
-   * @param credential_rule Credential rule to check
-   * @return true Credential rule is supported
-   * @return false Credential rule is not supported
-  */
-  bool
-    is_credential_rule_supported(user_credential_rule_t credential_rule) const
-  {
-    return (supported_credential_rules_bitmask & (1 << credential_rule));
-  }
-};
-
-// Associated with a Credential type
-struct credential_capabilities {
-  user_credential_type_t credential_type = 0;
-  uint16_t max_slot_count                = 0;
-  uint8_t learn_support                  = 0;
-  uint8_t min_credential_length          = 0;
-  uint8_t max_credential_length          = 0;
-  uint8_t learn_recommended_timeout      = 0;
-  uint8_t learn_number_of_steps          = 0;
-
-  bool is_data_valid = false;
-
-  bool is_learn_supported() const
-  {
-    return is_data_valid && learn_support > 0;
-  }
-
-  bool is_credential_valid(user_credential_type_t credential_type,
-                           user_credential_slot_t credential_slot,
-                           const std::vector<uint8_t> &credential_data)
-  {
-    if (!is_data_valid) {
-      sl_log_error(
-        LOG_TAG,
-        "Credential capabilities are not valid. Try restarting the device.");
-      return false;
-    }
-
-    if (credential_type != this->credential_type) {
-      sl_log_error(LOG_TAG, "Credential type mismatch.");
-      return false;
-    }
-
-    if (!is_slot_valid(credential_slot)) {
-      sl_log_error(
-        LOG_TAG,
-        "Slot ID is not valid. Given : %d, Max Supported Slot count : %d",
-        credential_slot,
-        max_slot_count);
-      return false;
-    }
-
-    if (!is_credential_data_valid(credential_data)) {
-      sl_log_error(LOG_TAG,
-                   "Credential data size is not valid. Should be between %d "
-                   "and %d, given : %d",
-                   min_credential_length,
-                   max_credential_length,
-                   credential_data.size());
-      return false;
-    }
-
-    return true;
-  }
-
-  bool is_slot_valid(user_credential_slot_t credential_slot) const
-  {
-    return credential_slot <= max_slot_count;
-  }
-
-  bool
-    is_credential_data_valid(const std::vector<uint8_t> &credential_data) const
-  {
-    return (credential_data.size() >= min_credential_length
-            && credential_data.size() <= max_credential_length);
-  }
-};
-
-/////////////////////////////////////////////////////////////////////////////
-// Capabilites Helpers
-/////////////////////////////////////////////////////////////////////////////
-/**
- * @brief Get the attributes of a node
- * 
- * @param parent_node Parent node of the attributes
- * @param attributes  Fill the attribute_store_type_t with the corresponding value inside the pointer
- * 
- * @return sl_status_t SL_STATUS_OK if everything was fine ; otherwise an error code
-*/
-sl_status_t get_attributes(attribute_store_node_t parent_node,
-                           std::map<attribute_store_type_t, void *> attributes)
-{
-  sl_status_t status = SL_STATUS_OK;
-  for (auto &attribute: attributes) {
-    size_t attribute_size = 0;
-    switch (attribute_store_get_storage_type(attribute.first)) {
-      case U8_STORAGE_TYPE:
-        attribute_size = sizeof(uint8_t);
-        break;
-      case U16_STORAGE_TYPE:
-        attribute_size = sizeof(uint16_t);
-        break;
-      case U32_STORAGE_TYPE:
-        attribute_size = sizeof(uint32_t);
-        break;
-      default:
-        sl_log_error(
-          LOG_TAG,
-          "Unsupported storage type for attribute %d. Can't get capabilities.",
-          attribute.first);
-        return SL_STATUS_FAIL;
-    }
-
-    sl_status_t current_status
-      = attribute_store_get_child_reported(parent_node,
-                                           attribute.first,
-                                           attribute.second,
-                                           attribute_size);
-    if (status != SL_STATUS_OK) {
-      sl_log_error(LOG_TAG,
-                   "Can't get value for attribute %s",
-                   attribute_store_get_type_name(attribute.first));
-    }
-
-    status |= current_status;
-  }
-  return status;
-}
-
-/**
- * @brief Get the user capabilities of a node
- * 
- * @param endpoint_node Endpoint node
- * 
- * @return user_capabilities User capabilities. is_data_valid will be false if an error occurred
-*/
-user_capabilities get_user_capabilities(attribute_store_node_t endpoint_node)
-{
-  user_capabilities capabilities;
-
-  std::map<attribute_store_type_t, void *> attributes = {
-    {ATTRIBUTE(NUMBER_OF_USERS), &capabilities.max_user_count},
-    {ATTRIBUTE(SUPPORTED_CREDENTIAL_RULES),
-     &capabilities.supported_credential_rules_bitmask},
-    {ATTRIBUTE(SUPPORTED_USER_TYPES),
-     &capabilities.supported_user_types_bitmask},
-    {ATTRIBUTE(MAX_USERNAME_LENGTH), &capabilities.max_user_name_length},
-    {ATTRIBUTE(SUPPORT_USER_SCHEDULE), &capabilities.support_user_schedule},
-    {ATTRIBUTE(SUPPORT_ALL_USERS_CHECKSUM),
-     &capabilities.support_all_user_checksum},
-    {ATTRIBUTE(SUPPORT_USER_CHECKSUM), &capabilities.support_by_user_checksum}};
-
-  sl_status_t status = get_attributes(endpoint_node, attributes);
-
-  capabilities.is_data_valid = (status == SL_STATUS_OK);
-
-  return capabilities;
-}
-
-/**
- * @brief Get the credential capabilities of a node for given credential type
- * 
- * @param endpoint_node   Endpoint node
- * @param credential_type Credential type
- * 
- * @return credential_capabilities Credential capabilities. is_data_valid will be false if an error occurred
-*/
-credential_capabilities
-  get_credential_capabilities(attribute_store_node_t endpoint_node,
-                              user_credential_type_t credential_type)
-{
-  credential_capabilities capabilities;
-
-  attribute_store_node_t supported_credential_type_node
-    = attribute_store_get_node_child_by_value(
-      endpoint_node,
-      ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE),
-      REPORTED_ATTRIBUTE,
-      (uint8_t *)&credential_type,
-      sizeof(credential_type),
-      0);
-
-  if (!attribute_store_node_exists(supported_credential_type_node)) {
-    sl_log_error(LOG_TAG,
-                 "Credential type %d not supported. Can't get capabilities",
-                 credential_type);
-    return capabilities;
-  }
-
-  std::map<attribute_store_type_t, void *> attributes = {
-    {ATTRIBUTE(CREDENTIAL_SUPPORTED_SLOT_COUNT), &capabilities.max_slot_count},
-    {ATTRIBUTE(CREDENTIAL_LEARN_SUPPORT), &capabilities.learn_support},
-    {ATTRIBUTE(CREDENTIAL_MIN_LENGTH), &capabilities.min_credential_length},
-    {ATTRIBUTE(CREDENTIAL_MAX_LENGTH), &capabilities.max_credential_length},
-    {ATTRIBUTE(CREDENTIAL_LEARN_RECOMMENDED_TIMEOUT),
-     &capabilities.learn_recommended_timeout},
-    {ATTRIBUTE(CREDENTIAL_LEARN_NUMBER_OF_STEPS),
-     &capabilities.learn_number_of_steps}};
-
-  sl_status_t status
-    = get_attributes(supported_credential_type_node, attributes);
-  capabilities.credential_type = credential_type;
-  capabilities.is_data_valid   = (status == SL_STATUS_OK);
-
-  return capabilities;
-}
-
-/////////////////////////////////////////////////////////////////////////////
 // Type Helpers
 /////////////////////////////////////////////////////////////////////////////
 uint16_t get_uint16_value(const uint8_t *frame, uint16_t start_index)
@@ -418,18 +104,6 @@ uint16_t get_uint16_value(const uint8_t *frame, uint16_t start_index)
   }
 
   return extracted_value;
-}
-
-///////////////////////////////////////////////////////////////////////
-// Mics helpers
-///////////////////////////////////////////////////////////////////////
-std::u16string utf8_to_utf16(const std::string &utf8)
-{
-  std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> cnv;
-  std::u16string s = cnv.from_bytes(utf8);
-  if (cnv.converted() < utf8.size())
-    throw std::runtime_error("incomplete conversion");
-  return s;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -3236,7 +2910,7 @@ sl_status_t zwave_command_class_user_credential_add_new_user(
   sl_log_debug(LOG_TAG, "\tuser_name : %s", user_name);
 
   // Check capabilites
-  user_capabilities capabilites = get_user_capabilities(endpoint_node);
+  auto capabilites = user_credential::user_capabilities(endpoint_node);
   if (!capabilites.is_user_valid(user_id,
                                  user_type,
                                  credential_rule,
@@ -3362,7 +3036,7 @@ sl_status_t zwave_command_class_user_credential_modify_user(
   sl_log_debug(LOG_TAG, "\tuser_name : %s", user_name);
 
   // Check capabilites
-  user_capabilities capabilites = get_user_capabilities(endpoint_node);
+  auto capabilites = user_credential::user_capabilities(endpoint_node);
   if (!capabilites.is_user_valid(user_id,
                                  user_type,
                                  credential_rule,
@@ -3401,73 +3075,6 @@ sl_status_t zwave_command_class_user_credential_modify_user(
   return status;
 }
 
-/**
- * @brief Convert credential data str to a vector of uint8_t
- * 
- * @note CC:0083.01.0A.11.021 Passwords MUST be transmitted in Unicode UTF-16 format, in big endian order
- * 
- * @param credential_data Credential data to convert
- * @param credential_type Credential type
- * @param credential_data_vector Vector to store the converted data
- * 
- * @throws std::runtime_error if the credential data is invalid
- * 
- * @return The converted data
-*/
-std::vector<uint8_t>
-  convert_credential_data(const char *credential_data,
-                          user_credential_type_t credential_type)
-{
-  std::vector<uint8_t> credential_data_vector;
-  std::string credential_data_str(credential_data);
-  switch (credential_type) {
-    case CREDENTIAL_REPORT_PASSWORD: {
-      // CC:0083.01.0A.11.021 Passwords MUST be transmitted in Unicode UTF-16 format, in big endian order
-      auto credential_data_utf16 = utf8_to_utf16(credential_data_str);
-      for (const auto &c: credential_data_utf16) {
-        credential_data_vector.push_back((uint8_t)(c >> 8));
-        credential_data_vector.push_back((uint8_t)c);
-      }
-    } break;
-    case CREDENTIAL_REPORT_PIN_CODE:
-      for (const auto &c: credential_data_str) {
-        if (c < '0' || c > '9') {
-          throw std::runtime_error(
-            (boost::format(
-               "Invalid character in PIN code : %1%. Only digits are allowed.")
-             % c)
-              .str());
-        }
-        credential_data_vector.push_back(c);
-      }
-      break;
-    default:
-      for (const auto &c: credential_data_str) {
-        credential_data_vector.push_back(c);
-      }
-  }
-
-  return credential_data_vector;
-}
-
-std::vector<uint8_t>
-  validate_credential_data(credential_capabilities &capabilities,
-                           const char *credential_data,
-                           user_credential_type_t credential_type,
-                           user_credential_slot_t credential_slot)
-{
-  std::vector<uint8_t> credential_data_vector
-    = convert_credential_data(credential_data, credential_type);
-
-  // Credential not valid, we are not adding it
-  if (!capabilities.is_credential_valid(credential_type,
-                                        credential_slot,
-                                        credential_data_vector)) {
-    throw std::runtime_error("Credential capabilities are not valid.");
-  }
-
-  return credential_data_vector;
-}
 
 sl_status_t zwave_command_class_user_credential_add_new_credential(
   attribute_store_node_t endpoint_node,
@@ -3494,7 +3101,7 @@ sl_status_t zwave_command_class_user_credential_add_new_credential(
   }
 
   auto capabilities
-    = get_credential_capabilities(endpoint_node, credential_type);
+    = user_credential::credential_capabilities(endpoint_node, credential_type);
 
   if (!capabilities.is_slot_valid(credential_slot)) {
     sl_log_error(LOG_TAG,
@@ -3525,10 +3132,8 @@ sl_status_t zwave_command_class_user_credential_add_new_credential(
 
     // Process credential data
     std::vector<uint8_t> credential_data_vector
-      = validate_credential_data(capabilities,
-                                 credential_data,
-                                 credential_type,
-                                 credential_slot);
+      = capabilities.convert_and_validate_credential_data(credential_data,
+                                                          credential_slot);
 
     auto credential_slot_node
       = credential_type_node.emplace_node(ATTRIBUTE(CREDENTIAL_SLOT),
@@ -3583,12 +3188,11 @@ sl_status_t zwave_command_class_user_credential_modify_credential(
     auto credential_slot_node = nodes.slot_node;
     // Process credential data
     auto capabilities
-      = get_credential_capabilities(endpoint_node, credential_type);
+      = user_credential::credential_capabilities(endpoint_node,
+                                                 credential_type);
     std::vector<uint8_t> credential_data_vector
-      = validate_credential_data(capabilities,
-                                 credential_data,
-                                 credential_type,
-                                 credential_slot);
+      = capabilities.convert_and_validate_credential_data(credential_data,
+                                                          credential_slot);
     // Modify current data
     credential_slot_node.emplace_node(ATTRIBUTE(CREDENTIAL_DATA))
       .set_desired(credential_data_vector);
@@ -3751,7 +3355,7 @@ sl_status_t zwave_command_class_user_credential_credential_learn_start_add(
                credential_learn_timeout);
 
   auto credential_capabilities
-    = get_credential_capabilities(endpoint_node, credential_type);
+    = user_credential::credential_capabilities(endpoint_node, credential_type);
 
   if (!credential_capabilities.is_learn_supported()) {
     sl_log_error(LOG_TAG,
@@ -3803,7 +3407,7 @@ sl_status_t zwave_command_class_user_credential_credential_learn_start_add(
 
     if (credential_learn_timeout == 0) {
       credential_learn_timeout
-        = credential_capabilities.learn_recommended_timeout;
+        = credential_capabilities.get_learn_recommended_timeout();
       sl_log_debug(LOG_TAG,
                    "Credential learn timeout is 0. Setting it to default "
                    "reported value (%d seconds).",
@@ -3844,7 +3448,7 @@ sl_status_t zwave_command_class_user_credential_credential_learn_start_modify(
                credential_learn_timeout);
 
   auto credential_capabilities
-    = get_credential_capabilities(endpoint_node, credential_type);
+    = user_credential::credential_capabilities(endpoint_node, credential_type);
 
   if (!credential_capabilities.is_learn_supported()) {
     sl_log_error(LOG_TAG,
@@ -3864,7 +3468,7 @@ sl_status_t zwave_command_class_user_credential_credential_learn_start_modify(
 
   if (credential_learn_timeout == 0) {
     credential_learn_timeout
-      = credential_capabilities.learn_recommended_timeout;
+      = credential_capabilities.get_learn_recommended_timeout();
     sl_log_debug(LOG_TAG,
                  "Credential learn timeout is 0. Setting it to default "
                  "reported value (%d seconds).",

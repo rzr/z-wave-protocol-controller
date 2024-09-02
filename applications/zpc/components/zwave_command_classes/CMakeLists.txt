@@ -64,7 +64,10 @@ add_library(
   src/zwave_command_classes_utils.c
   src/zwave_command_class_inclusion_controller.cpp
   src/zwave_command_class_transport_service.c
-  src/zwave_command_class_protocol.c)
+  src/zwave_command_class_protocol.c
+  src/private/user_credential/user_credential_user_capabilities.cpp
+  src/private/user_credential/user_credential_credential_capabilities.cpp
+)
 install(TARGETS zwave_command_classes LIBRARY DESTINATION lib)
 
 target_include_directories(
