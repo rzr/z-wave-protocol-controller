@@ -13,7 +13,7 @@
 #include "user_credential_cluster_server.h"
 #include "zcl_cluster_servers_helpers.hpp"
 // Interfaces
-#include "zwave_command_class_user_credential.h"
+#include "zwave_command_class_user_credential_api.h"
 
 // ZPC includes
 #include "zpc_attribute_store.h"
