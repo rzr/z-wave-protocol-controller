@@ -22,6 +22,7 @@ using namespace zwave_command_class_test_helper;
 extern "C" {
 
 #include "zwave_command_class_user_credential.h"
+#include "zwave_command_class_user_credential_api.h"
 #include "zwave_command_class_user_credential_types.h"
 #include "zwave_command_classes_utils.h"
 #include "unity.h"
