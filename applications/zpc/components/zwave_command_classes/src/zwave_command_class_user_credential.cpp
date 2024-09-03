@@ -88,18 +88,6 @@ struct credential_id_nodes {
   attribute_store::attribute user_unique_id_node;
 };
 
-/////////////////////////////////////////////////////////////////////////////
-// Type Helpers
-/////////////////////////////////////////////////////////////////////////////
-uint16_t get_uint16_value(const uint8_t *frame, uint16_t start_index)
-{
-  uint16_t extracted_value = 0;
-  for (int i = 0; i < 2; i++) {
-    extracted_value = (extracted_value << 8) | frame[start_index + i];
-  }
-
-  return extracted_value;
-}
 
 /////////////////////////////////////////////////////////////////////////////
 // Command Class Helper
@@ -138,29 +126,53 @@ template<typename T> attribute_store::attribute
   return node;
 }
 
-void set_operation_type(attribute_store_node_t node,
+/**
+ * @brief Create operation_type_node_type if it doesn't exists, and set the desired value to operation_type (and clear reported)
+ * 
+ * @see set_user_operation_type
+ * @see set_credential_operation_type
+ * @see set_credential_learn_operation_type
+ * 
+ * @param base_node Base node to search for the attribute
+ * @param operation_type_node_type Type of the operation type node
+ * @param operation_type Operation type to set
+ *
+ */
+void set_operation_type(attribute_store::attribute base_node,
                         attribute_store_type_t operation_type_node_type,
                         user_credential_operation_type_t operation_type)
 {
-  auto operation_type_node
-    = attribute_store_get_node_child_by_type(node, operation_type_node_type, 0);
+  auto operation_type_node = base_node.emplace_node(operation_type_node_type);
 
-  if (!attribute_store_node_exists(operation_type_node)) {
-    operation_type_node
-      = attribute_store_add_node(operation_type_node_type, node);
-  }
   // Undefine reported to be sure that we can so the same operation twice in a row
-  attribute_store_undefine_reported(operation_type_node);
-  attribute_store_set_desired(operation_type_node,
-                              &operation_type,
-                              sizeof(operation_type));
+  operation_type_node.clear_reported();
+  operation_type_node.set_desired(operation_type);
 }
+
+/**
+ * @brief Set User Operation
+ * 
+ * Set the operation type as desired and clear reported to call SET function
+ * 
+ * @param user_node User node
+ * @param operation_type Operation type to set
+ * 
+ */
 void set_user_operation_type(attribute_store_node_t user_node,
                              user_credential_operation_type_t operation_type)
 {
   set_operation_type(user_node, ATTRIBUTE(USER_OPERATION_TYPE), operation_type);
 }
 
+/**
+ * @brief Set Credential Operation
+ * 
+ * Set the operation type as desired and clear reported to call SET function
+ * 
+ * @param slot_node Slot node
+ * @param operation_type Operation type to set
+ * 
+ */
 void set_credential_operation_type(
   attribute_store_node_t slot_node,
   user_credential_operation_type_t operation_type)
@@ -170,6 +182,14 @@ void set_credential_operation_type(
                      operation_type);
 }
 
+/**
+ * @brief Set Credential Learn Operation
+ * 
+ * Set the operation type as desired and clear reported to call SET function
+ * 
+ * @param slot_node Slot node
+ * @param operation_type Operation type to set
+ */
 void set_credential_learn_operation_type(
   attribute_store_node_t slot_node,
   user_credential_operation_type_t operation_type)
@@ -177,81 +197,6 @@ void set_credential_learn_operation_type(
   set_operation_type(slot_node,
                      ATTRIBUTE(CREDENTIAL_LEARN_OPERATION_TYPE),
                      operation_type);
-}
-
-/**
- * @brief Get user id node 
- * 
- * @deprecated
- * 
- * @warning state can't be DESIRED_OR_REPORTED_ATTRIBUTE or it will not work
- * 
- * @param endpoint_node  Endpoint point node
- * @param user_id        User ID to find 
- * @param state          Check reported or desired value. 
- * @param user_id_node   User id node will be stored here if found
- * 
- * @return true  User id exists
- * @return false User id doesn't exists
- */
-bool get_user_id_node(attribute_store_node_t endpoint_node,
-                      user_credential_user_unique_id_t user_id,
-                      attribute_store_node_value_state_t state,
-                      attribute_store_node_t &user_id_node)
-{
-  user_id_node
-    = attribute_store_get_node_child_by_value(endpoint_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID),
-                                              state,
-                                              (uint8_t *)&user_id,
-                                              sizeof(user_id),
-                                              0);
-
-  return attribute_store_node_exists(user_id_node);
-}
-
-/**
- * @brief Get node associated with user ID (reported)
- * 
- * @deprecated
- * 
- * @warning This function only checks the reported User Unique
- * 
- * @param endpoint_node  Current endpoint node 
- * @param user_id        User ID  
- * 
- * @return attribute_store_node_t If User ID exists
- * @return INVALID_ATTRIBUTE_STORE_NODE If User ID does not exist
- */
-attribute_store_node_t
-  get_reported_user_id_node(attribute_store_node_t endpoint_node,
-                            user_credential_user_unique_id_t user_id)
-{
-  attribute_store_node_t user_id_node;
-  get_user_id_node(endpoint_node, user_id, REPORTED_ATTRIBUTE, user_id_node);
-  return user_id_node;
-}
-
-/**
- * @brief Get node associated with user ID (desired)
- * 
- * @warning This function only checks the reported User Unique
- * 
- * @deprecated
- * 
- * @param endpoint_node  Current endpoint node 
- * @param user_id        User ID  
- * 
- * @return attribute_store_node_t If User ID exists
- * @return INVALID_ATTRIBUTE_STORE_NODE If User ID does not exist
- */
-attribute_store_node_t
-  get_desired_user_id_node(attribute_store_node_t endpoint_node,
-                           user_credential_user_unique_id_t user_id)
-{
-  attribute_store_node_t user_id_node;
-  get_user_id_node(endpoint_node, user_id, DESIRED_ATTRIBUTE, user_id_node);
-  return user_id_node;
 }
 
 /**
@@ -377,104 +322,6 @@ attribute_store::attribute
 }
 
 /**
- * @brief Get credential node associated with credential_type and user_id.
- * 
- * @deprecated
- * 
- * @param endpoint_node         Current endpoint node
- * @param user_id               User ID
- * @param credential_type       Credential type
- * @param state                 Check reported or desired value. 
- * @param credential_type_node  Credential node will be stored here if found
- * 
- * @return true  Credential Type exists
- * @return false Credential Type doesn't exists
-   */
-bool get_credential_type_node(attribute_store_node_t endpoint_node,
-                              user_credential_user_unique_id_t user_id,
-                              user_credential_type_t credential_type,
-                              attribute_store_node_value_state_t state,
-                              attribute_store_node_t &credential_type_node)
-{
-  attribute_store_node_t user_id_node
-    = get_reported_user_id_node(endpoint_node, user_id);
-
-  credential_type_node
-    = attribute_store_get_node_child_by_value(user_id_node,
-                                              ATTRIBUTE(CREDENTIAL_TYPE),
-                                              state,
-                                              (uint8_t *)&credential_type,
-                                              sizeof(credential_type),
-                                              0);
-
-  return attribute_store_node_exists(credential_type_node);
-}
-
-/**
- * @brief Get ALL the credential type nodes.
- * 
- * By default it will return all the credential type nodes, but you can narrow
- *  to a specific credential type with the credential_type parameter
- * 
- * @deprecated Use for_each_credential_type_nodes instead
- * 
- * @param endpoint_node     Endpoint point node
- * @param credential_type   Credential type to find. If 0, will return all credential types
- * 
- * @return std::vector<attribute_store_node_t> List of credential type nodes
-*/
-std::vector<attribute_store_node_t>
-  get_all_credential_type_nodes(attribute_store_node_t endpoint_node,
-                                user_credential_type_t credential_type = 0)
-{
-  std::vector<attribute_store_node_t> credential_type_nodes;
-
-  // Delete all user nodes
-  auto user_node_count
-    = attribute_store_get_node_child_count_by_type(endpoint_node,
-                                                   ATTRIBUTE(USER_UNIQUE_ID));
-
-  for (size_t user_id_index = 0; user_id_index < user_node_count;
-       user_id_index++) {
-    attribute_store_node_t user_node
-      = attribute_store_get_node_child_by_type(endpoint_node,
-                                               ATTRIBUTE(USER_UNIQUE_ID),
-                                               user_id_index);
-
-    auto credential_type_node_count
-      = attribute_store_get_node_child_count_by_type(
-        user_node,
-        ATTRIBUTE(CREDENTIAL_TYPE));
-
-    for (size_t credential_index = 0;
-         credential_index < credential_type_node_count;
-         credential_index++) {
-      attribute_store_node_t credential_type_node
-        = attribute_store_get_node_child_by_type(user_node,
-                                                 ATTRIBUTE(CREDENTIAL_TYPE),
-                                                 credential_index);
-      if (credential_type == 0) {
-        // If we haven't specify a node type we take them all
-        credential_type_nodes.push_back(credential_type_node);
-      } else {
-        // Otherwise we only take the ones that match
-        user_credential_type_t current_credential_type;
-        attribute_store_read_value(credential_type_node,
-                                   REPORTED_ATTRIBUTE,
-                                   &current_credential_type,
-                                   sizeof(current_credential_type));
-
-        if (current_credential_type == credential_type) {
-          credential_type_nodes.push_back(credential_type_node);
-        }
-      }
-    }
-  }
-
-  return credential_type_nodes;
-}
-
-/**
  * @brief Iterate on each credential type nodes for a given user
  * 
  * @param user_id_node      User ID node
@@ -519,35 +366,6 @@ void for_each_credential_type_nodes(attribute_store::attribute endpoint_node,
 }
 
 /**
- * @brief Get credential slot node
- * 
- * @warning state can't be DESIRED_OR_REPORTED_ATTRIBUTE or it will not work
- * 
- * @param credential_type_node  Endpoint point node
- * @param credential_slot       Credential Slot to find 
- * @param state                 Check reported or desired value. 
- * @param credential_slot_node  Credential Slot node will be stored here if found
- * 
- * @return true  Credential Slot exists
- * @return false Credential Slot doesn't exists
- */
-bool get_credential_slot_node(attribute_store_node_t credential_type_node,
-                              user_credential_slot_t credential_slot,
-                              attribute_store_node_value_state_t state,
-                              attribute_store_node_t &credential_slot_node)
-{
-  credential_slot_node
-    = attribute_store_get_node_child_by_value(credential_type_node,
-                                              ATTRIBUTE(CREDENTIAL_SLOT),
-                                              state,
-                                              (uint8_t *)&credential_slot,
-                                              sizeof(credential_slot),
-                                              0);
-
-  return attribute_store_node_exists(credential_slot_node);
-}
-
-/**
  * @brief Checks if given credential ID (credential type, credential slot) is available
  * 
  * @param endpoint_node     Endpoint node
@@ -561,69 +379,26 @@ bool is_credential_available(attribute_store_node_t endpoint_node,
                              user_credential_type_t credential_type,
                              user_credential_slot_t credential_slot)
 {
-  auto credential_type_nodes
-    = get_all_credential_type_nodes(endpoint_node, credential_type);
+  bool credential_available = true;
 
-  // Credential type, Credential Node pair is Unique
-  for (auto &credential_type_node: credential_type_nodes) {
-    user_credential_type_t current_type;
-    attribute_store_get_reported(credential_type_node,
-                                 &current_type,
-                                 sizeof(current_type));
-    user_credential_slot_t current_slot;
-    attribute_store_get_child_reported(credential_type_node,
-                                       ATTRIBUTE(CREDENTIAL_SLOT),
-                                       &current_slot,
-                                       sizeof(current_slot));
-    if (current_slot == credential_slot && current_type == credential_type) {
-      return false;
+  for_each_credential_type_nodes(endpoint_node, [&](attribute_store::attribute &credential_type_node) {
+    for (auto &credential_slot_node:
+         credential_type_node.children(ATTRIBUTE(CREDENTIAL_SLOT))) {
+
+      // If this credential slot node doesn't have a reported value, check the next one
+      if (!credential_slot_node.reported_exists()) {
+        continue;
+      }
+
+      if (credential_slot_node.reported<user_credential_slot_t>()
+          == credential_slot) {
+        credential_available = false;
+        return;
+      }
     }
-  }
-
-  return true;
-}
-
-/**
- * @brief Add credential type node to given user if it doesn't exists.
- * 
- * @param endpoint_node     Endpoint node
- * @param user_id           User ID. Must exists.
- * @param credential_type   Credential type
- * 
- * @return attribute_store_node_t Credential type node (with desired value if it doesn't exists, or the existant one)
- * @return ATTRIBUTE_STORE_INVALID_NODE If an error occurred 
- **/
-attribute_store_node_t
-  add_credential_type_node_if_missing(attribute_store_node_t endpoint_node,
-                                      user_credential_user_unique_id_t user_id,
-                                      user_credential_type_t credential_type)
-{
-  attribute_store_node_t credential_type_node = ATTRIBUTE_STORE_INVALID_NODE;
-
-  attribute_store_node_t user_id_node
-    = get_reported_user_id_node(endpoint_node, user_id);
-
-  if (!attribute_store_node_exists(user_id_node)) {
-    sl_log_error(LOG_TAG, "User ID %d doesn't exists", user_id);
-    return credential_type_node;
-  }
-
-  // First check Credential Type existence
-  get_credential_type_node(endpoint_node,
-                           user_id,
-                           credential_type,
-                           REPORTED_ATTRIBUTE,
-                           credential_type_node);
-  if (!attribute_store_node_exists(credential_type_node)) {
-    // Create Credential Type if it doesn't exists
-    credential_type_node
-      = attribute_store_emplace_desired(user_id_node,
-                                        ATTRIBUTE(CREDENTIAL_TYPE),
-                                        &credential_type,
-                                        sizeof(credential_type));
-  }
-
-  return credential_type_node;
+  }, credential_type);
+  
+  return credential_available;
 }
 
 /**
@@ -1872,7 +1647,7 @@ sl_status_t zwave_command_class_user_credential_uuic_association_report(
 }
 
   /////////////////////////////////////////////////////////////////////////////
-  // User Set/Get/Report/Set Error Report
+  // User Set/Get/Report
   /////////////////////////////////////////////////////////////////////////////
 
   static sl_status_t zwave_command_class_user_credential_user_set(
@@ -2598,17 +2373,14 @@ sl_status_t zwave_command_class_user_credential_uuic_association_report(
       return SL_STATUS_FAIL;
     }
 
-    // Check if the user already exists
-    attribute_store_node_t user_id_node
-      = get_reported_user_id_node(endpoint_node, user_id);
-
     // Node already exists, can't create user.
-    if (attribute_store_node_exists(user_id_node)) {
+    if (user_exists(endpoint_node, user_id)) {
       sl_log_error(LOG_TAG,
                    "User with ID %d already exists. Not adding user.",
                    user_id);
       return SL_STATUS_FAIL;
     }
+
     // Debug info
     sl_log_debug(
       LOG_TAG,
@@ -2633,7 +2405,7 @@ sl_status_t zwave_command_class_user_credential_uuic_association_report(
     }
 
     // Create the user node
-    user_id_node = attribute_store_emplace_desired(endpoint_node,
+    auto user_id_node = attribute_store_emplace_desired(endpoint_node,
                                                    ATTRIBUTE(USER_UNIQUE_ID),
                                                    &user_id,
                                                    sizeof(user_id));
@@ -2688,17 +2460,15 @@ sl_status_t zwave_command_class_user_credential_uuic_association_report(
     attribute_store_node_t endpoint_node,
     user_credential_user_unique_id_t user_id)
   {
-    // Check if the user exists
-    attribute_store_node_t user_id_node
-      = get_reported_user_id_node(endpoint_node, user_id);
-
-    // Node doesn't exists, can't delete user.
-    if (!attribute_store_node_exists(user_id_node)) {
+    if (!user_exists(endpoint_node, user_id)) {
       sl_log_error(LOG_TAG,
-                   "Can't find user with ID %d. Not deleting user.",
+                   "User with ID %d doesn't exists. Not deleting user.",
                    user_id);
       return SL_STATUS_FAIL;
     }
+
+    attribute_store_node_t user_id_node
+      = get_user_unique_id_node(endpoint_node, user_id, REPORTED_ATTRIBUTE);
 
     // Finally set operation type delete
     set_user_operation_type(user_id_node,
@@ -2725,17 +2495,16 @@ sl_status_t zwave_command_class_user_credential_uuic_association_report(
       return SL_STATUS_FAIL;
     }
 
-    // Check if the user already exists
-    attribute_store_node_t user_id_node
-      = get_reported_user_id_node(endpoint_node, user_id);
-
-    // Node already exists, can't create user.
-    if (!attribute_store_node_exists(user_id_node)) {
+    if (!user_exists(endpoint_node, user_id)) {
       sl_log_error(LOG_TAG,
                    "User with ID %d doesn't exists. Can't modify user.",
                    user_id);
       return SL_STATUS_FAIL;
     }
+
+    // Check if the user already exists
+    attribute_store_node_t user_id_node
+      = get_user_unique_id_node(endpoint_node, user_id, REPORTED_ATTRIBUTE);
 
     // Debug info
     sl_log_debug(
