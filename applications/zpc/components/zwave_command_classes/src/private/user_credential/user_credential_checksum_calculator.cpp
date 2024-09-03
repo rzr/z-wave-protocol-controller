@@ -10,13 +10,14 @@
  * sections of the MSLA applicable to Source Code.
  *
  *****************************************************************************/
-
+// Base class
 #include "user_credential_checksum_calculator.h"
 
+// CRC 16
 #include "zwave_controller_crc16.h"
 
-// Log
-#include "sl_log.h"
+// Common definitions
+#include "user_credential_definitions.hpp"
 
 namespace user_credential
 {
@@ -24,8 +25,6 @@ namespace user_credential
 // Used to compute checksums
 constexpr uint16_t CRC_INITIALIZATION_VALUE = 0x1D0F;
 constexpr uint8_t MAX_CHAR_SIZE             = 64;
-
-constexpr char LOG_TAG[] = "zwave_command_class_user_credential";
 
 std::vector<uint8_t>
   get_raw_data_from_node(const attribute_store::attribute &node)
