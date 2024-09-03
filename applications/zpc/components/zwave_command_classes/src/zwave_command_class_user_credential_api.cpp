@@ -13,77 +13,45 @@
 
 #include "zwave_command_class_user_credential_api.h"
 
+// Private definitions
 #include "private/user_credential/user_credential_helpers.hpp"
 #include "private/user_credential/user_credential_user_capabilities.h"
 #include "private/user_credential/user_credential_credential_capabilities.h"
 
+// Cpp includes
 #include <map>
+#include <string>
 
 using namespace user_credential_helpers;
 
-
-/////////////////////////////////////////////////////////////////////////////
-// Attributes helpers
-/////////////////////////////////////////////////////////////////////////////
-
 /**
- * @brief Updates the desired values of attributes in the attribute store.
- *
- * This function takes a map of attribute values and their corresponding sizes, and updates the desired values
- * of the attributes in the attribute store. 
- * The attribute store is updated for the specified parent node.
- *
- * @param attribute_map_values A map containing the attribute values and their sizes.
- * @param parent_node The parent node of values that will be updated
+ * @brief Setup user attributes (desired values)
  * 
- * @return SL_STATUS_OK if the desired values were updated successfully, an otherwise an error code.
+ * This function sets the desired values of the user attributes in the attribute store.
+ * If attributes are not present, they are created.
  */
-sl_status_t update_desired_values(
-  attribute_store_node_t parent_node,
-  std::map<attribute_store_type_t, std::pair<const void *, uint8_t>>
-    attribute_map_values)
+void setup_user(attribute_store::attribute user_id_node,
+                user_credential_type_t user_type,
+                user_credential_rule_t credential_rule,
+                user_credential_user_active_state_t user_active_state,
+                user_credential_expiring_timeout_minutes_t expiring_timeout,
+                user_credential_user_name_encoding_t user_name_encoding,
+                std::string user_name)
 {
-  sl_status_t status = SL_STATUS_OK;
-  for (auto &attr: attribute_map_values) {
-    auto value      = attr.second.first;
-    auto value_size = attr.second.second;
-
-    if (attribute_store_get_storage_type(attr.first) == C_STRING_STORAGE_TYPE) {
-      auto str_attribute_node
-        = attribute_store_get_node_child_by_type(parent_node, attr.first, 0);
-      auto value_str = static_cast<const char *>(value);
-      sl_log_debug(LOG_TAG,
-                   "Update desired value of %s to %s",
-                   attribute_store_get_type_name(attr.first),
-                   value_str);
-      status
-        |= attribute_store_set_desired_string(str_attribute_node, value_str);
-    } else {
-      sl_log_debug(LOG_TAG,
-                   "Update desired value of %s",
-                   attribute_store_get_type_name(attr.first));
-      status |= attribute_store_set_child_desired(parent_node,
-                                                  attr.first,
-                                                  value,
-                                                  value_size);
-    }
-
-    if (status != SL_STATUS_OK) {
-      sl_log_error(LOG_TAG,
-                   "Error while setting desired value of %s",
-                   attribute_store_get_type_name(attr.first));
-    }
-  }
-
-  return status;
+  user_id_node.emplace_node(ATTRIBUTE(USER_TYPE)).set_desired(user_type);
+  user_id_node.emplace_node(ATTRIBUTE(CREDENTIAL_RULE))
+    .set_desired(credential_rule);
+  user_id_node.emplace_node(ATTRIBUTE(USER_ACTIVE_STATE))
+    .set_desired(user_active_state);
+  user_id_node.emplace_node(ATTRIBUTE(USER_EXPIRING_TIMEOUT_MINUTES))
+    .set_desired(expiring_timeout);
+  user_id_node.emplace_node(ATTRIBUTE(USER_NAME_ENCODING))
+    .set_desired(user_name_encoding);
+  user_id_node.emplace_node(ATTRIBUTE(USER_NAME)).set_desired(user_name);
 }
 
-/////////////////////////////////////////////////////////////////////////////
-// Exposed class functions
-/////////////////////////////////////////////////////////////////////////////
-
 sl_status_t zwave_command_class_user_credential_add_new_user(
-  attribute_store_node_t endpoint_node,
+  attribute_store_node_t node,
   user_credential_user_unique_id_t user_id,
   user_credential_type_t user_type,
   user_credential_rule_t credential_rule,
@@ -92,6 +60,21 @@ sl_status_t zwave_command_class_user_credential_add_new_user(
   user_credential_user_name_encoding_t user_name_encoding,
   const char *user_name)
 {
+    // Debug info
+  sl_log_debug(
+    LOG_TAG,
+    "zwave_command_class_user_credential_add_new_user called with : ");
+  sl_log_debug(LOG_TAG, "\tuser_id : %d", user_id);
+  sl_log_debug(LOG_TAG, "\tuser_type : %d", user_type);
+  sl_log_debug(LOG_TAG, "\tcredential_rule : %d", credential_rule);
+  sl_log_debug(LOG_TAG, "\tuser_active_state : %d", user_active_state);
+  sl_log_debug(LOG_TAG, "\texpiring_timeout : %d", expiring_timeout);
+  sl_log_debug(LOG_TAG, "\tuser_name_encoding : %d", user_name_encoding);
+  sl_log_debug(LOG_TAG, "\tuser_name : %s", user_name);
+
+
+  auto endpoint_node = attribute_store::attribute(node);
+
   // Check user id
   if (user_id == 0) {
     sl_log_error(LOG_TAG, "User ID 0 is reserved. Not adding user.");
@@ -106,77 +89,48 @@ sl_status_t zwave_command_class_user_credential_add_new_user(
     return SL_STATUS_FAIL;
   }
 
-  // Debug info
-  sl_log_debug(
-    LOG_TAG,
-    "zwave_command_class_user_credential_add_new_user called with : ");
-  sl_log_debug(LOG_TAG, "\tuser_id : %d", user_id);
-  sl_log_debug(LOG_TAG, "\tuser_type : %d", user_type);
-  sl_log_debug(LOG_TAG, "\tcredential_rule : %d", credential_rule);
-  sl_log_debug(LOG_TAG, "\tuser_active_state : %d", user_active_state);
-  sl_log_debug(LOG_TAG, "\texpiring_timeout : %d", expiring_timeout);
-  sl_log_debug(LOG_TAG, "\tuser_name_encoding : %d", user_name_encoding);
-  sl_log_debug(LOG_TAG, "\tuser_name : %s", user_name);
+  try {
+    // Check capabilites
+    auto capabilites = user_credential::user_capabilities(endpoint_node);
+    if (!capabilites.is_user_valid(user_id,
+                                   user_type,
+                                   credential_rule,
+                                   user_name)) {
+      sl_log_error(LOG_TAG,
+                   "User capabilities are not valid. Not adding user.");
+      return SL_STATUS_FAIL;
+    }
 
-  // Check capabilites
-  auto capabilites = user_credential::user_capabilities(endpoint_node);
-  if (!capabilites.is_user_valid(user_id,
-                                 user_type,
-                                 credential_rule,
-                                 user_name)) {
-    sl_log_error(LOG_TAG, "User capabilities are not valid. Not adding user.");
+    if (user_type != USER_CREDENTIAL_USER_TYPE_EXPIRING_USER) {
+      if (expiring_timeout != 0) {
+        sl_log_warning(
+          LOG_TAG,
+          "Expiring timeout set for non-expiring user, set value to 0.");
+      }
+      expiring_timeout = 0;
+    }
+
+    // Create the user node
+    auto user_id_node = endpoint_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID),
+                                                   user_id,
+                                                   DESIRED_ATTRIBUTE);
+    // Create user attributes
+    setup_user(user_id_node,
+               user_type,
+               credential_rule,
+               user_active_state,
+               expiring_timeout,
+               user_name_encoding,
+               user_name);
+
+    // Finally set operation type add
+    set_user_operation_type(user_id_node, USER_CREDENTIAL_OPERATION_TYPE_ADD);
+
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG, "Error while adding user : %s", e.what());
     return SL_STATUS_FAIL;
   }
-
-  // Create the user node
-  auto user_id_node = attribute_store_emplace_desired(endpoint_node,
-                                                      ATTRIBUTE(USER_UNIQUE_ID),
-                                                      &user_id,
-                                                      sizeof(user_id));
-
-  attribute_store_emplace_desired(user_id_node,
-                                  ATTRIBUTE(USER_TYPE),
-                                  &user_type,
-                                  sizeof(user_type));
-
-  attribute_store_emplace_desired(user_id_node,
-                                  ATTRIBUTE(CREDENTIAL_RULE),
-                                  &credential_rule,
-                                  sizeof(credential_rule));
-
-  attribute_store_emplace_desired(user_id_node,
-                                  ATTRIBUTE(USER_ACTIVE_STATE),
-                                  &user_active_state,
-                                  sizeof(user_active_state));
-
-  if (user_type != USER_CREDENTIAL_USER_TYPE_EXPIRING_USER) {
-    if (expiring_timeout != 0) {
-      sl_log_warning(
-        LOG_TAG,
-        "Expiring timeout set for non-expiring user, set value to 0.");
-    }
-    expiring_timeout = 0;
-  }
-
-  attribute_store_emplace_desired(user_id_node,
-                                  ATTRIBUTE(USER_EXPIRING_TIMEOUT_MINUTES),
-                                  &expiring_timeout,
-                                  sizeof(expiring_timeout));
-
-  attribute_store_emplace_desired(user_id_node,
-                                  ATTRIBUTE(USER_NAME_ENCODING),
-                                  &user_name_encoding,
-                                  sizeof(user_name_encoding));
-  // User name node
-  auto user_name_node
-    = attribute_store_add_node(ATTRIBUTE(USER_NAME), user_id_node);
-  attribute_store_set_desired_string(user_name_node, user_name);
-
-  // Finally set operation type add
-  set_user_operation_type(user_id_node, USER_CREDENTIAL_OPERATION_TYPE_ADD);
-
   sl_log_debug(LOG_TAG, "Add user with ID %d", user_id);
-
   return SL_STATUS_OK;
 }
 
@@ -184,19 +138,30 @@ sl_status_t zwave_command_class_user_credential_delete_user(
   attribute_store_node_t endpoint_node,
   user_credential_user_unique_id_t user_id)
 {
-  if (!user_exists(endpoint_node, user_id)) {
-    sl_log_error(LOG_TAG,
-                 "User with ID %d doesn't exists. Not deleting user.",
-                 user_id);
+  // Debug info
+  sl_log_debug(
+    LOG_TAG,
+    "zwave_command_class_user_credential_delete_user called with : ");
+  sl_log_debug(LOG_TAG, "\tuser_id : %d", user_id);
+
+  try {
+    if (!user_exists(endpoint_node, user_id)) {
+      sl_log_error(LOG_TAG,
+                   "User with ID %d doesn't exists. Not deleting user.",
+                   user_id);
+      return SL_STATUS_FAIL;
+    }
+
+    attribute_store_node_t user_id_node
+      = get_user_unique_id_node(endpoint_node, user_id, REPORTED_ATTRIBUTE);
+
+    // Finally set operation type delete
+    set_user_operation_type(user_id_node,
+                            USER_CREDENTIAL_OPERATION_TYPE_DELETE);
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG, "Error while deleting user : %s", e.what());
     return SL_STATUS_FAIL;
   }
-
-  attribute_store_node_t user_id_node
-    = get_user_unique_id_node(endpoint_node, user_id, REPORTED_ATTRIBUTE);
-
-  // Finally set operation type delete
-  set_user_operation_type(user_id_node, USER_CREDENTIAL_OPERATION_TYPE_DELETE);
-
   sl_log_debug(LOG_TAG, "Remove user with ID %d", user_id);
 
   return SL_STATUS_OK;
@@ -212,23 +177,6 @@ sl_status_t zwave_command_class_user_credential_modify_user(
   user_credential_user_name_encoding_t user_name_encoding,
   const char *user_name)
 {
-  // Check user id
-  if (user_id == 0) {
-    sl_log_error(LOG_TAG, "User ID 0 is reserved. Can't modify user.");
-    return SL_STATUS_FAIL;
-  }
-
-  if (!user_exists(endpoint_node, user_id)) {
-    sl_log_error(LOG_TAG,
-                 "User with ID %d doesn't exists. Can't modify user.",
-                 user_id);
-    return SL_STATUS_FAIL;
-  }
-
-  // Check if the user already exists
-  attribute_store_node_t user_id_node
-    = get_user_unique_id_node(endpoint_node, user_id, REPORTED_ATTRIBUTE);
-
   // Debug info
   sl_log_debug(
     LOG_TAG,
@@ -241,44 +189,56 @@ sl_status_t zwave_command_class_user_credential_modify_user(
   sl_log_debug(LOG_TAG, "\tuser_name_encoding : %d", user_name_encoding);
   sl_log_debug(LOG_TAG, "\tuser_name : %s", user_name);
 
-  // Check capabilites
-  auto capabilites = user_credential::user_capabilities(endpoint_node);
-  if (!capabilites.is_user_valid(user_id,
-                                 user_type,
-                                 credential_rule,
-                                 user_name)) {
-    sl_log_error(LOG_TAG, "User capabilities are not valid. Not adding user.");
-    return SL_STATUS_FAIL;
-  }
+  try {
+    // Check user id
+    if (user_id == 0) {
+      sl_log_error(LOG_TAG, "User ID 0 is reserved. Can't modify user.");
+      return SL_STATUS_FAIL;
+    }
 
-  std::map<attribute_store_type_t, std::pair<const void *, uint8_t>> values = {
-    {ATTRIBUTE(USER_TYPE), {&user_type, sizeof(user_type)}},
-    {ATTRIBUTE(CREDENTIAL_RULE), {&credential_rule, sizeof(credential_rule)}},
-    {ATTRIBUTE(USER_ACTIVE_STATE),
-     {&user_active_state, sizeof(user_active_state)}},
-    {ATTRIBUTE(USER_NAME_ENCODING),
-     {&user_name_encoding, sizeof(user_name_encoding)}},
-    {ATTRIBUTE(USER_NAME), {user_name, sizeof(user_name)}},
-  };
+    if (!user_exists(endpoint_node, user_id)) {
+      sl_log_error(LOG_TAG,
+                   "User with ID %d doesn't exists. Can't modify user.",
+                   user_id);
+      return SL_STATUS_FAIL;
+    }
 
-  // Only add expiring timeout if user is expiring
-  if (user_type == USER_CREDENTIAL_USER_TYPE_EXPIRING_USER) {
-    values.insert({ATTRIBUTE(USER_EXPIRING_TIMEOUT_MINUTES),
-                   {&expiring_timeout, sizeof(expiring_timeout)}});
-  }
+    // Check if the user already exists
+    attribute_store_node_t user_id_node
+      = get_user_unique_id_node(endpoint_node, user_id, REPORTED_ATTRIBUTE);
 
-  // Update values based on the map
-  sl_status_t status = update_desired_values(user_id_node, values);
-  // If everything went well set operation type to modify
-  if (status == SL_STATUS_OK) {
+    // Check capabilites
+    auto capabilites = user_credential::user_capabilities(endpoint_node);
+    if (!capabilites.is_user_valid(user_id,
+                                   user_type,
+                                   credential_rule,
+                                   user_name)) {
+      sl_log_error(LOG_TAG,
+                   "User capabilities are not valid. Not adding user.");
+      return SL_STATUS_FAIL;
+    }
+
+    // Modify user attributes
+    setup_user(user_id_node,
+               user_type,
+               credential_rule,
+               user_active_state,
+               expiring_timeout,
+               user_name_encoding,
+               user_name);
+
     set_user_operation_type(user_id_node,
                             USER_CREDENTIAL_OPERATION_TYPE_MODIFY);
     sl_log_debug(LOG_TAG, "Modify user with ID %d", user_id);
-  } else {
-    sl_log_error(LOG_TAG, "Can't modify user with ID %d", user_id);
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while modifying user %d : %s",
+                 user_id,
+                 e.what());
+    return SL_STATUS_FAIL;
   }
 
-  return status;
+  return SL_STATUS_OK;
 }
 
 sl_status_t zwave_command_class_user_credential_add_new_credential(
@@ -297,38 +257,39 @@ sl_status_t zwave_command_class_user_credential_add_new_credential(
   sl_log_debug(LOG_TAG, "\tcredential_slot : %d", credential_slot);
   sl_log_debug(LOG_TAG, "\tcredential_data : %s", credential_data);
 
-  // Check if parameters are ok
-  if (credential_type == 0 || credential_slot == 0) {
-    sl_log_error(
-      LOG_TAG,
-      "Credential Type and Slot 0 are reserved. Not adding credentials.");
-    return SL_STATUS_FAIL;
-  }
-
-  auto capabilities
-    = user_credential::credential_capabilities(endpoint_node, credential_type);
-
-  if (!capabilities.is_slot_valid(credential_slot)) {
-    sl_log_error(LOG_TAG,
-                 "Credential slot %d for Credential Type %d is not valid. "
-                 "Not adding credentials.",
-                 credential_slot,
-                 credential_type);
-    return SL_STATUS_FAIL;
-  }
-
-  if (!is_credential_available(endpoint_node,
-                               credential_type,
-                               credential_slot)) {
-    sl_log_error(LOG_TAG,
-                 "Credential slot %d for Credential Type %d already exists."
-                 "Not adding credentials.",
-                 credential_slot,
-                 credential_type);
-    return SL_STATUS_FAIL;
-  }
-
   try {
+    // Check if parameters are ok
+    if (credential_type == 0 || credential_slot == 0) {
+      sl_log_error(
+        LOG_TAG,
+        "Credential Type and Slot 0 are reserved. Not adding credentials.");
+      return SL_STATUS_FAIL;
+    }
+
+    auto capabilities
+      = user_credential::credential_capabilities(endpoint_node,
+                                                 credential_type);
+
+    if (!capabilities.is_slot_valid(credential_slot)) {
+      sl_log_error(LOG_TAG,
+                   "Credential slot %d for Credential Type %d is not valid. "
+                   "Not adding credentials.",
+                   credential_slot,
+                   credential_type);
+      return SL_STATUS_FAIL;
+    }
+
+    if (!is_credential_available(endpoint_node,
+                                 credential_type,
+                                 credential_slot)) {
+      sl_log_error(LOG_TAG,
+                   "Credential slot %d for Credential Type %d already exists."
+                   "Not adding credentials.",
+                   credential_slot,
+                   credential_type);
+      return SL_STATUS_FAIL;
+    }
+
     auto user_id_node
       = get_user_unique_id_node(endpoint_node, user_id, REPORTED_ATTRIBUTE);
     // Get or create credential type node

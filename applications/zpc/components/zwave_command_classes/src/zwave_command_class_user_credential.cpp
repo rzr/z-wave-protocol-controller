@@ -192,7 +192,6 @@ static sl_status_t
   return frame_generator.generate_no_args_frame(CREDENTIAL_CAPABILITIES_GET,
                                                 frame,
                                                 frame_length);
-  ;
 }
 
 sl_status_t
