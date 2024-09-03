@@ -16,15 +16,13 @@
 // Get attribute store names
 #include "attribute_store_defined_attribute_types.h"
 
-// Log
-#include "sl_log.h"
+// Common definitions
+#include "user_credential_definitions.hpp"
 
-#define ATTRIBUTE(type) ATTRIBUTE_COMMAND_CLASS_USER_CREDENTIAL_##type
 
 namespace user_credential
 {
 
-constexpr char LOG_TAG[] = "zwave_command_class_user_credential";
 
 user_capabilities::user_capabilities(attribute_store::attribute endpoint_node) {
   try {

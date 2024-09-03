@@ -16,9 +16,6 @@
 // Get attribute store names
 #include "attribute_store_defined_attribute_types.h"
 
-// Log
-#include "sl_log.h"
-
 // UTF16 conversion (deprecated in C++17 but we don't have a better alternative yet)
 // Needed for credential data (password) per specification
 #include <locale>
@@ -27,12 +24,11 @@
 // Boost
 #include <boost/format.hpp>
 
-#define ATTRIBUTE(type) ATTRIBUTE_COMMAND_CLASS_USER_CREDENTIAL_##type
+// Common definitions
+#include "user_credential_definitions.hpp"
 
 namespace user_credential
 {
-
-constexpr char LOG_TAG[] = "zwave_command_class_user_credential";
 
 credential_capabilities::credential_capabilities(
   const attribute_store::attribute &endpoint_node,
