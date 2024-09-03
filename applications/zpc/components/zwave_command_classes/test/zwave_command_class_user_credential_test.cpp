@@ -259,7 +259,8 @@ void helper_simulate_association_report_frame(
   user_credential_slot_t source_credential_slot,
   user_credential_user_unique_id_t destination_user_id,
   user_credential_slot_t destination_credential_slot,
-  uint8_t credential_association_status)
+  uint8_t credential_association_status,
+  sl_status_t expected_status = SL_STATUS_OK)
 {
   zwave_frame report_frame;
 
@@ -270,7 +271,9 @@ void helper_simulate_association_report_frame(
   report_frame.add(destination_credential_slot);
   report_frame.add(credential_association_status);
 
-  helper_test_report_frame(USER_CREDENTIAL_ASSOCIATION_REPORT, report_frame);
+  helper_test_report_frame(USER_CREDENTIAL_ASSOCIATION_REPORT,
+                           report_frame,
+                           expected_status);
 }
 
 void helper_test_credential_learn_structure(
@@ -3264,12 +3267,10 @@ void test_user_credential_uuic_association_same_slot_different_user()
                                            destination_credential_slot,
                                            association_status);
 
+
   // Test data structure
   TEST_ASSERT_TRUE_MESSAGE(source_nodes.credential_type_node.is_valid(),
                            "Old credential type node should still exist");
-  TEST_ASSERT_FALSE_MESSAGE(
-    source_nodes.credential_slot_node.is_valid(),
-    "Old credential slot node should have been removed");
   // Association nodes doesn't have any reported value so they shouldn't exists anymore
   TEST_ASSERT_FALSE_MESSAGE(
     association_nodes.association_user_id_node.is_valid(),
@@ -3288,11 +3289,17 @@ void test_user_credential_uuic_association_same_slot_different_user()
     = helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_TYPE),
                                   credential_type,
                                   destination_user_id_node);
+  TEST_ASSERT_EQUAL_MESSAGE(
+    source_nodes.credential_slot_node.parent(),
+    destination_credential_type_node,
+    "Old credential slot node should have new parent");
 
   auto destination_credential_slot_node
     = helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_SLOT),
                                   destination_credential_slot,
                                   destination_credential_type_node);
+
+
 
   helper_test_credential_data(destination_credential_slot_node,
                               credential_data,
@@ -3379,9 +3386,6 @@ void test_user_credential_uuic_association_different_slot_different_user_with_ex
   // Test data structure
   TEST_ASSERT_TRUE_MESSAGE(source_nodes.credential_type_node.is_valid(),
                            "Old credential type node should still exist");
-  TEST_ASSERT_FALSE_MESSAGE(
-    source_nodes.credential_slot_node.is_valid(),
-    "Old credential slot node should have been removed");
   // Association nodes doesn't have any reported value so they shouldn't exists anymore
   TEST_ASSERT_FALSE_MESSAGE(
     association_nodes.association_user_id_node.is_valid(),
@@ -3400,6 +3404,11 @@ void test_user_credential_uuic_association_different_slot_different_user_with_ex
     = helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_TYPE),
                                   credential_type,
                                   destination_user_id_node);
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    source_nodes.credential_slot_node.parent(),
+    destination_credential_type_node,
+    "Old credential slot node should have new parent");
 
   auto destination_credential_slot_node
     = helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_SLOT),
@@ -3597,7 +3606,7 @@ void test_user_credential_uuic_association_error_code()
     "Old credential type node should still exist");
   TEST_ASSERT_TRUE_MESSAGE(
     attribute_store_node_exists(source_nodes.credential_slot_node),
-    "Old credential slot node should have been removed");
+    "Old credential slot node should still exists");
   // Association nodes doesn't have any reported value so they shouldn't exists anymore
   TEST_ASSERT_FALSE_MESSAGE(
     attribute_store_node_exists(association_nodes.association_user_id_node),
