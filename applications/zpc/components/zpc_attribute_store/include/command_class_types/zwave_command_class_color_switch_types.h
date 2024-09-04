@@ -89,5 +89,17 @@ typedef uint8_t color_component_id_t;
 typedef uint32_t color_component_id_value_t;
 typedef uint32_t color_component_id_duration_t;
 
+///> Color Component ID
+typedef enum {
+  WARM_WHITE = 0,
+  COLD_WHITE = 1,
+  RED = 2,
+  GREEN = 3,
+  BLUE = 4,
+  AMBER = 5,
+  CYAN = 6,
+  PURPLE = 7
+} color_component_id_enum;
+
 #endif  //ZWAVE_COMMAND_CLASS_COLOR_SWITCH_TYPES_H
 /** @} end zwave_command_class_color_switch_types */

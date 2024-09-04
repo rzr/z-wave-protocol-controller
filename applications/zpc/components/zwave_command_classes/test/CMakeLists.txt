@@ -451,17 +451,18 @@ target_add_unittest(
   NAME
   zwave_command_class_switch_color_test
   SOURCES
-  zwave_command_class_switch_color_test.c
+  zwave_command_class_switch_color_test.cpp
   DEPENDS
+  zwave_command_class_test_helpers
   zpc_attribute_store_test_helper
-  uic_attribute_utils_mock
   zwave_command_handler_mock
   zwave_controller_mock
   uic_attribute_resolver_mock
   zpc_attribute_resolver_mock
   zpc_config_mock
   zwave_tx_scheme_selector_mock
-  zwave_tx_mock)
+  zwave_tx_mock
+  uic_dotdot_mqtt_mock)
 
 # Z-Wave Binary Switch Command Class test
 target_add_unittest(
