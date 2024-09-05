@@ -1349,17 +1349,6 @@ void test_user_credential_credential_report_happy_case()
                                           next_credential_slot);
 
   // Test values
-  TEST_ASSERT_FALSE_MESSAGE(first_credential_type_node.is_valid(),
-                            "Credential type node 0 should have been deleted");
-  TEST_ASSERT_FALSE_MESSAGE(first_credential_slot_node.is_valid(),
-                            "Credential slot node 0 should have been deleted");
-
-  first_credential_type_node
-    = helper_test_and_get_node(ATTRIBUTE(CREDENTIAL_TYPE), user_id_node);
-  first_credential_slot_node
-    = helper_test_and_get_node(ATTRIBUTE(CREDENTIAL_SLOT),
-                               first_credential_type_node);
-
   test_credential_values(first_credential_type_node,
                          first_credential_slot_node);
   // We should have 1 credential type and 2 credential slot

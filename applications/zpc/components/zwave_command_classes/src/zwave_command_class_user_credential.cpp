@@ -475,13 +475,6 @@ static sl_status_t zwave_command_class_user_credential_credential_get(
     frame_generator.add_value(cred_nodes.type_node, REPORTED_ATTRIBUTE);
     frame_generator.add_value(cred_nodes.slot_node, DESIRED_ATTRIBUTE);
     frame_generator.validate_frame(frame_length);
-
-    // Delete special nodes (start interview of credentials)
-    if (cred_nodes.type_node.reported<user_credential_type_t>() == 0
-        && cred_nodes.slot_node.desired<user_credential_slot_t>() == 0) {
-      cred_nodes.type_node.delete_node();
-      cred_nodes.slot_node.delete_node();
-    }
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
                  "Error while generating Credential Get frame : %s",
@@ -675,14 +668,43 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
         return SL_STATUS_OK;
       // Update desired value if found, otherwise create the nodes
       case credential_report_type_t::RESPONSE_TO_GET:
+        // First check if this is the first credential interview
         credential_type_node
-          = create_or_update_desired_value(user_id_node,
-                                           ATTRIBUTE(CREDENTIAL_TYPE),
-                                           credential_type);
-        credential_slot_node
-          = create_or_update_desired_value(credential_type_node,
-                                           ATTRIBUTE(CREDENTIAL_SLOT),
-                                           credential_slot);
+          = user_id_node.child_by_type_and_value(ATTRIBUTE(CREDENTIAL_TYPE),
+                                                 0,
+                                                 REPORTED_ATTRIBUTE);
+        credential_slot_node = credential_type_node.child_by_type_and_value(
+          ATTRIBUTE(CREDENTIAL_SLOT),
+          0,
+          DESIRED_ATTRIBUTE);
+        // Update the values of the first nodes if present
+        if (credential_type_node.is_valid()
+            && credential_slot_node.is_valid()) {
+          // If no credential are reported, we can delete the nodes
+          if (credential_type == 0 && credential_slot == 0) {
+            sl_log_debug(LOG_TAG, "No credential to get for user %d", user_id);
+            credential_type_node.delete_node();
+            credential_slot_node.delete_node();
+            return SL_STATUS_OK;
+          } else {
+            sl_log_debug(LOG_TAG,
+                         "First credential : Updating credential type and slot for user %d",
+                         user_id);
+            credential_type_node.set_reported(credential_type);
+            credential_slot_node.clear_desired();
+            credential_slot_node.set_reported(credential_slot);
+          }
+        } else {
+          // Otherwise create or get the nodes
+          credential_type_node
+            = create_or_update_desired_value(user_id_node,
+                                             ATTRIBUTE(CREDENTIAL_TYPE),
+                                             credential_type);
+          credential_slot_node
+            = create_or_update_desired_value(credential_type_node,
+                                             ATTRIBUTE(CREDENTIAL_SLOT),
+                                             credential_slot);
+        }
         break;
       case credential_report_type_t::CREDENTIAL_ADD_REJECTED_LOCATION_OCCUPIED:
         sl_log_error(LOG_TAG,
@@ -809,6 +831,8 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
       trigger_get_credential(user_id_node,
                              next_credential_type,
                              next_credential_slot);
+    } else {
+      sl_log_debug(LOG_TAG, "No more credential to get.");
     }
 
   } catch (const std::exception &e) {
