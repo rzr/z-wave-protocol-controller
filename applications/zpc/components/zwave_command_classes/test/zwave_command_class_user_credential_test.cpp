@@ -1739,21 +1739,37 @@ void test_user_credential_user_add_modify_delete_happy_case()
 
   TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
                             status,
-                            "User add should have returned SL_STATUS_OK");
+                            "zwave_command_class_user_credential_add_new_user "
+                            "should have returned SL_STATUS_OK");
   // Get user node
-  auto user_node
-    = attribute_store_get_first_child_by_type(endpoint_id_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID));
+  auto user_node = helper_test_and_get_node(ATTRIBUTE(USER_UNIQUE_ID));
+  auto operation_type_node
+    = helper_test_and_get_node(ATTRIBUTE(USER_OPERATION_TYPE), user_node);
+  TEST_ASSERT_EQUAL_MESSAGE(
+    USER_SET_OPERATION_TYPE_ADD,
+    operation_type_node.desired<user_credential_operation_type_t>(),
+    "Operation type mismatch for user add");
 
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(user_node),
-                           "An user node should exist");
+  zwave_frame set_frame;
+  set_frame.add(
+    static_cast<user_credential_operation_type_t>(USER_SET_OPERATION_TYPE_ADD));
+  set_frame.add(user_id);
+  set_frame.add(user_type);
+  set_frame.add(user_active_state);
+  set_frame.add(credential_rule);
+  set_frame.add(expiring_timeout);
+  set_frame.add(user_name_encoding);
+  set_frame.add(user_name);
+  helper_test_get_set_frame_happy_case(USER_SET,
+                                       operation_type_node,
+                                       set_frame);
 
   // Create notification report frame
   user_credential_modifier_type_t user_modifier_type       = 2;
   user_credential_modifier_node_id_t user_modifier_node_id = 1212;
 
-  helper_simulate_user_report_frame(0x00,  // user added
-                                    0,     // Next user id
+  helper_simulate_user_report_frame(USER_SET_OPERATION_TYPE_ADD,
+                                    0,  // Next user id
                                     user_modifier_type,
                                     user_modifier_node_id,
                                     user_id,
@@ -1795,8 +1811,41 @@ void test_user_credential_user_add_modify_delete_happy_case()
   user_name_encoding = 2;
   user_name          = "JACKIE CAMION TURBO PLUS";
 
-  helper_simulate_user_report_frame(0x01,  // modify user
-                                    0,     // Next user id
+  status = zwave_command_class_user_credential_modify_user(endpoint_id_node,
+                                                           user_id,
+                                                           user_type,
+                                                           credential_rule,
+                                                           user_active_state,
+                                                           expiring_timeout,
+                                                           user_name_encoding,
+                                                           user_name.c_str());
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
+                            status,
+                            "zwave_command_class_user_credential_modify_user "
+                            "should have returned SL_STATUS_OK");
+  TEST_ASSERT_EQUAL_MESSAGE(
+    USER_SET_OPERATION_TYPE_MODIFY,
+    operation_type_node.desired<user_credential_operation_type_t>(),
+    "Operation type mismatch for user modify");
+
+  // Set frame
+  set_frame.clear();
+  set_frame.add(static_cast<user_credential_operation_type_t>(
+    USER_SET_OPERATION_TYPE_MODIFY));
+  set_frame.add(user_id);
+  set_frame.add(user_type);
+  set_frame.add(user_active_state);
+  set_frame.add(credential_rule);
+  set_frame.add(expiring_timeout);
+  set_frame.add(user_name_encoding);
+  set_frame.add(user_name);
+  helper_test_get_set_frame_happy_case(USER_SET,
+                                       operation_type_node,
+                                       set_frame);
+
+  // Report back
+  helper_simulate_user_report_frame(USER_SET_OPERATION_TYPE_MODIFY,
+                                    0,  // Next user id
                                     user_modifier_type,
                                     user_modifier_node_id,
                                     user_id,
@@ -1811,8 +1860,8 @@ void test_user_credential_user_add_modify_delete_happy_case()
   user_modifier_type    = 5;
   user_modifier_node_id = 12122;
 
-  helper_simulate_user_report_frame(0x01,  //  modify user
-                                    0,     // Next user id
+  helper_simulate_user_report_frame(USER_SET_OPERATION_TYPE_MODIFY,
+                                    0,  // Next user id
                                     user_modifier_type,
                                     user_modifier_node_id,
                                     user_id,
@@ -1833,8 +1882,22 @@ void test_user_credential_user_add_modify_delete_happy_case()
                             status,
                             "User delete should have returned SL_STATUS_OK");
 
-  helper_simulate_user_report_frame(0x02,  //  modify user
-                                    0,     // Next user id
+  TEST_ASSERT_EQUAL_MESSAGE(
+    USER_SET_OPERATION_TYPE_DELETE,
+    operation_type_node.desired<user_credential_operation_type_t>(),
+    "Operation type mismatch for user delete");
+
+  // Set frame
+  set_frame.clear();
+  set_frame.add(static_cast<user_credential_operation_type_t>(
+    USER_SET_OPERATION_TYPE_DELETE));
+  set_frame.add(user_id);
+  helper_test_get_set_frame_happy_case(USER_SET,
+                                       operation_type_node,
+                                       set_frame);
+
+  helper_simulate_user_report_frame(USER_SET_OPERATION_TYPE_DELETE,
+                                    0,  // Next user id
                                     user_modifier_type,
                                     user_modifier_node_id,
                                     user_id,
@@ -2428,19 +2491,24 @@ void helper_test_credential_rejected_case(uint8_t report_type)
                                         REPORTED_ATTRIBUTE);
   auto invalid_cred_slot_node
     = valid_cred_type_node.emplace_node(ATTRIBUTE(CREDENTIAL_SLOT),
-                                        credential_slot,
+                                        invalid_credential_slot,
                                         DESIRED_ATTRIBUTE);
+  invalid_cred_slot_node.emplace_node(ATTRIBUTE(CREDENTIAL_DATA),
+                                      credential_data,
+                                      DESIRED_ATTRIBUTE);
 
-  helper_simulate_credential_report_frame(report_type,  // Duplicate credential
-                                          user_id,
-                                          credential_type,
-                                          credential_slot,
-                                          1,
-                                          string_to_uint8_vector("1212"),
-                                          0,
-                                          2,
-                                          0,
-                                          0);
+  helper_simulate_credential_report_frame(
+    report_type,
+    user_id,
+    credential_type,
+    // Duplicate credential send the original slot
+    report_type == 0x07 ? credential_slot : invalid_credential_slot,
+    1,
+    credential_data,
+    0,
+    2,
+    0,
+    0);
 
   // Here the Credential Report command should remove this not this report
   TEST_ASSERT_FALSE_MESSAGE(invalid_cred_slot_node.is_valid(),
@@ -3259,7 +3327,6 @@ void test_user_credential_uuic_association_same_slot_different_user()
                                            destination_credential_slot,
                                            association_status);
 
-
   // Test data structure
   TEST_ASSERT_TRUE_MESSAGE(source_nodes.credential_type_node.is_valid(),
                            "Old credential type node should still exist");
@@ -3281,17 +3348,14 @@ void test_user_credential_uuic_association_same_slot_different_user()
     = helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_TYPE),
                                   credential_type,
                                   destination_user_id_node);
-  TEST_ASSERT_EQUAL_MESSAGE(
-    source_nodes.credential_slot_node.parent(),
-    destination_credential_type_node,
-    "Old credential slot node should have new parent");
+  TEST_ASSERT_EQUAL_MESSAGE(source_nodes.credential_slot_node.parent(),
+                            destination_credential_type_node,
+                            "Old credential slot node should have new parent");
 
   auto destination_credential_slot_node
     = helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_SLOT),
                                   destination_credential_slot,
                                   destination_credential_type_node);
-
-
 
   helper_test_credential_data(destination_credential_slot_node,
                               credential_data,
@@ -3397,10 +3461,9 @@ void test_user_credential_uuic_association_different_slot_different_user_with_ex
                                   credential_type,
                                   destination_user_id_node);
 
-  TEST_ASSERT_EQUAL_MESSAGE(
-    source_nodes.credential_slot_node.parent(),
-    destination_credential_type_node,
-    "Old credential slot node should have new parent");
+  TEST_ASSERT_EQUAL_MESSAGE(source_nodes.credential_slot_node.parent(),
+                            destination_credential_type_node,
+                            "Old credential slot node should have new parent");
 
   auto destination_credential_slot_node
     = helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_SLOT),
