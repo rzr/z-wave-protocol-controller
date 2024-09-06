@@ -1260,7 +1260,7 @@ static sl_status_t zwave_command_class_user_credential_user_set(
     if (!is_delete_operation) {
       user_name_size = static_cast<uint8_t>(
         user_unique_id_node.child_by_type(ATTRIBUTE(USER_NAME))
-          .reported<std::string>()
+          .get<std::string>(DESIRED_OR_REPORTED_ATTRIBUTE)
           .size());
     }
 
