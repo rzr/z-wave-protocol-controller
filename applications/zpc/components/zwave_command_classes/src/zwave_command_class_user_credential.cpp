@@ -601,17 +601,41 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
 
     // Helper function to clean up pending credentials slot nodes
     auto clean_up_pending_credentials_slot_nodes = [&]() {
-      auto nodes = get_credential_identifier_nodes(
-        endpoint_node,
-        {user_id, REPORTED_ATTRIBUTE},
-        {credential_type, DESIRED_OR_REPORTED_ATTRIBUTE},
-        {credential_slot, DESIRED_ATTRIBUTE});
+      try {
+        auto nodes = get_credential_identifier_nodes(
+          endpoint_node,
+          {user_id, REPORTED_ATTRIBUTE},
+          {credential_type, DESIRED_OR_REPORTED_ATTRIBUTE},
+          {credential_slot, DESIRED_ATTRIBUTE});
 
-      nodes.slot_node.delete_node();
-      sl_log_debug(LOG_TAG, "Cleaning temporary credential slot node : %d (credential type %d, user %d)",
-                   credential_slot,
-                   credential_type,
-                   user_id);
+        nodes.slot_node.delete_node();
+        sl_log_debug(LOG_TAG,
+                     "Cleaning temporary credential slot node : %d (credential "
+                     "type %d, user %d)",
+                     credential_slot,
+                     credential_type,
+                     user_id);
+      } catch (const std::exception &e) {
+        // Try again with reported attribute
+        // That should not trigger an error, but if it does it means that something went wrong
+        auto nodes = get_credential_identifier_nodes(
+          endpoint_node,
+          {user_id, REPORTED_ATTRIBUTE},
+          {credential_type, DESIRED_OR_REPORTED_ATTRIBUTE},
+          {credential_slot, REPORTED_ATTRIBUTE});
+
+        sl_log_debug(
+          LOG_TAG,
+          "Cleaning desired values of credential slot node : %d (credential "
+          "type %d, user %d)",
+          credential_slot,
+          credential_type,
+          user_id);
+
+        for (auto child: nodes.slot_node.children()) {
+          child.clear_desired();
+        }
+      }
     };
 
     // We should have a valid user id if we receive this report

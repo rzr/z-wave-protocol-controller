@@ -2550,9 +2550,54 @@ void test_user_credential_credential_set_error_report_cred_duplicate_happy_case(
   helper_test_credential_rejected_case(0x07);
 }
 
-void test_user_credential_credential_set_error_report_cred_security_rule_happy_case()
+void test_user_credential_credential_set_error_report_cred_security_rule_add_happy_case()
 {
   helper_test_credential_rejected_case(0x08);
+}
+
+void test_user_credential_credential_set_error_report_cred_security_rule_modify_happy_case()
+{
+  user_credential_user_unique_id_t user_id = 12;
+  user_credential_type_t credential_type   = 1;
+  user_credential_slot_t credential_slot   = 1;
+  uint8_t crb                              = 1;
+  auto credential_data                     = string_to_uint8_vector("1212");
+
+  auto valid_user_node
+    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
+  auto valid_cred_type_node
+    = valid_user_node.emplace_node(ATTRIBUTE(CREDENTIAL_TYPE), credential_type);
+  auto valid_cred_slot_node
+    = valid_cred_type_node.emplace_node(ATTRIBUTE(CREDENTIAL_SLOT),
+                                        credential_slot,
+                                        REPORTED_ATTRIBUTE);
+
+  auto crb_node
+    = valid_cred_slot_node.emplace_node(ATTRIBUTE(CREDENTIAL_READ_BACK),
+                                        crb,
+                                        DESIRED_ATTRIBUTE);
+  auto credential_data_node
+    = valid_cred_slot_node.emplace_node(ATTRIBUTE(CREDENTIAL_DATA),
+                                        credential_data,
+                                        DESIRED_ATTRIBUTE);
+
+  helper_simulate_credential_report_frame(0x08,
+                                          user_id,
+                                          credential_type,
+                                          credential_slot,
+                                          crb,
+                                          credential_data,
+                                          0,
+                                          2,
+                                          0,
+                                          0);
+
+  // Check if the rejected report has cleared all desired values
+  TEST_ASSERT_FALSE_MESSAGE(crb_node.desired_exists(),
+                            "CRB desired value should NOT exist");
+
+  TEST_ASSERT_FALSE_MESSAGE(credential_data_node.desired_exists(),
+                            "Credential data desired value should NOT exist");
 }
 
 void test_user_credential_remove_all_users_happy_case()
