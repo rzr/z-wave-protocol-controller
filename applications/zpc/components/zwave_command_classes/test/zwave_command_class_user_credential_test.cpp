@@ -2412,9 +2412,11 @@ void test_user_credential_credential_modify_capabilites_failure_cases()
 
 void helper_test_credential_rejected_case(uint8_t report_type)
 {
-  user_credential_user_unique_id_t user_id = 12;
-  user_credential_type_t credential_type   = 1;
-  user_credential_slot_t credential_slot   = 1;
+  user_credential_user_unique_id_t user_id       = 12;
+  user_credential_type_t credential_type         = 1;
+  user_credential_slot_t credential_slot         = 1;
+  user_credential_slot_t invalid_credential_slot = 2;
+  auto credential_data = string_to_uint8_vector("1212");
 
   auto valid_user_node
     = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);

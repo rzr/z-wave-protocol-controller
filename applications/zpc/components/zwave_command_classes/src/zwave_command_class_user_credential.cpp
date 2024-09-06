@@ -608,6 +608,10 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
         {credential_slot, DESIRED_ATTRIBUTE});
 
       nodes.slot_node.delete_node();
+      sl_log_debug(LOG_TAG, "Cleaning temporary credential slot node : %d (credential type %d, user %d)",
+                   credential_slot,
+                   credential_type,
+                   user_id);
     };
 
     // We should have a valid user id if we receive this report
@@ -746,18 +750,57 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
         credential_slot_node.delete_node();
         return SL_STATUS_OK;
       // Duplicate Credential : 0x02
-      case credential_report_type_t::CREDENTIAL_DUPLICATE_ERROR:
+      case credential_report_type_t::CREDENTIAL_DUPLICATE_ERROR: {
         // Do nothing, the credential GET will clean up for us
         sl_log_warning(LOG_TAG,
-                       "Duplicate Credential for user %d, credential type %d, "
-                       "credential slot %d",
+                       "Duplicate Credential (Already present for user %d, "
+                       "credential type %d, "
+                       "credential slot %d)",
                        user_id,
                        credential_type,
                        credential_slot);
 
-        // This should contains the duplicated credential
-        clean_up_pending_credentials_slot_nodes();
-        return SL_STATUS_OK;
+        // So this is the fun part when we hunt down the faulty credential slot node
+        parser.read_byte();  // We don't care about this one
+        uint8_t cred_data_size = parser.read_byte();
+        auto duplicate_data
+          = parser.read_sequential<std::vector<uint8_t>>(cred_data_size);
+
+        bool found_duplicate = false;
+        // We need to find the credential slot node that contains the same data
+        for_each_credential_type_nodes(
+          endpoint_node,
+          [&](attribute_store::attribute &credential_type_node) {
+            for (auto &credential_slot_node:
+                 credential_type_node.children(ATTRIBUTE(CREDENTIAL_SLOT))) {
+              if (credential_slot_node.desired_exists()) {
+                auto current_data
+                  = credential_slot_node
+                      .child_by_type(ATTRIBUTE(CREDENTIAL_DATA))
+                      .get<std::vector<uint8_t>>(DESIRED_OR_REPORTED_ATTRIBUTE);
+                if (current_data == duplicate_data) {
+                  sl_log_debug(
+                    LOG_TAG,
+                    "Found the faulty credential slot node : %d",
+                    credential_slot_node.desired<user_credential_slot_t>());
+                  credential_slot_node.delete_node();
+                  found_duplicate = true;
+                  return;
+                }
+              }
+            }
+          },
+          credential_type);
+
+        if (!found_duplicate) {
+          // If we are here that means we din't find the duplicate data
+          sl_log_error(LOG_TAG,
+                       "Couldn't find the duplicate credential slot node.");
+          return SL_STATUS_FAIL;
+        } else {
+          return SL_STATUS_OK;
+        }
+      }
       case credential_report_type_t::CREDENTIAL_MANUFACTURER_SECURITY_RULE:
         sl_log_warning(
           LOG_TAG,
@@ -808,6 +851,7 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
     parser.read_byte_with_bitmask(
       {CREDENTIAL_REPORT_PROPERTIES1_CRB_BIT_MASK,
        credential_slot_node.emplace_node(ATTRIBUTE(CREDENTIAL_READ_BACK))});
+
     uint8_t cred_data_size = parser.read_byte();
     parser.read_sequential<std::vector<uint8_t>>(
       cred_data_size,
