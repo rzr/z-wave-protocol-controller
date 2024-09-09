@@ -41,6 +41,7 @@
 #include <string>
 #include <map>
 #include <boost/format.hpp>
+#include <set>
 
 // Cpp Attribute store
 #include "attribute.hpp"
@@ -71,7 +72,22 @@ using namespace user_credential_helpers;
 namespace
 {
 zwave_frame_generator frame_generator(COMMAND_CLASS_USER_CREDENTIAL);
+
+// Callbacks
+std::set<user_credential_slot_changed_callback_t> user_credential_slot_changed_callback;
 }
+
+/////////////////////////////////////////////////////////////////////////////
+// Callbacks
+/////////////////////////////////////////////////////////////////////////////
+void zwave_command_class_user_credential_set_uuic_slot_changed_callback(
+  user_credential_slot_changed_callback_t callback)
+{
+  if (callback != nullptr) {
+    user_credential_slot_changed_callback.insert(callback);
+  }
+}
+
 
 /////////////////////////////////////////////////////////////////////////////
 // Version & Attribute Creation
@@ -1160,17 +1176,12 @@ sl_status_t zwave_command_class_user_credential_uuic_association_report(
     const uint8_t association_status = parser.read_byte();
 
     sl_log_debug(LOG_TAG,
-                 "User Unique Identifier Credential Association Report. Source "
-                 "User ID: %d / "
-                 "Source Credential Type: %d / Source Credential Slot: %d / "
-                 "Destination User ID: %d / Destination Credential Slot: %d",
-                 "Association status : %d",
-                 source_user_id,
-                 source_credential_type,
-                 source_credential_slot,
-                 destination_user_id,
-                 destination_credential_slot,
-                 association_status);
+                 "User Unique Identifier Credential Association Report.");
+    sl_log_debug(LOG_TAG,"\tSource User ID: %d", source_user_id);
+    sl_log_debug(LOG_TAG,"\tSource Credential Type: %d", source_credential_type);
+    sl_log_debug(LOG_TAG,"\tSource Credential Slot: %d", source_credential_slot);
+    sl_log_debug(LOG_TAG,"\tDestination User ID: %d", destination_user_id);
+    sl_log_debug(LOG_TAG,"\tDestination Credential Slot: %d", destination_credential_slot);
 
     // Get nodes
     auto source_credential_nodes = get_credential_identifier_nodes(
@@ -1202,22 +1213,17 @@ sl_status_t zwave_command_class_user_credential_uuic_association_report(
       return SL_STATUS_OK;
     }
 
-    // Simple case : we only have to change the slot number
-    if (destination_user_id == source_user_id) {
-      sl_log_info(LOG_TAG,
-                  "Moving slot %d to slot %d (user %d)",
-                  source_credential_slot,
-                  destination_credential_slot,
-                  destination_user_id);
-      source_credential_slot_node.set_reported(destination_credential_slot);
-    } else {
-      // Complex case : we have to move the slot to another user
-      sl_log_info(LOG_TAG,
-                  "Moving slot %d (user %d) to slot %d (user %d)",
-                  source_credential_slot,
-                  source_user_id,
-                  destination_credential_slot,
-                  destination_user_id);
+    sl_log_info(LOG_TAG,
+                "Moving slot %d (user %d) to slot %d (user %d)",
+                source_credential_slot,
+                source_user_id,
+                destination_credential_slot,
+                destination_user_id);
+    source_credential_slot_node.set_reported(destination_credential_slot);
+    
+    // Need to move to new user
+    if (destination_user_id != source_user_id) {
+      sl_log_debug(LOG_TAG, "Moving slot to new user");
 
       // Get destination user node
       auto destination_user_id_node
@@ -1242,8 +1248,14 @@ sl_status_t zwave_command_class_user_credential_uuic_association_report(
           destination_user_id);
         return result;
       }
+    }
 
-      source_credential_slot_node.set_reported(destination_credential_slot);
+    // Call MQTT callback if needed to notify that the slot has changed
+    for (auto &uicc_slot_changed_callback:
+         user_credential_slot_changed_callback) {
+      uicc_slot_changed_callback(
+        {source_user_id, source_credential_type, source_credential_slot},
+        source_credential_slot_node);
     }
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
