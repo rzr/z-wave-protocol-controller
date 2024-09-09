@@ -81,6 +81,13 @@ typedef uint8_t user_credential_learn_timeout_t;
 ///> Credential Learn Status. uint8_t
 typedef uint8_t user_credential_learn_status_t;
 
+///> Full identifier for a user credential.
+typedef struct user_credential_credential_identifier {
+  user_credential_user_unique_id_t user_unique_id;
+  user_credential_type_t credential_type;
+  user_credential_slot_t credential_slot;
+} user_credential_credential_identifier_t;
+
 #ifdef __cplusplus
 extern "C" {
 #endif

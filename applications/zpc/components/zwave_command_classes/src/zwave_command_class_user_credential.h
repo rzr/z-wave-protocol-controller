@@ -32,11 +32,23 @@
 extern "C" {
 #endif
 
+
+typedef void (*user_credential_slot_changed_callback_t)(
+  const user_credential_credential_identifier_t old_credential_slot_id,
+  const attribute_store_node_t new_credential_node);
+
+void zwave_command_class_user_credential_set_uuic_slot_changed_callback(
+  user_credential_slot_changed_callback_t callback);
+
+
 sl_status_t zwave_command_class_user_credential_init();
 
 #ifdef __cplusplus
 }
 #endif
+
+
+
 
 #endif  //ZWAVE_COMMAND_CLASS_USER_CREDENTIAL_H
         /** @} end zwave_command_class_user_credential */

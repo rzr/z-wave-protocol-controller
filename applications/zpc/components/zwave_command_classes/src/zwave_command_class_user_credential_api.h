@@ -344,7 +344,6 @@ sl_status_t zwave_command_class_user_credential_get_credential_checksum(
   attribute_store_node_t endpoint_node,
   user_credential_type_t credential_type);
 
-
 #ifdef __cplusplus
 }
 #endif

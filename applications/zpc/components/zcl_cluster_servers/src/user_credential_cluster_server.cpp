@@ -13,6 +13,7 @@
 #include "user_credential_cluster_server.h"
 #include "zcl_cluster_servers_helpers.hpp"
 // Interfaces
+#include "zwave_command_class_user_credential.h"
 #include "zwave_command_class_user_credential_api.h"
 
 // ZPC includes
@@ -105,16 +106,16 @@ static const user_attributes_mqtt_map_t credential_attributes
      {ATTRIBUTE(ASSOCIATION_STATUS), {"AssociationStatus"}},
      {ATTRIBUTE(CREDENTIAL_LEARN_STATUS), {"CredentialLearnStatus"}}};
 
-static const user_attributes_mqtt_map_t credential_rules_attributes
-  = {{ATTRIBUTE(CREDENTIAL_LEARN_SUPPORT), {"LearnSupport", convert_to_bool}},
-     {ATTRIBUTE(CREDENTIAL_SUPPORTED_SLOT_COUNT), {"SupportedSlotCount"}},
-     {ATTRIBUTE(CREDENTIAL_MIN_LENGTH), {"CredentialMinLength"}},
-     {ATTRIBUTE(CREDENTIAL_MAX_LENGTH), {"CredentialMaxLength"}},
-     {ATTRIBUTE(CREDENTIAL_LEARN_RECOMMENDED_TIMEOUT),
-      {"LearnRecommendedTimeout"}},
-     {ATTRIBUTE(CREDENTIAL_LEARN_NUMBER_OF_STEPS), {"LearnNumberOfSteps"}},
-     {ATTRIBUTE(CREDENTIAL_CHECKSUM), {"CredentialChecksum"}},
-     {ATTRIBUTE(CREDENTIAL_CHECKSUM_MISMATCH_ERROR), {"CredentialChecksumError"}}};
+static const user_attributes_mqtt_map_t credential_rules_attributes = {
+  {ATTRIBUTE(CREDENTIAL_LEARN_SUPPORT), {"LearnSupport", convert_to_bool}},
+  {ATTRIBUTE(CREDENTIAL_SUPPORTED_SLOT_COUNT), {"SupportedSlotCount"}},
+  {ATTRIBUTE(CREDENTIAL_MIN_LENGTH), {"CredentialMinLength"}},
+  {ATTRIBUTE(CREDENTIAL_MAX_LENGTH), {"CredentialMaxLength"}},
+  {ATTRIBUTE(CREDENTIAL_LEARN_RECOMMENDED_TIMEOUT),
+   {"LearnRecommendedTimeout"}},
+  {ATTRIBUTE(CREDENTIAL_LEARN_NUMBER_OF_STEPS), {"LearnNumberOfSteps"}},
+  {ATTRIBUTE(CREDENTIAL_CHECKSUM), {"CredentialChecksum"}},
+  {ATTRIBUTE(CREDENTIAL_CHECKSUM_MISMATCH_ERROR), {"CredentialChecksumError"}}};
 
 ///////////////////////////////////////////////////////////////////////////////
 // DotDot MQTT incoming commands handling functions
@@ -564,17 +565,17 @@ sl_status_t get_user_checksum(dotdot_unid_t unid,
 
     return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
                                                         : SL_STATUS_FAIL;
-                                                        
   }
 
   return zwave_command_class_user_credential_get_user_checksum(endpoint_node,
                                                                user_uniqueid);
 }
 
-sl_status_t get_credential_checksum(dotdot_unid_t unid,
-                              dotdot_endpoint_id_t endpoint,
-                              uic_mqtt_dotdot_callback_call_type_t call_type,
-                              CredType credential_type)
+sl_status_t
+  get_credential_checksum(dotdot_unid_t unid,
+                          dotdot_endpoint_id_t endpoint,
+                          uic_mqtt_dotdot_callback_call_type_t call_type,
+                          CredType credential_type)
 {
   attribute_store_node_t endpoint_node
     = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
@@ -588,7 +589,6 @@ sl_status_t get_credential_checksum(dotdot_unid_t unid,
 
     return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
                                                         : SL_STATUS_FAIL;
-                                                        
   }
 
   return zwave_command_class_user_credential_get_credential_checksum(
@@ -653,6 +653,18 @@ std::string get_base_mqtt_topic(attribute_store::attribute updated_node_cpp)
 
 /**
  * @brief Get the base MQTT topic for a user.
+ * 
+ * @see get_base_user_mqtt_topic(attribute_store::attribute)
+ */
+std::string
+  get_base_user_mqtt_topic_str(const std::string &base_mqtt_topic,
+                               user_credential_user_unique_id_t user_id)
+{
+  return (boost::format("%1%/User/%2%") % base_mqtt_topic % user_id).str();
+}
+
+/**
+ * @brief Get the base MQTT topic for a user.
  *
  * This function will return the base MQTT topic for a user based on the
  * updated node. The topic will be in the format:
@@ -676,7 +688,7 @@ std::string
       = updated_node_cpp.first_parent_or_self(ATTRIBUTE(USER_UNIQUE_ID))
           .reported<user_credential_user_unique_id_t>();
 
-    return (mqtt_topic % base_mqtt_topic % user_id).str();
+    return get_base_user_mqtt_topic_str(base_mqtt_topic, user_id);
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
                  "Error while publishing User attribute (%s) : %s",
@@ -685,6 +697,23 @@ std::string
   }
 
   return "";
+}
+
+/**
+ * @brief Get the base MQTT topic for a credential.
+ * 
+ * @see get_base_credential_mqtt_topic(attribute_store::attribute updated_node_cpp)
+ */
+std::string
+  get_base_credential_mqtt_topic_str(const std::string &base_user_mqtt_topic,
+                                     user_credential_slot_t credential_slot,
+                                     user_credential_type_t credential_type)
+{
+  std::string credential_type_str
+    = cred_type_get_enum_value_name(credential_type);
+  return (boost::format("%1%/Credential/%2%/%3%") % base_user_mqtt_topic
+          % credential_type_str % credential_slot)
+    .str();
 }
 
 /**
@@ -713,12 +742,10 @@ std::string
     user_credential_type_t credential_type
       = updated_node_cpp.first_parent(ATTRIBUTE(CREDENTIAL_TYPE))
           .reported<user_credential_type_t>();
-    std::string credential_type_str
-      = cred_type_get_enum_value_name(credential_type);
 
-    return (boost::format("%1%/Credential/%2%/%3%") % base_user_mqtt_topic
-            % credential_type_str % credential_slot)
-      .str();
+    return get_base_credential_mqtt_topic_str(base_user_mqtt_topic,
+                                              credential_slot,
+                                              credential_type);
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
                  "Error while publishing Credential attribute (%s) : %s",
@@ -973,6 +1000,48 @@ void on_credential_update(attribute_store_node_t updated_node,
                       credential_attributes);
 }
 
+/**
+ * @brief Callback for when a UUIC slot is updated.
+ * 
+ * This is used to update the MQTT topics when a slot is updated.
+ * Since we only monitor properties of the slot, we need to update the slot
+ * itself when it changes. 
+ * 
+ * This callback is called whenever a slot is updated thanks to the UUIC command.
+ * 
+ * @param old_credential_slot The old credential slot id.
+ * @param node The node that contains the updated slot.
+ */
+void on_uuic_slot_update(
+  const user_credential_credential_identifier_t old_credential_slot,
+  attribute_store_node_t node)
+{
+  auto credential_slot_node = attribute_store::attribute(node);
+
+  // Update old slot
+  auto old_user_topic
+    = get_base_user_mqtt_topic_str(get_base_mqtt_topic(credential_slot_node),
+                                   old_credential_slot.user_unique_id);
+  auto old_credential_topic
+    = get_base_credential_mqtt_topic_str(old_user_topic,
+                                         old_credential_slot.credential_slot,
+                                         old_credential_slot.credential_type);
+  // Simulate deletion of the old slot
+  // First simulate deletion of all attributes
+  for (auto [attribute_store_type, mqtt_data]: credential_attributes) {
+    std::string mqtt_topic
+      = mqtt_topic_add_attribute(old_credential_topic, mqtt_data.topic);
+    uic_mqtt_publish(mqtt_topic.c_str(), "", 0, true);
+  }
+  // Then delete the slot itself
+  uic_mqtt_publish(old_credential_topic.c_str(), "", 0, true);
+
+  // Trigger update for the new slot
+  for (auto child: credential_slot_node.children()) {
+    on_credential_update(child, ATTRIBUTE_UPDATED);
+  }
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 //  Init and teardown functions.
 //////////////////////////////////////////////////////////////////////////////
@@ -985,6 +1054,10 @@ sl_status_t user_credential_cluster_server_init()
   register_attributes_to_mqtt_map(credential_attributes, &on_credential_update);
   register_attributes_to_mqtt_map(credential_rules_attributes,
                                   &on_credential_rules_update);
+
+  // Custom callbacks
+  zwave_command_class_user_credential_set_uuic_slot_changed_callback(
+    &on_uuic_slot_update);
 
   // Command callbacks
   // User
