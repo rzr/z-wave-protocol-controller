@@ -75,7 +75,9 @@ zwave_frame_generator frame_generator(COMMAND_CLASS_USER_CREDENTIAL);
 
 // Callbacks
 std::set<user_credential_slot_changed_callback_t> user_credential_slot_changed_callback;
+std::set<user_credential_slot_message_callback_t> user_credential_slot_message_callback;
 }
+
 
 /////////////////////////////////////////////////////////////////////////////
 // Callbacks
@@ -88,6 +90,26 @@ void zwave_command_class_user_credential_set_uuic_slot_changed_callback(
   }
 }
 
+void zwave_command_class_user_credential_set_message_callback(
+  user_credential_slot_message_callback_t callback)
+{
+  if (callback != nullptr) {
+    user_credential_slot_message_callback.insert(callback);
+  }
+}
+
+void send_message_to_mqtt(sl_log_level level, const std::string &message)
+{
+  if (level == SL_LOG_DEBUG) {
+    sl_log_critical(LOG_TAG, "Debug message should not be sent to MQTT");
+    return;
+  }
+  sl_log(LOG_TAG, level, "%s", message.c_str());
+
+  for (auto &callback: user_credential_slot_message_callback) {
+    callback(level, message);
+  }
+}
 
 /////////////////////////////////////////////////////////////////////////////
 // Version & Attribute Creation
@@ -1206,19 +1228,21 @@ sl_status_t zwave_command_class_user_credential_uuic_association_report(
     // If something went wrong end device side, log the error and return
     // This should handle the slot already taken case
     if (association_status != USER_CREDENTIAL_ASSOCIATION_REPORT_SUCCESS) {
-      sl_log_error(LOG_TAG,
-                   "User Unique Identifier Credential Association error. "
-                   "Reported status code : %d",
-                   association_status);
+      send_message_to_mqtt(SL_LOG_ERROR,
+                           "User Unique Identifier Credential Association error. "
+                           "Reported status code : " + std::to_string(association_status));
       return SL_STATUS_OK;
     }
 
-    sl_log_info(LOG_TAG,
-                "Moving slot %d (user %d) to slot %d (user %d)",
-                source_credential_slot,
-                source_user_id,
-                destination_credential_slot,
-                destination_user_id);
+    send_message_to_mqtt(
+      SL_LOG_INFO,
+      (boost::format("Credential Slot %1% for type %2% (user %3%) moved to "
+                     "Credential slot %4% (user %5%)")
+       % source_credential_slot
+       % static_cast<unsigned int>(source_credential_type) % source_user_id
+       % destination_credential_slot % destination_user_id)
+        .str());
+
     source_credential_slot_node.set_reported(destination_credential_slot);
     
     // Need to move to new user
@@ -1239,13 +1263,13 @@ sl_status_t zwave_command_class_user_credential_uuic_association_report(
       sl_status_t result = source_credential_slot_node.change_parent(
         destination_credential_type_node);
       if (result != SL_STATUS_OK) {
-        sl_log_error(
-          LOG_TAG,
-          "Error while moving slot %d (user %d) to slot %d (user %d)",
-          source_credential_slot,
-          source_user_id,
-          destination_credential_slot,
-          destination_user_id);
+        send_message_to_mqtt(
+          SL_LOG_ERROR,
+          (boost::format(
+             "Error while moving slot %1% (user %2%) to slot %3% (user %4%)")
+           % source_credential_slot % source_user_id
+           % destination_credential_slot % destination_user_id)
+            .str());
         return result;
       }
     }

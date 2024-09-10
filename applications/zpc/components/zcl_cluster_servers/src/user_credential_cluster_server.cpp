@@ -1042,6 +1042,17 @@ void on_uuic_slot_update(
   }
 }
 
+void on_user_credential_message(sl_log_level_t log_level,
+                                const std::string message)
+{
+  nlohmann::json payload;
+  payload["level"]        = log_level;
+  payload["message"]      = message;
+  
+  std::string payload_str = payload.dump();
+  uic_mqtt_publish("ucl/Event", payload_str.c_str(), payload_str.length(), true);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 //  Init and teardown functions.
 //////////////////////////////////////////////////////////////////////////////
@@ -1058,6 +1069,8 @@ sl_status_t user_credential_cluster_server_init()
   // Custom callbacks
   zwave_command_class_user_credential_set_uuic_slot_changed_callback(
     &on_uuic_slot_update);
+  zwave_command_class_user_credential_set_message_callback(
+    &on_user_credential_message);
 
   // Command callbacks
   // User
