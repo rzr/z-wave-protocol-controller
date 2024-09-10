@@ -192,7 +192,7 @@ static void zwave_command_class_switch_all_on_version_attribute_update(
   // Create the switch_all attributes
   endpoint_node.emplace_node(ATTRIBUTE(MODE));
 
-  endpoint_node.first_parent(ATTRIBUTE_HOME_ID).emplace_node(ATTRIBUTE(ON_OFF));
+  endpoint_node.emplace_node(ATTRIBUTE(ON_OFF));
 
 }
 
