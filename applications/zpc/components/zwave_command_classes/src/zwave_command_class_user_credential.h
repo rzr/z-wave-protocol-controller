@@ -29,6 +29,8 @@
 #include "attribute_store.h"
 
 #ifdef __cplusplus
+#include <string>
+#include "sl_log.h"
 extern "C" {
 #endif
 
@@ -44,7 +46,11 @@ void zwave_command_class_user_credential_set_uuic_slot_changed_callback(
 sl_status_t zwave_command_class_user_credential_init();
 
 #ifdef __cplusplus
-}
+} // extern "C"
+typedef void (*user_credential_slot_message_callback_t)(
+  sl_log_level level, const std::string message);
+void zwave_command_class_user_credential_set_message_callback(
+  user_credential_slot_message_callback_t callback);
 #endif
 
 
