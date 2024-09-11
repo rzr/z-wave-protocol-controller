@@ -18,6 +18,7 @@ add_library(
   src/zcl_OTA_cluster_server.cpp
   src/zcl_rf_telemetry_cluster_server.c
   src/zcl_scenes_cluster_server.cpp
+  src/switch_color_cluster_server.cpp
   )
 
 target_include_directories(
