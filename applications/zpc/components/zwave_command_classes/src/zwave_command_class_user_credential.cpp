@@ -79,7 +79,6 @@ std::set<user_credential_slot_changed_callback_t> user_credential_slot_changed_c
 std::set<user_credential_slot_message_callback_t> user_credential_slot_message_callback;
 }
 
-
 /////////////////////////////////////////////////////////////////////////////
 // Callbacks
 /////////////////////////////////////////////////////////////////////////////
@@ -110,6 +109,17 @@ void send_message_to_mqtt(sl_log_level level, const std::string &message)
   for (auto &callback: user_credential_slot_message_callback) {
     callback(level, message);
   }
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// Helpers
+/////////////////////////////////////////////////////////////////////////////
+std::string get_credential_type_debug_str(user_credential_type_t credential_type) {
+  auto fmt = boost::format("Credential Type %1% (%2%)")
+             % cred_type_get_enum_value_name(credential_type)
+             % static_cast<unsigned int>(credential_type);
+
+  return fmt.str();
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -415,9 +425,9 @@ void trigger_get_credential(attribute_store::attribute &user_unique_id_node,
 {
   sl_log_debug(LOG_TAG,
                "Trigger GET credential for user %d : "
-               "Credential type %d, credential slot %d",
+               "Credential type %s, credential slot %d",
                user_unique_id_node.reported<user_credential_user_unique_id_t>(),
-               credential_type,
+               get_credential_type_debug_str(credential_type).c_str(),
                credential_slot);
   user_unique_id_node
     .emplace_node(ATTRIBUTE(CREDENTIAL_TYPE),
@@ -547,8 +557,8 @@ sl_status_t
 {
   if (user_id != 0 && credential_type != 0 && credential_slot != 0) {
     sl_log_info(LOG_TAG,
-                "Credential Deleted. Type %d, Slot %d (User %d)",
-                credential_type,
+                "Credential Deleted. Type %s, Slot %d (User %d)",
+                get_credential_type_debug_str(credential_type).c_str(),
                 credential_slot,
                 user_id);
     // Delete the credential slot node
@@ -559,8 +569,8 @@ sl_status_t
       .slot_node.delete_node();
   } else if (user_id != 0 && credential_type != 0 && credential_slot == 0) {
     sl_log_info(LOG_TAG,
-                "All credential type %d deleted for user %d.",
-                credential_type,
+                "All credential type %s deleted for user %d.",
+                get_credential_type_debug_str(credential_type).c_str(),
                 user_id);
     for_each_credential_type_nodes_for_user(
       user_id_node,
@@ -584,8 +594,8 @@ sl_status_t
       });
   } else if (user_id == 0 && credential_type != 0 && credential_slot == 0) {
     sl_log_info(LOG_TAG,
-                "All credentials of type %d are deleted",
-                credential_type);
+                "All credentials of type %s are deleted",
+                get_credential_type_debug_str(credential_type).c_str());
     for_each_credential_type_nodes(
       endpoint_node,
       [&](attribute_store::attribute &credential_type_node) {
@@ -594,10 +604,10 @@ sl_status_t
       credential_type);
   } else {
     sl_log_critical(LOG_TAG,
-                    "Invalid combination of user_id %d, credential_type %d and "
+                    "Invalid combination of user_id %d, credential_type %s and "
                     "credential_slot %d for credential deletion",
                     user_id,
-                    credential_type,
+                    get_credential_type_debug_str(credential_type).c_str(),
                     credential_slot);
     return SL_STATUS_FAIL;
   }
@@ -632,9 +642,9 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
     auto credential_slot = parser.read_sequential<user_credential_slot_t>(2);
 
     sl_log_debug(LOG_TAG,
-                 "Credential Report (%d). Type %d, Slot %d (User %d)",
+                 "Credential Report (%d). %s, Slot %d (User %d)",
                  credential_report_type,
-                 credential_type,
+                 get_credential_type_debug_str(credential_type).c_str(),
                  credential_slot,
                  user_id);
 
@@ -650,9 +660,9 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
         nodes.slot_node.delete_node();
         sl_log_debug(LOG_TAG,
                      "Cleaning temporary credential slot node : %d (credential "
-                     "type %d, user %d)",
+                     "type %s, user %d)",
                      credential_slot,
-                     credential_type,
+                     get_credential_type_debug_str(credential_type).c_str(),
                      user_id);
       } catch (const std::exception &e) {
         // Try again with reported attribute
@@ -666,9 +676,9 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
         sl_log_debug(
           LOG_TAG,
           "Cleaning desired values of credential slot node : %d (credential "
-          "type %d, user %d)",
+          "type %s, user %d)",
           credential_slot,
-          credential_type,
+          get_credential_type_debug_str(credential_type).c_str(),
           user_id);
 
         for (auto child: nodes.slot_node.children()) {
@@ -718,11 +728,11 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
                                           credential_type,
                                           credential_slot);
       case credential_report_type_t::CREDENTIAL_UNCHANGED:
-        sl_log_info(LOG_TAG,
-                    "Credential Unchanged. Type %d, Slot %d (User %d)",
-                    credential_type,
-                    credential_slot,
-                    user_id);
+        send_message_to_mqtt(SL_LOG_INFO,
+                             "Credential Unchanged. Type "
+                             + get_credential_type_debug_str(credential_type)
+                             + ", Slot " + std::to_string(credential_slot)
+                             + " (User " + std::to_string(user_id) + ")");
         return SL_STATUS_OK;
       // Update desired value if found, otherwise create the nodes
       case credential_report_type_t::RESPONSE_TO_GET:
@@ -767,9 +777,9 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
       case credential_report_type_t::CREDENTIAL_ADD_REJECTED_LOCATION_OCCUPIED:
         sl_log_error(LOG_TAG,
                      "Credential data rejected as it already exists : user %d, "
-                     "credential type %d, credential slot %d",
+                     "credential type %s, credential slot %d",
                      user_id,
-                     credential_type,
+                     get_credential_type_debug_str(credential_type).c_str(),
                      credential_slot);
         clean_up_pending_credentials_slot_nodes();
         return SL_STATUS_OK;
@@ -777,9 +787,9 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
         sl_log_error(
           LOG_TAG,
           "Credential data cannot be modified as it does not exists : user %d, "
-          "credential type %d, credential slot %d",
+          "credential type %s, credential slot %d",
           user_id,
-          credential_type,
+          get_credential_type_debug_str(credential_type).c_str(),
           credential_slot);
 
         credential_type_node
@@ -790,9 +800,9 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
         if (!credential_type_node.is_valid()) {
           sl_log_debug(
             LOG_TAG,
-            "No credential type found for user %d, credential type %d",
+            "No credential type found for user %d, credential type %s",
             user_id,
-            credential_type);
+            get_credential_type_debug_str(credential_type).c_str());
           return SL_STATUS_OK;
         }
 
@@ -808,10 +818,10 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
         // Do nothing, the credential GET will clean up for us
         sl_log_warning(LOG_TAG,
                        "Duplicate Credential (Already present for user %d, "
-                       "credential type %d, "
+                       "credential type %s, "
                        "credential slot %d)",
                        user_id,
-                       credential_type,
+                       get_credential_type_debug_str(credential_type).c_str(),
                        credential_slot);
 
         // So this is the fun part when we hunt down the faulty credential slot node
@@ -859,10 +869,10 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
         sl_log_warning(
           LOG_TAG,
           "Credential data rejected as it doesn't respect manufacturer "
-          "security rules : user %d, credential type %d, "
+          "security rules : user %d, credential type %s, "
           "credential slot %d",
           user_id,
-          credential_type,
+          get_credential_type_debug_str(credential_type).c_str(),
           credential_slot);
         // This should contains the faulty credential
         clean_up_pending_credentials_slot_nodes();
@@ -871,9 +881,9 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
         sl_log_warning(
           LOG_TAG,
           "Credential data rejected as location is already assigned : user %d, "
-          "credential type %d, credential slot %d",
+          "credential type %s, credential slot %d",
           user_id,
-          credential_type,
+          get_credential_type_debug_str(credential_type).c_str(),
           credential_slot);
         // This should contains the faulty credential
         clean_up_pending_credentials_slot_nodes();
@@ -1230,10 +1240,10 @@ sl_status_t zwave_command_class_user_credential_uuic_association_report(
 
     send_message_to_mqtt(
       SL_LOG_INFO,
-      (boost::format("Credential Slot %1% for type %2% (user %3%) moved to "
+      (boost::format("Credential Slot %1% (%2%) (user %3%) moved to "
                      "Credential slot %4% (user %5%)")
        % source_credential_slot
-       % static_cast<unsigned int>(source_credential_type) % source_user_id
+       % cred_rule_get_enum_value_name(source_credential_type) % source_user_id
        % destination_credential_slot % destination_user_id)
         .str());
 
@@ -1868,9 +1878,9 @@ sl_status_t
       credential_type);
     if (!credential_type_node.is_valid()) {
       sl_log_error(LOG_TAG,
-                   "Can't find Credential Type %d reported by Credential "
+                   "Can't find Credential Type %s reported by Credential "
                    "Checksum Report",
-                   credential_type);
+                   get_credential_type_debug_str(credential_type).c_str());
       return SL_STATUS_FAIL;
     }
 
