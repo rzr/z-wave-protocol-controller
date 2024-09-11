@@ -686,26 +686,17 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
 
     switch (credential_report_type) {
       case credential_report_type_t::CREDENTIAL_ADDED:
-        if (!is_credential_available(endpoint_node,
-                                     credential_type,
-                                     credential_slot)) {
-          sl_log_error(LOG_TAG,
-                       "Credential already exists. Can't add credential Type "
-                       "%d, Slot %d (User %d)",
-                       credential_type,
-                       credential_slot,
-                       user_id);
-          return SL_STATUS_FAIL;
-        } else {
-          credential_type_node
-            = create_or_update_desired_value(user_id_node,
-                                             ATTRIBUTE(CREDENTIAL_TYPE),
-                                             credential_type);
-          credential_slot_node
-            = create_or_update_desired_value(credential_type_node,
-                                             ATTRIBUTE(CREDENTIAL_SLOT),
-                                             credential_slot);
-        }
+        // In case of credential learn, the credential is already present in the
+        // node tree. So we don't check if the node exists before creating it.
+        // Only update existing nodes if they are present.
+        credential_type_node
+          = create_or_update_desired_value(user_id_node,
+                                           ATTRIBUTE(CREDENTIAL_TYPE),
+                                           credential_type);
+        credential_slot_node
+          = create_or_update_desired_value(credential_type_node,
+                                           ATTRIBUTE(CREDENTIAL_SLOT),
+                                           credential_slot);
         break;
       case credential_report_type_t::CREDENTIAL_MODIFIED: {
         // Should throw an exception if the credential doesn't exists
@@ -1030,9 +1021,9 @@ sl_status_t zwave_command_class_user_credential_credential_learn_status_report(
     const uint8_t step_remaining = parser.read_byte();
 
     sl_log_debug(LOG_TAG,
-                 "Credential Learn Status Report. Credential Type: %d / "
+                 "Credential Learn Status Report. Credential Type: %s / "
                  "Credential Slot: %d (User %d)",
-                 credential_type,
+                 cred_type_get_enum_value_name(credential_type).c_str(),
                  credential_slot,
                  user_id);
 
@@ -1043,10 +1034,12 @@ sl_status_t zwave_command_class_user_credential_credential_learn_status_report(
       {credential_slot, DESIRED_OR_REPORTED_ATTRIBUTE});
 
     // Get operation type so we can handle error cases
+    // We use desired or reported here since it can be set to reported by the 
+    // supervision process.
     auto operation_type
       = credential_id_nodes.slot_node
           .child_by_type(ATTRIBUTE(CREDENTIAL_LEARN_OPERATION_TYPE))
-          .desired<user_credential_operation_type_t>();
+          .desired_or_reported<user_credential_operation_type_t>();
 
     // Action based of current learn status
     std::string learn_status_str;
@@ -1065,11 +1058,12 @@ sl_status_t zwave_command_class_user_credential_credential_learn_status_report(
         learn_status_str = "Credential Learn already in progress";
         break;
       case CREDENTIAL_LEARN_REPORT_ENDED_NOT_DUE_TO_TIMEOUT:
-        learn_status_str = "Credential Learn ended not due to timeout";
+        log_level        = SL_LOG_ERROR;
+        learn_status_str = "Credential Learn Ended (not due to timeout)";
         need_deletion = (operation_type == USER_CREDENTIAL_OPERATION_TYPE_ADD);
         break;
       case CREDENTIAL_LEARN_REPORT_TIMEOUT:
-        log_level        = SL_LOG_WARNING;
+        log_level        = SL_LOG_ERROR;
         learn_status_str = "Credential Learn Timeout";
         need_deletion = (operation_type == USER_CREDENTIAL_OPERATION_TYPE_ADD);
         break;
@@ -1092,17 +1086,16 @@ sl_status_t zwave_command_class_user_credential_credential_learn_status_report(
         log_level = SL_LOG_CRITICAL;
     }
 
-    sl_log(LOG_TAG,
-           log_level,
-           "%s for User %d, Credential Type %d, "
-           "Credential Slot %d",
-           learn_status_str.c_str(),
-           user_id,
-           credential_type,
-           credential_slot);
+    auto message = boost::format("Credential Learn Status Report : %1% for "
+                                 "Credential Type %2% (Slot %3%, User %4%)")
+                   % learn_status_str
+                   % cred_type_get_enum_value_name(credential_type)
+                   % credential_slot % user_id;
+    send_message_to_mqtt(log_level, message.str());
 
     if (need_deletion) {
       credential_id_nodes.slot_node.delete_node();
+      return SL_STATUS_OK;
     }
 
     // Update nodes
