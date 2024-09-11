@@ -35,6 +35,7 @@
 
 // DotDot
 #include "unify_dotdot_attribute_store_node_state.h"
+#include "dotdot_mqtt_helpers.hpp"
 
 // Cpp related
 #include <vector>
@@ -1734,9 +1735,6 @@ sl_status_t zwave_command_class_user_credential_user_checksum_handle_report(
     auto user_node
       = get_user_unique_id_node(endpoint_node, user_id, REPORTED_ATTRIBUTE);
 
-    user_node.emplace_node(ATTRIBUTE(USER_CHECKSUM))
-      .set_reported(user_checksum);
-
     // Compute checksum ourselves to see if it matches
     user_credential::checksum_calculator checksum_calculator;
 
@@ -1778,6 +1776,19 @@ sl_status_t zwave_command_class_user_credential_user_checksum_handle_report(
                                   ATTRIBUTE(USER_CHECKSUM_MISMATCH_ERROR),
                                   checksum_calculator.compute_checksum(),
                                   user_checksum);
+
+    user_node.emplace_node(ATTRIBUTE(USER_CHECKSUM))
+      .set_reported(user_checksum);
+
+    if (result == SL_STATUS_OK) {
+      send_message_to_mqtt(SL_LOG_INFO,
+                           "User Checksum for user " + std::to_string(user_id)
+                             + " is correct.");
+    } else {
+      send_message_to_mqtt(SL_LOG_ERROR,
+                           "Mismatch User Checksum for user "
+                             + std::to_string(user_id));
+    }
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
                  "Error while parsing User Checksum Report frame : %s",
@@ -1899,6 +1910,16 @@ sl_status_t
                                   ATTRIBUTE(CREDENTIAL_CHECKSUM_MISMATCH_ERROR),
                                   checksum_calculator.compute_checksum(),
                                   credential_checksum);
+
+    if (result == SL_STATUS_OK) {
+      send_message_to_mqtt(SL_LOG_INFO,
+                           "Credential Checksum for " + cred_type_get_enum_value_name(credential_type)
+                             + " is correct.");
+    } else {
+      send_message_to_mqtt(SL_LOG_ERROR,
+                           "Mismatch Credential Checksum for "
+                             +  cred_type_get_enum_value_name(credential_type));
+    }
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
                  "Error while parsing Credential Checksum Report frame : %s",
