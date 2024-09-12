@@ -565,21 +565,10 @@ void test_user_credential_user_capabilities_report_happy_case()
 
     attribute_store_node_t all_user_checksum_node
       = cpp_endpoint_id_node.child_by_type(ATTRIBUTE(ALL_USERS_CHECKSUM));
-
-    if (support_all_users_checksum) {
-      TEST_ASSERT_NOT_EQUAL_MESSAGE(ATTRIBUTE_STORE_INVALID_NODE,
-                                    all_user_checksum_node,
-                                    "ALL_USERS_CHECKSUM node should exists "
-                                    "since all_user_checksum_node == true");
-    } else {
-      TEST_ASSERT_EQUAL_MESSAGE(ATTRIBUTE_STORE_INVALID_NODE,
-                                all_user_checksum_node,
-                                "ALL_USERS_CHECKSUM node should NOT exists "
-                                "since all_user_checksum_node == false");
-    }
-
-    // Remove node for next tests cases
-    attribute_store_delete_node(all_user_checksum_node);
+    TEST_ASSERT_EQUAL_MESSAGE(ATTRIBUTE_STORE_INVALID_NODE,
+                              all_user_checksum_node,
+                              "ALL_USERS_CHECKSUM node should NOT exists yet "
+                              "even if support_all_users_checksum == true");
   };
 
   printf("Test with first set of data\n");
@@ -702,27 +691,6 @@ void test_user_credential_credential_capabilities_report_happy_case()
                                                 cl_steps);
 
   test_report_values();
-}
-
-////////////////////////////////////////////////////////////////////////////
-// All User Checksum Get/Report
-////////////////////////////////////////////////////////////////////////////
-void test_user_credential_all_users_checksum_get_happy_case()
-{
-  helper_test_get_set_frame_happy_case(ALL_USERS_CHECKSUM_GET);
-}
-
-void test_user_credential_all_users_checksum_report_happy_case()
-{
-  user_credential_all_users_checksum_t expected_checksum = 0xABCD;
-
-  // Report frame
-  zwave_frame report_frame;
-  report_frame.add(expected_checksum);
-  helper_test_report_frame(ALL_USERS_CHECKSUM_REPORT, report_frame);
-
-  // Attribute store test
-  helper_test_attribute_value(ATTRIBUTE(ALL_USERS_CHECKSUM), expected_checksum);
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -903,6 +871,26 @@ void test_user_credential_user_report_happy_case()
   user_credential_user_name_encoding_t user_name_encoding             = 0;
   std::string user_name                                               = "DoUzE";
 
+  // Those functions are exposed and checks user values, so we need to setup the capabilities
+  uint16_t number_of_users                                       = 1312;
+  user_credential_supported_credential_rules_t cred_rule_bitmask = 0x0F;
+  uint8_t username_max_length                                    = 112;
+  uint8_t support_user_schedule                                  = 0;
+  uint8_t support_all_users_checksum
+    = 1;  // Used to check if the user checksum will be computed at the end
+  uint8_t support_user_checksum               = 0;
+  uint8_t supported_user_types_bitmask_length = 2;
+  user_credential_supported_user_type_bitmask_t supported_user_types_bitmask
+    = 0xFF;
+  helper_simulate_user_capabilites_report(number_of_users,
+                                          cred_rule_bitmask,
+                                          username_max_length,
+                                          support_user_schedule,
+                                          support_all_users_checksum,
+                                          support_user_checksum,
+                                          supported_user_types_bitmask_length,
+                                          supported_user_types_bitmask);
+
   auto test_user_values = [&](const attribute_store::attribute &user_node) {
     TEST_ASSERT_EQUAL_MESSAGE(
       user_id,
@@ -992,6 +980,11 @@ void test_user_credential_user_report_happy_case()
   auto second_user_id_node
     = cpp_endpoint_id_node.child_by_type(ATTRIBUTE(USER_UNIQUE_ID), 2);
 
+  TEST_ASSERT_FALSE_MESSAGE(
+    cpp_endpoint_id_node.child_by_type(ATTRIBUTE(ALL_USERS_CHECKSUM))
+      .is_valid(),
+    "ALL_USERS_CHECKSUM node should not be created yet");
+
   printf("Second and last user creation\n");
 
   TEST_ASSERT_EQUAL_MESSAGE(
@@ -1050,8 +1043,73 @@ void test_user_credential_user_report_happy_case()
     EXPECTED_SECOND_USER_ID,
     second_user_id_node.reported<user_credential_user_unique_id_t>(),
     "Second user id mismatch");
+
+  TEST_ASSERT_TRUE_MESSAGE(
+    cpp_endpoint_id_node.child_by_type(ATTRIBUTE(ALL_USERS_CHECKSUM))
+      .is_valid(),
+    "ALL_USERS_CHECKSUM node should be created");
 }
 
+void test_user_credential_no_all_users_checksum()
+{
+  user_credential_user_unique_id_t next_user_id                       = 0;
+  user_credential_modifier_type_t user_modifier_type                  = 2;
+  user_credential_modifier_node_id_t user_modifier_node_id            = 1313;
+  user_credential_user_unique_id_t user_id                            = 12;
+  user_credential_user_type_t user_type                               = 3;
+  user_credential_user_active_state_t user_active_state               = 1;
+  user_credential_supported_credential_rules_t credential_rule        = 2;
+  user_credential_expiring_timeout_minutes_t expiring_timeout_minutes = 1515;
+  user_credential_user_name_encoding_t user_name_encoding             = 0;
+  std::string user_name                                               = "DoUzE";
+
+  // Those functions are exposed and checks user values, so we need to setup the capabilities
+  uint16_t number_of_users                                       = 1312;
+  user_credential_supported_credential_rules_t cred_rule_bitmask = 0x0F;
+  uint8_t username_max_length                                    = 112;
+  uint8_t support_user_schedule                                  = 0;
+  uint8_t support_all_users_checksum
+    = 0;  // Used to check if the user checksum will be computed at the end
+  uint8_t support_user_checksum               = 0;
+  uint8_t supported_user_types_bitmask_length = 2;
+  user_credential_supported_user_type_bitmask_t supported_user_types_bitmask
+    = 0xFF;
+  helper_simulate_user_capabilites_report(number_of_users,
+                                          cred_rule_bitmask,
+                                          username_max_length,
+                                          support_user_schedule,
+                                          support_all_users_checksum,
+                                          support_user_checksum,
+                                          supported_user_types_bitmask_length,
+                                          supported_user_types_bitmask);
+
+  // Create first user
+  auto first_user_id_node
+    = cpp_endpoint_id_node.add_node(ATTRIBUTE(USER_UNIQUE_ID));
+  first_user_id_node.set_desired<user_credential_user_unique_id_t>(0);
+
+  zwave_frame get_frame;
+  get_frame.add(static_cast<user_credential_user_unique_id_t>(0));
+  helper_test_get_set_frame_happy_case(USER_GET, first_user_id_node, get_frame);
+
+  // Call report
+  helper_simulate_user_report_frame(0x04,
+                                    next_user_id,
+                                    user_modifier_type,
+                                    user_modifier_node_id,
+                                    user_id,
+                                    user_type,
+                                    user_active_state,
+                                    credential_rule,
+                                    expiring_timeout_minutes,
+                                    user_name_encoding,
+                                    user_name);
+
+  TEST_ASSERT_FALSE_MESSAGE(
+    cpp_endpoint_id_node.child_by_type(ATTRIBUTE(ALL_USERS_CHECKSUM))
+      .is_valid(),
+    "ALL_USERS_CHECKSUM node should not be created yet");
+}
 void test_user_credential_user_report_user_with_id0()
 {
   // User Report should have returned SL_STATUS_OK and ignore the frame
@@ -4081,5 +4139,74 @@ void test_get_credential_checksum_mismatch()
       "Mismatch checksum node should have been removed");
   }
 }
+
+////////////////////////////////////////////////////////////////////////////
+// All User Checksum Get/Report
+////////////////////////////////////////////////////////////////////////////
+void test_user_credential_all_users_checksum_get_happy_case()
+{
+  helper_test_get_set_frame_happy_case(ALL_USERS_CHECKSUM_GET);
+}
+
+void test_user_credential_all_users_checksum_report_no_users_happy_case()
+{
+  user_credential_all_users_checksum_t expected_checksum = 0x00;
+
+  // Report frame
+  zwave_frame report_frame;
+  report_frame.add(expected_checksum);
+  helper_test_report_frame(ALL_USERS_CHECKSUM_REPORT, report_frame);
+
+  // Attribute store test
+  helper_test_attribute_value(ATTRIBUTE(ALL_USERS_CHECKSUM), expected_checksum);
+}
+
+void test_user_credential_all_users_checksum_report_with_users_happy_case()
+{
+  user_credential_all_users_checksum_t expected_checksum = 0x57b9;
+
+  // Add 2 users and one with credentials
+  helper_simulate_user_report_frame(0x00,  // User Add
+                                    0,
+                                    0,
+                                    0,
+                                    12,
+                                    1,
+                                    1,
+                                    15,
+                                    0,
+                                    0,
+                                    "MICHEL");
+  helper_simulate_user_report_frame(0x00,  // User Add
+                                    0,
+                                    0,
+                                    0,
+                                    1312,
+                                    1,
+                                    1,
+                                    15,
+                                    0,
+                                    0,
+                                    "TURBO");
+  helper_simulate_credential_report_frame(0x00,  // Credential Add
+                                          12,
+                                          1,
+                                          1,
+                                          0,
+                                          string_to_uint8_vector("1234"),
+                                          0x02,
+                                          0,
+                                          0,
+                                          0);
+  // Report frame
+  zwave_frame report_frame;
+  report_frame.add(expected_checksum);
+  helper_test_report_frame(ALL_USERS_CHECKSUM_REPORT, report_frame);
+
+  // Attribute store test
+  helper_test_attribute_value(ATTRIBUTE(ALL_USERS_CHECKSUM), expected_checksum);
+}
+
+
 
 }  // extern "C"
