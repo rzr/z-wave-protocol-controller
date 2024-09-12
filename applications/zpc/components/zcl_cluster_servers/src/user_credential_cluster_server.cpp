@@ -548,6 +548,25 @@ sl_status_t uuic_association_set(dotdot_unid_t unid,
     destination_credential_slot);
 }
 
+sl_status_t get_all_users_checksum(dotdot_unid_t unid,
+                                  dotdot_endpoint_id_t endpoint,
+                                  uic_mqtt_dotdot_callback_call_type_t call_type)
+{
+  attribute_store_node_t endpoint_node
+    = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
+
+  // Now that we know that the command is supported, return here if it is
+  // a support check type of call.
+  if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
+    return zwave_command_class_user_credential_supports(endpoint_node,
+                                                        ALL_USERS_CHECKSUM_GET)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
+  }
+
+  return zwave_command_class_user_credential_get_all_users_checksum(endpoint_node);
+}
+
 sl_status_t get_user_checksum(dotdot_unid_t unid,
                               dotdot_endpoint_id_t endpoint,
                               uic_mqtt_dotdot_callback_call_type_t call_type,
@@ -1048,7 +1067,7 @@ void on_user_credential_message(sl_log_level_t log_level,
   nlohmann::json payload;
   payload["level"]        = log_level;
   payload["message"]      = message;
-  
+
   std::string payload_str = payload.dump();
   uic_mqtt_publish("ucl/Event", payload_str.c_str(), payload_str.length(), true);
 }
@@ -1113,5 +1132,8 @@ sl_status_t user_credential_cluster_server_init()
   // Credential Checksum
   uic_mqtt_dotdot_user_credential_get_credential_checksum_callback_set(
     &get_credential_checksum);
+  // All Users Checksum
+  uic_mqtt_dotdot_user_credential_get_all_users_checksum_callback_set(
+    &get_all_users_checksum);
   return SL_STATUS_OK;
 }

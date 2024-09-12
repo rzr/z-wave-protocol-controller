@@ -26,6 +26,7 @@ extern "C" {
 #include "attribute_store_defined_attribute_types.h"
 #include "zwave_command_class_association_types.h"
 #include "zap-types.h"
+#include "zwave_command_class_version_types.h"
 
 // ZPC Components
 #include "zpc_attribute_store_type_registration.h"
@@ -47,6 +48,9 @@ extern "C" {
 
 // Attribute macro, shortening those long defines for attribute types:
 #define ATTRIBUTE(type) ATTRIBUTE_COMMAND_CLASS_USER_CREDENTIAL_##type
+
+// Useful definitions
+attribute_store::attribute cpp_endpoint_node;
 
 // Header declarations
 void mock_deletion_user_mqtt_topic(user_credential_user_unique_id_t user_id);
@@ -86,6 +90,7 @@ uic_mqtt_dotdot_user_credential_credential_learn_stop_callback_t credential_lear
 uic_mqtt_dotdot_user_credential_credential_association_callback_t credential_association_command = NULL;
 uic_mqtt_dotdot_user_credential_get_user_checksum_callback_t get_user_checksum_command = NULL;
 uic_mqtt_dotdot_user_credential_get_credential_checksum_callback_t get_credential_checksum_command = NULL;
+uic_mqtt_dotdot_user_credential_get_all_users_checksum_callback_t get_all_users_checksum_command = NULL;
 // clang-format on
 
 // Stub functions for intercepting callback registration.
@@ -210,6 +215,15 @@ void uic_mqtt_dotdot_user_credential_get_credential_checksum_callback_set_stub(
   get_credential_checksum_command = callback;
 }
 
+void uic_mqtt_dotdot_user_credential_get_all_users_checksum_callback_set_stub(
+  const uic_mqtt_dotdot_user_credential_get_all_users_checksum_callback_t
+    callback,
+  int cmock_num_calls)
+{
+  get_all_users_checksum_command = callback;
+}
+
+
 /// Setup the test suite (called once before all test_xxx functions are called)
 void suiteSetUp()
 {
@@ -293,6 +307,7 @@ void setUp()
   uic_mqtt_dotdot_user_credential_get_user_checksum_callback_set_Stub(&uic_mqtt_dotdot_user_credential_get_user_checksum_callback_set_stub);
   // Credential checksum
   uic_mqtt_dotdot_user_credential_get_credential_checksum_callback_set_Stub(&uic_mqtt_dotdot_user_credential_get_credential_checksum_callback_set_stub);
+  uic_mqtt_dotdot_user_credential_get_all_users_checksum_callback_set_Stub(&uic_mqtt_dotdot_user_credential_get_all_users_checksum_callback_set_stub);
   // clang-format on
 
   // Run the component init
@@ -303,6 +318,17 @@ void setUp()
   setup_user_capabilities();
   // Need to call this after init() to have the mqtt callback initialized
   setup_cred_capabilities();
+
+  // Setup helper
+  cpp_endpoint_node = attribute_store::attribute(endpoint_id_node);
+}
+
+void set_version(zwave_cc_version_t version)
+{
+  // Set the version
+  cpp_endpoint_node
+    .emplace_node(ATTRIBUTE(VERSION))
+    .set_reported(version);
 }
 
 /////////////////////////////////////////////////////////////////////////
@@ -2351,6 +2377,57 @@ void test_user_credential_cluster_test_credential_checksum_happy_case()
     attribute_store_is_reported_defined(checksum_node),
     "Checksum node reported value should be not defined");
 }
+
+
+void test_user_credential_cluster_test_all_users_checksum_happy_case()
+{
+  set_version(1);
+
+  // Command not supported yet (default user capabilities SUPPORT_ALL_USERS_CHECKSUM set to 0)
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_FAIL,
+    get_all_users_checksum_command(supporting_node_unid,
+                                   endpoint_id,
+                                   UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK),
+    "Not supported yet since we are missing the capability");
+
+  cpp_endpoint_node.child_by_type(ATTRIBUTE(SUPPORT_ALL_USERS_CHECKSUM))
+    .set_reported<uint8_t>(1);
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    get_all_users_checksum_command(supporting_node_unid,
+                                   endpoint_id,
+                                   UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL),
+    "Should be able to setup attribute store for get_all_users_checksum");
+
+  auto checksum_node
+    = cpp_endpoint_node.child_by_type(ATTRIBUTE(ALL_USERS_CHECKSUM));
+
+  TEST_ASSERT_TRUE_MESSAGE(
+    checksum_node.is_valid(),
+    "All users checksum node should exists");
+
+  checksum_node.set_desired<uint16_t>(1312);
+  checksum_node.set_reported<uint16_t>(12);
+
+  // Try a second time to see if we clear the attributes
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    get_all_users_checksum_command(supporting_node_unid,
+                                   endpoint_id,
+                                   UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL),
+    "Should be able to setup attribute store for get_all_users_checksum");
+  
+  TEST_ASSERT_FALSE_MESSAGE(
+    checksum_node.desired_exists(),
+    "Checksum node desired value should NOT exists");
+
+  TEST_ASSERT_FALSE_MESSAGE(
+    checksum_node.reported_exists(),
+    "Checksum node reported value should NOT exists");
+}
+
 
 ///////////////////////////////////////////////////
 // Support tests

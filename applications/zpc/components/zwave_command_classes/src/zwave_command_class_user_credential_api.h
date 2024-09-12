@@ -344,6 +344,33 @@ sl_status_t zwave_command_class_user_credential_get_credential_checksum(
   attribute_store_node_t endpoint_node,
   user_credential_type_t credential_type);
 
+
+/**
+ * @brief Send a All Users Checksum Get command to the end device
+ * 
+ * @param endpoint_node The attribute store node of the endpoint where the user credential is located.
+ * 
+ * @return sl_status_t SL_STATUS_OK if the attribute store was updated successfully
+ * @return sl_status_t SL_STATUS_FAIL otherwise
+ */
+sl_status_t zwave_command_class_user_credential_get_all_users_checksum(
+  attribute_store_node_t endpoint_node);
+
+/**
+ * @brief Test if given command id is supported by the User Credential Command Class
+ * 
+ * It will perform a check first to see if given node is supporting the User Credential Command Class.
+ * If not it will return false.
+ * 
+ * @param endpoint_node The attribute store node of the endpoint where the user credential is located.
+ * @param command_id The command id to test
+ * 
+ * @return true if the command is supported
+ * @return false if the command is not supported
+ */
+bool zwave_command_class_user_credential_supports(
+  attribute_store_node_t endpoint_node, uint8_t command_id);
+
 #ifdef __cplusplus
 }
 #endif

@@ -41,7 +41,7 @@ user_capabilities::user_capabilities(attribute_store::attribute endpoint_node) {
     this->support_user_schedule
         = endpoint_node.child_by_type(ATTRIBUTE(SUPPORT_USER_SCHEDULE))
             .reported<uint8_t>();
-    this->support_all_user_checksum
+    this->support_all_users_checksum
         = endpoint_node.child_by_type(ATTRIBUTE(SUPPORT_ALL_USERS_CHECKSUM))
             .reported<uint8_t>();
     this->support_by_user_checksum
@@ -54,6 +54,7 @@ user_capabilities::user_capabilities(attribute_store::attribute endpoint_node) {
     sl_log_error(LOG_TAG,
                  "Something was wrong getting user capabilities : %s",
                  e.what());
+    attribute_store_log();
     this->is_data_valid = false;
   }
 }
@@ -114,6 +115,11 @@ bool user_capabilities::is_credential_rule_supported(
   user_credential_rule_t credential_rule) const
 {
   return (supported_credential_rules_bitmask & (1 << credential_rule));
+}
+
+bool user_capabilities::is_all_users_checksum_supported() const
+{
+  return support_all_users_checksum;
 }
 
 }  // namespace user_credential

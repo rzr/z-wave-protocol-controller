@@ -79,6 +79,13 @@ class user_capabilities
   bool
     is_credential_rule_supported(user_credential_rule_t credential_rule) const;
 
+  /**
+   * @brief Check if all users checksum is supported
+   * @return true All users checksum is supported
+   * @return false All users checksum is not supported
+   */
+  bool is_all_users_checksum_supported() const;
+
   private:
   // Maximum number of users that can be stored in the device
   uint16_t max_user_count = 0;
@@ -91,7 +98,7 @@ class user_capabilities
   // Device support for scheduling users
   uint8_t support_user_schedule = 0;
   // Device support for getting the checksum of all users
-  uint8_t support_all_user_checksum = 0;
+  uint8_t support_all_users_checksum = 0;
   // Device support for getting the checksum of a specific user
   uint8_t support_by_user_checksum = 0;
 

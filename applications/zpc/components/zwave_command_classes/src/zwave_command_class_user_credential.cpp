@@ -198,23 +198,13 @@ sl_status_t zwave_command_class_user_credential_user_capabilities_handle_report(
     parser.read_byte(
       endpoint_node.emplace_node(ATTRIBUTE(MAX_USERNAME_LENGTH)));
 
-    constexpr uint8_t SUPPORT_ALL_USERS_CHECKSUM_BITMASK
-      = USER_CAPABILITIES_REPORT_PROPERTIES1_ALL_USERS_CHECKSUM_SUPPORT_BIT_MASK;
-    auto support_bits = parser.read_byte_with_bitmask(
+    parser.read_byte_with_bitmask(
       {{USER_CAPABILITIES_REPORT_PROPERTIES1_USER_SCHEDULE_SUPPORT_BIT_MASK,
         endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_USER_SCHEDULE))},
-       {SUPPORT_ALL_USERS_CHECKSUM_BITMASK,
+       {USER_CAPABILITIES_REPORT_PROPERTIES1_ALL_USERS_CHECKSUM_SUPPORT_BIT_MASK,
         endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_ALL_USERS_CHECKSUM))},
        {USER_CAPABILITIES_REPORT_PROPERTIES1_USER_CHECKSUM_SUPPORT_BIT_MASK,
         endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_USER_CHECKSUM))}});
-
-    // SUPPORT_ALL_USERS_CHECKSUM support
-    if (support_bits[SUPPORT_ALL_USERS_CHECKSUM_BITMASK]) {
-      sl_log_debug(LOG_TAG,
-                   "SUPPORT_ALL_USERS_CHECKSUM is set, sending All Users "
-                   "Checksum Get Command");
-      endpoint_node.emplace_node(ATTRIBUTE(ALL_USERS_CHECKSUM));
-    }
 
     parser.read_bitmask(
       endpoint_node.emplace_node(ATTRIBUTE(SUPPORTED_USER_TYPES)));
@@ -360,10 +350,64 @@ sl_status_t
 /////////////////////////////////////////////////////////////////////////////
 // All User Checksum Get/Report
 /////////////////////////////////////////////////////////////////////////////
+
+/**
+ * @brief Add given user node to the checksum calculator
+ * 
+ * @param user_node User node
+ * @param checksum_calculator Checksum calculator
+ * @param include_user_identifier Include the user identifier in the checksum (used in ALL_USERS_CHECKSUM)
+ */
+void add_user_node_to_checksum(
+  const attribute_store::attribute &user_node,
+  user_credential::checksum_calculator &checksum_calculator,
+  bool include_user_identifier = false)
+{
+  // Check if we need to add the identifier to the checksum calculation
+  if (include_user_identifier) {
+    checksum_calculator.add_node(user_node);
+  }
+
+  // Gather all the User values
+  const std::vector<attribute_store_type_t> user_attributes = {
+    ATTRIBUTE(USER_TYPE),
+    ATTRIBUTE(USER_ACTIVE_STATE),
+    ATTRIBUTE(CREDENTIAL_RULE),
+    ATTRIBUTE(USER_NAME_ENCODING),
+    ATTRIBUTE(USER_NAME),
+  };
+
+  for (auto attribute: user_attributes) {
+    checksum_calculator.add_node(user_node.child_by_type(attribute));
+  }
+
+  // The all credential data
+  for (auto credential_type_node:
+       user_node.children(ATTRIBUTE(CREDENTIAL_TYPE))) {
+    for (auto credential_slot_node:
+         credential_type_node.children(ATTRIBUTE(CREDENTIAL_SLOT))) {
+      if (!credential_slot_node.reported_exists()) {
+        sl_log_debug(
+          LOG_TAG,
+          "%d reported value is not defined. Not adding to checksum.",
+          credential_slot_node.value_to_string());
+        continue;
+      }
+
+      // Add credential type to checksum
+      checksum_calculator.add_node(credential_type_node);
+      // Add credential slot to checksum
+      checksum_calculator.add_node(credential_slot_node);
+      checksum_calculator.add_node(
+        credential_slot_node.child_by_type(ATTRIBUTE(CREDENTIAL_DATA)));
+    }
+  }
+}
+
 static sl_status_t zwave_command_class_user_credential_all_user_checksum_get(
   attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
 {
-  sl_log_debug(LOG_TAG, "All User Checksum Get");
+  sl_log_debug(LOG_TAG, "All Users Checksum Get");
 
   return frame_generator.generate_no_args_frame(ALL_USERS_CHECKSUM_GET,
                                                 frame,
@@ -375,6 +419,7 @@ sl_status_t zwave_command_class_user_credential_all_user_checksum_handle_report(
   const uint8_t *frame_data,
   uint16_t frame_length)
 {
+ sl_log_debug(LOG_TAG, "All Users Checksum Report");
   constexpr uint8_t expected_size = sizeof(ZW_ALL_USERS_CHECKSUM_REPORT_FRAME);
 
   attribute_store::attribute endpoint_node
@@ -389,10 +434,35 @@ sl_status_t zwave_command_class_user_credential_all_user_checksum_handle_report(
       return SL_STATUS_NOT_SUPPORTED;
     }
 
-    parser.read_sequential<uint16_t>(
+    auto received_checksum = parser.read_sequential<user_credential_checksum_t>(
       2,
       endpoint_node.emplace_node(ATTRIBUTE(ALL_USERS_CHECKSUM)));
 
+    // Create the checksum calculator
+    user_credential::checksum_calculator checksum_calculator;
+
+    // Add all user nodes to the checksum
+    for (auto user_node: endpoint_node.children(ATTRIBUTE(USER_UNIQUE_ID))) {
+      // Ignore user node 0
+      if (user_node.reported_exists()
+          && user_node.reported<user_credential_user_unique_id_t>() == 0) {
+        continue;
+      }
+      add_user_node_to_checksum(user_node, checksum_calculator, true);
+    }
+
+    // Compute the checksum
+    auto computed_checksum = checksum_calculator.compute_checksum();
+    if (computed_checksum != received_checksum) {
+      auto message
+        = boost::format(
+            "All Users Checksum mismatch. Received %1$#x but computed %2$#x")
+          % received_checksum % computed_checksum;
+      send_message_to_mqtt(SL_LOG_ERROR, message.str());
+      return SL_STATUS_FAIL;
+    } else {
+      send_message_to_mqtt(SL_LOG_INFO, "All Users Checksum match.");
+    }
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
                  "Error while parsing All User Checksum Report frame : %s",
@@ -1612,8 +1682,14 @@ sl_status_t zwave_command_class_user_credential_user_handle_report(
       }
     } else {
       sl_log_debug(LOG_TAG, "No more users to discover");
+      // Check if we supports all users checksum to compute it
+      user_credential::user_capabilities capabilities(endpoint_node);
+      if (capabilities.is_all_users_checksum_supported()) {
+        // This will do nothing if the node already exists
+        // Otherwise it will trigger all_users_checksum_get
+        endpoint_node.emplace_node(ATTRIBUTE(ALL_USERS_CHECKSUM));
+      }
     }
-
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
                  "Error while parsing User Report frame : %s",
@@ -1740,41 +1816,8 @@ sl_status_t zwave_command_class_user_credential_user_checksum_handle_report(
 
     // Compute checksum ourselves to see if it matches
     user_credential::checksum_calculator checksum_calculator;
-
-    // First gather all the User values
-    const std::vector<attribute_store_type_t> user_attributes = {
-      ATTRIBUTE(USER_TYPE),
-      ATTRIBUTE(USER_ACTIVE_STATE),
-      ATTRIBUTE(CREDENTIAL_RULE),
-      ATTRIBUTE(USER_NAME_ENCODING),
-      ATTRIBUTE(USER_NAME),
-    };
-    for (auto attribute: user_attributes) {
-      checksum_calculator.add_node(user_node.child_by_type(attribute));
-    }
-
-    // The all credential data
-    for (auto credential_type_node:
-         user_node.children(ATTRIBUTE(CREDENTIAL_TYPE))) {
-      for (auto credential_slot_node:
-           credential_type_node.children(ATTRIBUTE(CREDENTIAL_SLOT))) {
-        if (!credential_slot_node.reported_exists()) {
-          sl_log_debug(
-            LOG_TAG,
-            "%d reported value is not defined. Not adding to checksum.",
-            credential_slot_node.value_to_string());
-          continue;
-        }
-
-        // Add credential type to checksum
-        checksum_calculator.add_node(credential_type_node);
-        // Add credential slot to checksum
-        checksum_calculator.add_node(credential_slot_node);
-        checksum_calculator.add_node(
-          credential_slot_node.child_by_type(ATTRIBUTE(CREDENTIAL_DATA)));
-      }
-    }
-
+    add_user_node_to_checksum(user_node, checksum_calculator);
+   
     result = check_checksum_value(user_node,
                                   ATTRIBUTE(USER_CHECKSUM_MISMATCH_ERROR),
                                   checksum_calculator.compute_checksum(),

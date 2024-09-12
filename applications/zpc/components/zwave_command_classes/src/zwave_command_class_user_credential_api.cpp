@@ -762,3 +762,46 @@ sl_status_t zwave_command_class_user_credential_get_credential_checksum(
 
   return SL_STATUS_OK;
 }
+
+sl_status_t zwave_command_class_user_credential_get_all_users_checksum(
+  attribute_store_node_t endpoint_node)
+{
+  try {
+    attribute_store::attribute cpp_endpoint_node(endpoint_node);
+    auto checksum_node
+      = cpp_endpoint_node.emplace_node(ATTRIBUTE(ALL_USERS_CHECKSUM));
+    checksum_node.clear_reported();
+    checksum_node.clear_desired();
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while setting up get all users checksum : %s",
+                 e.what());
+    return SL_STATUS_FAIL;
+  }
+
+  return SL_STATUS_OK;
+}
+
+bool zwave_command_class_user_credential_supports(
+  attribute_store_node_t endpoint_node, uint8_t command_id)
+{ 
+  // Checks first if the node supports User Credential
+  auto cpp_endpoint_node = attribute_store::attribute(endpoint_node);
+  if (!cpp_endpoint_node.child_by_type(ATTRIBUTE(VERSION)).is_valid()) {
+    return false;
+  }
+  
+  user_credential::user_capabilities user_capabilities(endpoint_node);
+  //user_credential::credential_capabilities credential_capabilities(endpoint_node);
+
+  switch(command_id) {
+    case ALL_USERS_CHECKSUM_GET:
+      return user_capabilities.is_all_users_checksum_supported();
+    default:
+      sl_log_critical(
+        LOG_TAG,
+        "Unknown command %d in zwave_command_class_user_credential_supports",
+        command_id);
+      return false;
+  }
+}
