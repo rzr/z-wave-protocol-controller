@@ -19,10 +19,8 @@
 // User credential types
 #include "zwave_command_class_user_credential_types.h"
 
-// Cpp
+// Unify Cpp
 #include "attribute.hpp"
-
-
 #include "user_credential_definitions.hpp"
 
 namespace user_credential_helpers
@@ -254,5 +252,30 @@ credential_id_nodes get_credential_identifier_nodes(
   identifier_state<user_credential_type_t> credential_type,
   identifier_state<user_credential_slot_t> credential_slot);
 
-}  // namespace user_credential
+/**
+ * @brief Return true if given admin pin code is considered empty
+ * 
+ * We need this function since the attribute store doesn't support empty vector.
+ *
+ * @param admin_pin_code Admin pin code
+ * 
+ * @return true Admin pin code is empty
+ * @return false Admin pin code is not empty
+ */
+bool is_admin_code_empty(const std::vector<uint8_t>& admin_pin_code);
+/**
+ * @brief Set the admin pin code node to an empty value
+ * 
+ * We need this function since the attribute store doesn't support empty vector.
+ * 
+ * @param admin_pin_code_node Admin pin code node
+ * @param state State (REPORTED or DESIRED)
+ * 
+ * @throws std::runtime_error If admin_pin_code_node is not valid
+ */
+void set_empty_admin_code(attribute_store::attribute &admin_pin_code_node,
+                          attribute_store_node_value_state_t state);
+
+}  // namespace user_credential_helpers
+
 #endif  // USER_CREDENTIAL_HELPERS_H
