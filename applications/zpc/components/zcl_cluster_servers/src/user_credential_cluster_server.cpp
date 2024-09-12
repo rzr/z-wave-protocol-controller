@@ -615,6 +615,51 @@ sl_status_t
     credential_type);
 }
 
+sl_status_t admin_pin_code_set(dotdot_unid_t unid,
+                               dotdot_endpoint_id_t endpoint,
+                               uic_mqtt_dotdot_callback_call_type_t call_type,
+                               const char *credential_data)
+{
+  attribute_store_node_t endpoint_node
+    = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
+
+  // Now that we know that the command is supported, return here if it is
+  // a support check type of call.
+  if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
+    return zwave_command_class_user_credential_supports(endpoint_node,
+                                                        ADMIN_PIN_CODE_SET)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
+  }
+
+  return zwave_command_class_user_credential_set_admin_pin_code(
+    endpoint_node,
+    credential_data);
+}
+
+sl_status_t
+  admin_pin_code_deactivate(dotdot_unid_t unid,
+                            dotdot_endpoint_id_t endpoint,
+                            uic_mqtt_dotdot_callback_call_type_t call_type)
+{
+  attribute_store_node_t endpoint_node
+    = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
+
+  // Now that we know that the command is supported, return here if it is
+  // a support check type of call.
+  if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
+    return (zwave_command_class_user_credential_supports(endpoint_node,
+                                                         ADMIN_PIN_CODE_SET)
+            && zwave_command_class_user_credential_supports_admin_pin_code_deactivation(
+              endpoint_node))
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
+  }
+
+  return zwave_command_class_user_credential_set_admin_pin_code(endpoint_node,
+                                                                "");
+};
+
 ///////////////////////////////////////////////////////////////////////////////
 // Helpers functions
 //////////////////////////////////////////////////////////////////////////////
@@ -631,6 +676,35 @@ void register_attributes_to_mqtt_map(
   }
   if (status != SL_STATUS_OK) {
     sl_log_error(LOG_TAG, "Failed to register callbacks for User Credential");
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Callbacks
+//////////////////////////////////////////////////////////////////////////////
+void on_admin_pin_code_update(attribute_store_node_t updated_node,
+                              attribute_store_change_t change)
+{
+  if (change != ATTRIBUTE_UPDATED) {
+    return;
+  }
+
+  attribute_store::attribute admin_pin_code_node(updated_node);
+  if (!admin_pin_code_node.reported_exists()) {
+    return;
+  }
+
+  auto raw_pin_code = admin_pin_code_node.reported<std::vector<uint8_t>>();
+  std::string pin_code_str(raw_pin_code.begin(), raw_pin_code.end());
+
+  try {
+    admin_pin_code_node.first_parent(ATTRIBUTE_ENDPOINT_ID)
+      .emplace_node(DOTDOT_ATTRIBUTE_ID_USER_CREDENTIAL_ADMIN_PIN_CODE)
+      .set_reported(pin_code_str);
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while updating ZLC Admin Pin Code attribute : %s",
+                 e.what());
   }
 }
 
@@ -1135,5 +1209,17 @@ sl_status_t user_credential_cluster_server_init()
   // All Users Checksum
   uic_mqtt_dotdot_user_credential_get_all_users_checksum_callback_set(
     &get_all_users_checksum);
+  // Admin PIN code
+  uic_mqtt_dotdot_user_credential_set_admin_pin_code_callback_set(
+    &admin_pin_code_set);
+  uic_mqtt_dotdot_user_credential_deactivate_admin_pin_code_callback_set(
+    &admin_pin_code_deactivate);  
+
+  // Types that can't be mapped with UAM
+  attribute_store_register_callback_by_type_and_state(
+    &on_admin_pin_code_update,
+    ATTRIBUTE(ADMIN_PIN_CODE),
+    REPORTED_ATTRIBUTE);
+
   return SL_STATUS_OK;
 }

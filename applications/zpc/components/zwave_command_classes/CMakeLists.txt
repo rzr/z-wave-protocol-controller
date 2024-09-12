@@ -68,7 +68,9 @@ add_library(
   src/zwave_command_class_protocol.c
   src/private/user_credential/user_credential_user_capabilities.cpp
   src/private/user_credential/user_credential_credential_capabilities.cpp
+  src/private/user_credential/user_credential_credential_type_capabilities.cpp
   src/private/user_credential/user_credential_checksum_calculator.cpp
+  src/private/user_credential/user_credential_helpers.cpp
 )
 install(TARGETS zwave_command_classes LIBRARY DESTINATION lib)
 

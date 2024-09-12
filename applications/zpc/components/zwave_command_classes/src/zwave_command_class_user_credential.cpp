@@ -53,6 +53,7 @@
 #include "private/user_credential/user_credential_definitions.hpp"
 #include "private/user_credential/user_credential_user_capabilities.h"
 #include "private/user_credential/user_credential_credential_capabilities.h"
+#include "private/user_credential/user_credential_credential_type_capabilities.h"
 #include "private/user_credential/user_credential_checksum_calculator.h"
 #include "private/user_credential/user_credential_helpers.hpp"
 
@@ -75,9 +76,11 @@ namespace
 zwave_frame_generator frame_generator(COMMAND_CLASS_USER_CREDENTIAL);
 
 // Callbacks
-std::set<user_credential_slot_changed_callback_t> user_credential_slot_changed_callback;
-std::set<user_credential_slot_message_callback_t> user_credential_slot_message_callback;
-}
+std::set<user_credential_slot_changed_callback_t>
+  user_credential_slot_changed_callback;
+std::set<user_credential_slot_message_callback_t>
+  user_credential_slot_message_callback;
+}  // namespace
 
 /////////////////////////////////////////////////////////////////////////////
 // Callbacks
@@ -114,7 +117,9 @@ void send_message_to_mqtt(sl_log_level level, const std::string &message)
 /////////////////////////////////////////////////////////////////////////////
 // Helpers
 /////////////////////////////////////////////////////////////////////////////
-std::string get_credential_type_debug_str(user_credential_type_t credential_type) {
+std::string
+  get_credential_type_debug_str(user_credential_type_t credential_type)
+{
   auto fmt = boost::format("Credential Type %1% (%2%)")
              % cred_type_get_enum_value_name(credential_type)
              % static_cast<unsigned int>(credential_type);
@@ -257,10 +262,17 @@ sl_status_t
       return SL_STATUS_FAIL;
     }
 
-    // TODO: Add admin code support
-    parser.read_byte_with_bitmask(
+    const uint8_t support_admin_code_bitmask = 0x40;
+    auto result = parser.read_byte_with_bitmask(
       {{CREDENTIAL_CAPABILITIES_REPORT_PROPERTIES1_CREDENTIAL_CHECKSUM_SUPPORT_BIT_MASK,
-        endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM))}});
+        endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM))},
+       {support_admin_code_bitmask, endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_ADMIN_PIN_CODE))},
+       {0x20,
+        endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_ADMIN_PIN_CODE_DEACTIVATION))}});
+
+    if (result[support_admin_code_bitmask]) {
+      endpoint_node.emplace_node(ATTRIBUTE(ADMIN_PIN_CODE));
+    }
 
     uint8_t supported_credential_types_count = parser.read_byte();
 
@@ -419,7 +431,7 @@ sl_status_t zwave_command_class_user_credential_all_user_checksum_handle_report(
   const uint8_t *frame_data,
   uint16_t frame_length)
 {
- sl_log_debug(LOG_TAG, "All Users Checksum Report");
+  sl_log_debug(LOG_TAG, "All Users Checksum Report");
   constexpr uint8_t expected_size = sizeof(ZW_ALL_USERS_CHECKSUM_REPORT_FRAME);
 
   attribute_store::attribute endpoint_node
@@ -800,9 +812,9 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
       case credential_report_type_t::CREDENTIAL_UNCHANGED:
         send_message_to_mqtt(SL_LOG_INFO,
                              "Credential Unchanged. Type "
-                             + get_credential_type_debug_str(credential_type)
-                             + ", Slot " + std::to_string(credential_slot)
-                             + " (User " + std::to_string(user_id) + ")");
+                               + get_credential_type_debug_str(credential_type)
+                               + ", Slot " + std::to_string(credential_slot)
+                               + " (User " + std::to_string(user_id) + ")");
         return SL_STATUS_OK;
       // Update desired value if found, otherwise create the nodes
       case credential_report_type_t::RESPONSE_TO_GET:
@@ -826,7 +838,8 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
             return SL_STATUS_OK;
           } else {
             sl_log_debug(LOG_TAG,
-                         "First credential : Updating credential type and slot for user %d",
+                         "First credential : Updating credential type and slot "
+                         "for user %d",
                          user_id);
             credential_type_node.set_reported(credential_type);
             credential_slot_node.clear_desired();
@@ -1114,7 +1127,7 @@ sl_status_t zwave_command_class_user_credential_credential_learn_status_report(
       {credential_slot, DESIRED_OR_REPORTED_ATTRIBUTE});
 
     // Get operation type so we can handle error cases
-    // We use desired or reported here since it can be set to reported by the 
+    // We use desired or reported here since it can be set to reported by the
     // supervision process.
     auto operation_type
       = credential_id_nodes.slot_node
@@ -1273,11 +1286,17 @@ sl_status_t zwave_command_class_user_credential_uuic_association_report(
 
     sl_log_debug(LOG_TAG,
                  "User Unique Identifier Credential Association Report.");
-    sl_log_debug(LOG_TAG,"\tSource User ID: %d", source_user_id);
-    sl_log_debug(LOG_TAG,"\tSource Credential Type: %d", source_credential_type);
-    sl_log_debug(LOG_TAG,"\tSource Credential Slot: %d", source_credential_slot);
-    sl_log_debug(LOG_TAG,"\tDestination User ID: %d", destination_user_id);
-    sl_log_debug(LOG_TAG,"\tDestination Credential Slot: %d", destination_credential_slot);
+    sl_log_debug(LOG_TAG, "\tSource User ID: %d", source_user_id);
+    sl_log_debug(LOG_TAG,
+                 "\tSource Credential Type: %d",
+                 source_credential_type);
+    sl_log_debug(LOG_TAG,
+                 "\tSource Credential Slot: %d",
+                 source_credential_slot);
+    sl_log_debug(LOG_TAG, "\tDestination User ID: %d", destination_user_id);
+    sl_log_debug(LOG_TAG,
+                 "\tDestination Credential Slot: %d",
+                 destination_credential_slot);
 
     // Get nodes
     auto source_credential_nodes = get_credential_identifier_nodes(
@@ -1302,9 +1321,11 @@ sl_status_t zwave_command_class_user_credential_uuic_association_report(
     // If something went wrong end device side, log the error and return
     // This should handle the slot already taken case
     if (association_status != USER_CREDENTIAL_ASSOCIATION_REPORT_SUCCESS) {
-      send_message_to_mqtt(SL_LOG_ERROR,
-                           "User Unique Identifier Credential Association error. "
-                           "Reported status code : " + std::to_string(association_status));
+      send_message_to_mqtt(
+        SL_LOG_ERROR,
+        "User Unique Identifier Credential Association error. "
+        "Reported status code : "
+          + std::to_string(association_status));
       return SL_STATUS_OK;
     }
 
@@ -1318,7 +1339,7 @@ sl_status_t zwave_command_class_user_credential_uuic_association_report(
         .str());
 
     source_credential_slot_node.set_reported(destination_credential_slot);
-    
+
     // Need to move to new user
     if (destination_user_id != source_user_id) {
       sl_log_debug(LOG_TAG, "Moving slot to new user");
@@ -1817,7 +1838,7 @@ sl_status_t zwave_command_class_user_credential_user_checksum_handle_report(
     // Compute checksum ourselves to see if it matches
     user_credential::checksum_calculator checksum_calculator;
     add_user_node_to_checksum(user_node, checksum_calculator);
-   
+
     result = check_checksum_value(user_node,
                                   ATTRIBUTE(USER_CHECKSUM_MISMATCH_ERROR),
                                   checksum_calculator.compute_checksum(),
@@ -1959,12 +1980,13 @@ sl_status_t
 
     if (result == SL_STATUS_OK) {
       send_message_to_mqtt(SL_LOG_INFO,
-                           "Credential Checksum for " + cred_type_get_enum_value_name(credential_type)
+                           "Credential Checksum for "
+                             + cred_type_get_enum_value_name(credential_type)
                              + " is correct.");
     } else {
       send_message_to_mqtt(SL_LOG_ERROR,
                            "Mismatch Credential Checksum for "
-                             +  cred_type_get_enum_value_name(credential_type));
+                             + cred_type_get_enum_value_name(credential_type));
     }
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
@@ -1974,6 +1996,177 @@ sl_status_t
   }
 
   return result;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// Admin code Set/Get/Report
+/////////////////////////////////////////////////////////////////////////////
+static sl_status_t zwave_command_class_user_credential_admin_pin_code_set(
+  attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
+{
+  sl_log_debug(LOG_TAG, "Admin PIN Code Set");
+
+  try {
+    // Node setup
+    attribute_store::attribute admin_pin_code_node(node);
+
+    // Get Values
+    std::vector<uint8_t> admin_pin_code
+      = admin_pin_code_node.desired<std::vector<uint8_t>>();
+
+    // This represents the case where the admin pin code is empty
+    // We need this workaround because attribute store doesn't support empty values as
+    // they are treated as non existing
+    if (is_admin_code_empty(admin_pin_code)) {
+      admin_pin_code.clear();
+    }
+
+    user_credential::credential_capabilities credential_capabilities(
+      admin_pin_code_node.first_parent(ATTRIBUTE_ENDPOINT_ID));
+
+    if (admin_pin_code.empty()
+        && !credential_capabilities.has_admin_code_deactivation_support()) {
+      send_message_to_mqtt(SL_LOG_ERROR,
+                           "Admin PIN code is empty and the device doesn't "
+                           "support deactivation. Not sending Admin PIN code.");
+      return SL_STATUS_NOT_SUPPORTED;
+    }
+
+    // 2 for header
+    // 1 for length
+    const uint8_t admin_code_size = static_cast<uint8_t>(admin_pin_code.size());
+    const uint8_t expected_frame_size = admin_code_size + 3;
+
+    // Creating the frame
+    frame_generator.initialize_frame(ADMIN_PIN_CODE_SET,
+                                     frame,
+                                     expected_frame_size);
+    
+    // In every case we add 0 to the frame
+    frame_generator.add_raw_byte(admin_code_size);
+
+    // Do not add anything to the frame if the admin pin code is empty
+    if (!admin_pin_code.empty()) {
+      frame_generator.add_value(admin_pin_code_node,
+                                DESIRED_OR_REPORTED_ATTRIBUTE);
+    }
+
+    frame_generator.validate_frame(frame_length);
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while generating Admin PIN Code frame : %s",
+                 e.what());
+    return SL_STATUS_NOT_SUPPORTED;
+  }
+  return SL_STATUS_OK;
+}
+
+static sl_status_t zwave_command_class_user_credential_admin_pin_code_get(
+  attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
+{
+  sl_log_debug(LOG_TAG, "Admin PIN Code Get");
+  // No definition yet for ADMIN_PIN_CODE_GET we use raw value
+  return frame_generator.generate_no_args_frame(ADMIN_PIN_CODE_GET, frame, frame_length);
+}
+
+sl_status_t zwave_command_class_user_credential_admin_pin_code_handle_report(
+  const zwave_controller_connection_info_t *connection_info,
+  const uint8_t *frame_data,
+  uint16_t frame_length)
+{
+  sl_log_debug(LOG_TAG, "Admin PIN Code Report");
+
+  attribute_store::attribute endpoint_node(
+    zwave_command_class_get_endpoint_node(connection_info));
+
+  const uint8_t min_size = 3;
+
+  try {
+    zwave_frame_parser parser(frame_data, frame_length);
+    // 0xF since the size of the Admin PIN code is on 4 bits
+    if (!parser.is_frame_size_valid(min_size, min_size + 0xF)) {
+      sl_log_error(LOG_TAG,
+                   "Invalid frame size for Admin PIN Code Report frame");
+      return SL_STATUS_FAIL;
+    }
+
+    // Parse the frame
+    constexpr uint8_t admin_code_op_result_bitmask = 0b11110000;
+    constexpr uint8_t admin_code_length_bitmask    = 0b00001111;
+    // First parse the code size and operation result
+    auto result = parser.read_byte_with_bitmask({
+      {admin_code_op_result_bitmask,
+       endpoint_node.emplace_node(ATTRIBUTE(ADMIN_PIN_CODE_OPERATION_RESULT))},
+      {admin_code_length_bitmask}});
+
+    auto admin_code_op_result = result[admin_code_op_result_bitmask];
+    switch (admin_code_op_result) {
+      case ADMIN_PIN_CODE_REPORT_MODIFIED:  // Modified
+        break;
+      case ADMIN_PIN_CODE_REPORT_UNMODIFIED:  // Unmodified
+        send_message_to_mqtt(SL_LOG_INFO, "Admin PIN code is unchanged.");
+        break;
+      case ADMIN_PIN_CODE_REPORT_RESPONSE_TO_GET:  // Response to get
+        break;
+      case ADMIN_PIN_CODE_REPORT_DUPLICATE_CREDENTIAL:  // Duplicate Credential
+        send_message_to_mqtt(SL_LOG_ERROR,
+                             "Admin Code was not modified - a duplicate PIN "
+                             "code exists in the Credential database.");
+        break;
+      case ADMIN_PIN_CODE_REPORT_MANUFACTURER_SECURITY_RULE:  // Manufacturer Security Rule
+        send_message_to_mqtt(SL_LOG_ERROR,
+                             "Admin Code was not modified as the provided code "
+                             "fails a manufacturer security rule");
+        break;
+      case ADMIN_PIN_CODE_REPORT_NOT_SUPPORTED:  // Admin Code not supported
+        send_message_to_mqtt(SL_LOG_ERROR,
+                             "Admin Code was not modified as the device does "
+                             "not support Admin Code functionality.");
+        break;
+      case ADMIN_PIN_CODE_REPORT_DEACTIVATION_NOT_SUPPORTED:  // Admin Code Deactivation not supported
+        send_message_to_mqtt(
+          SL_LOG_ERROR,
+          "Admin Code was not modified as the device does "
+          "not support Admin Code deactivation functionality.");
+        break;
+      case ADMIN_PIN_CODE_REPORT_UNSPECIFIED_ERROR:  // Unspecified Node Error
+        send_message_to_mqtt(
+          SL_LOG_ERROR,
+          "Unknown issue with Get/Set Admin Code operation.");
+        break;
+      default:
+        send_message_to_mqtt(SL_LOG_ERROR,
+                             "Admin PIN Code unknown Operation Result.");
+        return SL_STATUS_FAIL;
+    }
+
+    // Modified or Response to get
+    if (admin_code_op_result == ADMIN_PIN_CODE_REPORT_RESPONSE_TO_GET
+        || admin_code_op_result == ADMIN_PIN_CODE_REPORT_MODIFIED) {
+      auto admin_code_size = result[admin_code_length_bitmask];
+      sl_log_debug(LOG_TAG, "Admin PIN Code size : %d", admin_code_size);
+
+      auto admin_pin_code_node
+        = endpoint_node.emplace_node(ATTRIBUTE(ADMIN_PIN_CODE));
+
+      if (admin_code_size != 0) {
+        parser.read_sequential<std::vector<uint8_t>>(admin_code_size,
+                                                     admin_pin_code_node);
+      } else {
+        // Since set an empty vector is not supported we delete the node
+        sl_log_debug(LOG_TAG, "Admin PIN Code is empty.");
+        set_empty_admin_code(admin_pin_code_node, REPORTED_ATTRIBUTE);
+      }
+    }
+
+    return SL_STATUS_OK;
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while parsing Admin Pin Report frame : %s",
+                 e.what());
+    return SL_STATUS_FAIL;
+  }
+  return SL_STATUS_OK;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -2101,6 +2294,11 @@ sl_status_t zwave_command_class_user_credential_control_handler(
         connection_info,
         frame_data,
         frame_length);
+    case 0x1C:  // ADMIN_PIN_CODE_REPORT
+      return zwave_command_class_user_credential_admin_pin_code_handle_report(
+        connection_info,
+        frame_data,
+        frame_length);
     default:
       return SL_STATUS_NOT_SUPPORTED;
   }
@@ -2172,6 +2370,11 @@ sl_status_t zwave_command_class_user_credential_init()
     ATTRIBUTE(CREDENTIAL_CHECKSUM),
     NULL,
     &zwave_command_class_user_credential_credential_checksum_get);
+
+  attribute_resolver_register_rule(
+    ATTRIBUTE(ADMIN_PIN_CODE),
+    &zwave_command_class_user_credential_admin_pin_code_set,
+    &zwave_command_class_user_credential_admin_pin_code_get);
 
   // https://github.com/Z-Wave-Alliance/AWG/pull/124#discussion_r1484473752
   // Discussion about delaying the user interview process after the inclusion

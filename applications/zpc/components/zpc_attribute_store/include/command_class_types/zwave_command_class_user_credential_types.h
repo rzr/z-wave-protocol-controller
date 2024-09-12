@@ -88,6 +88,21 @@ typedef struct user_credential_credential_identifier {
   user_credential_slot_t credential_slot;
 } user_credential_credential_identifier_t;
 
+///> Missing definitions
+// Admin PIN Code
+#define ADMIN_PIN_CODE_SET 0x1A
+#define ADMIN_PIN_CODE_GET 0x1B
+#define ADMIN_PIN_CODE_REPORT 0x1C
+// Admin PIN Code Report
+#define ADMIN_PIN_CODE_REPORT_MODIFIED 0x01
+#define ADMIN_PIN_CODE_REPORT_UNMODIFIED 0x03
+#define ADMIN_PIN_CODE_REPORT_RESPONSE_TO_GET 0x04
+#define ADMIN_PIN_CODE_REPORT_DUPLICATE_CREDENTIAL 0x07
+#define ADMIN_PIN_CODE_REPORT_MANUFACTURER_SECURITY_RULE 0x08
+#define ADMIN_PIN_CODE_REPORT_NOT_SUPPORTED 0x0D
+#define ADMIN_PIN_CODE_REPORT_DEACTIVATION_NOT_SUPPORTED 0x0E
+#define ADMIN_PIN_CODE_REPORT_UNSPECIFIED_ERROR 0x0F
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -16,11 +16,6 @@
 // Get attribute store names
 #include "attribute_store_defined_attribute_types.h"
 
-// UTF16 conversion (deprecated in C++17 but we don't have a better alternative yet)
-// Needed for credential data (password) per specification
-#include <locale>
-#include <codecvt>
-
 // Boost
 #include <boost/format.hpp>
 
@@ -31,50 +26,22 @@ namespace user_credential
 {
 
 credential_capabilities::credential_capabilities(
-  const attribute_store::attribute &endpoint_node,
-  user_credential_type_t credential_type)
+  const attribute_store::attribute &endpoint_node)
 {
   this->is_data_valid = false;
 
   try {
-    auto supported_credential_type_node = endpoint_node.child_by_type_and_value(
-      ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE),
-      credential_type);
-
-    if (!supported_credential_type_node.is_valid()) {
-      sl_log_error(
-        LOG_TAG,
-        "Credential type %d not supported. Can't get capabilities for it.",
-        credential_type);
-      return;
-    }
-
-    this->max_slot_count
-      = supported_credential_type_node
-          .child_by_type(ATTRIBUTE(CREDENTIAL_SUPPORTED_SLOT_COUNT))
-          .reported<uint16_t>();
-    this->learn_support = supported_credential_type_node
-                            .child_by_type(ATTRIBUTE(CREDENTIAL_LEARN_SUPPORT))
-                            .reported<uint8_t>();
-    this->min_credential_length
-      = supported_credential_type_node
-          .child_by_type(ATTRIBUTE(CREDENTIAL_MIN_LENGTH))
+    this->credential_checksum_support
+      = endpoint_node.child_by_type(ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM))
           .reported<uint8_t>();
-    this->max_credential_length
-      = supported_credential_type_node
-          .child_by_type(ATTRIBUTE(CREDENTIAL_MAX_LENGTH))
+    this->admin_code_support
+      = endpoint_node.child_by_type(ATTRIBUTE(SUPPORT_ADMIN_PIN_CODE))
           .reported<uint8_t>();
-    this->learn_recommended_timeout
-      = supported_credential_type_node
-          .child_by_type(ATTRIBUTE(CREDENTIAL_LEARN_RECOMMENDED_TIMEOUT))
-          .reported<uint8_t>();
-    this->learn_number_of_steps
-      = supported_credential_type_node
-          .child_by_type(ATTRIBUTE(CREDENTIAL_LEARN_NUMBER_OF_STEPS))
+    this->admin_code_deactivation_support
+      = endpoint_node.child_by_type(ATTRIBUTE(SUPPORT_ADMIN_PIN_CODE_DEACTIVATION))
           .reported<uint8_t>();
 
-    this->credential_type = credential_type;
-    this->is_data_valid   = true;
+    this->is_data_valid = true;
   } catch (std::exception &e) {
     sl_log_error(LOG_TAG,
                  "Something was wrong getting credential capabilities : %s",
@@ -82,127 +49,17 @@ credential_capabilities::credential_capabilities(
   }
 }
 
-bool credential_capabilities::is_learn_supported() const
+bool credential_capabilities::has_credential_checksum_support() const
 {
-  return is_data_valid && learn_support > 0;
+  return is_data_valid && credential_checksum_support > 0;
 }
-
-bool credential_capabilities::is_credential_valid(
-  user_credential_type_t credential_type,
-  user_credential_slot_t credential_slot,
-  const std::vector<uint8_t> &credential_data) const
+bool credential_capabilities::has_admin_code_support() const
 {
-  if (!is_data_valid) {
-    sl_log_error(
-      LOG_TAG,
-      "Credential capabilities are not valid. Try restarting the device.");
-    return false;
-  }
-
-  if (credential_type != this->credential_type) {
-    sl_log_error(LOG_TAG, "Credential type mismatch.");
-    return false;
-  }
-
-  if (!is_slot_valid(credential_slot)) {
-    sl_log_error(
-      LOG_TAG,
-      "Slot ID is not valid. Given : %d, Max Supported Slot count : %d",
-      credential_slot,
-      max_slot_count);
-    return false;
-  }
-
-  if (!is_credential_data_valid(credential_data)) {
-    sl_log_error(LOG_TAG,
-                 "Credential data size is not valid. Should be between %d "
-                 "and %d, given : %d",
-                 min_credential_length,
-                 max_credential_length,
-                 credential_data.size());
-    return false;
-  }
-
-  return true;
+  return is_data_valid && admin_code_support > 0;
 }
-
-bool credential_capabilities::is_slot_valid(
-  user_credential_slot_t credential_slot) const
+bool credential_capabilities::has_admin_code_deactivation_support() const
 {
-  return credential_slot <= max_slot_count;
-}
-
-bool credential_capabilities::is_credential_data_valid(
-  const std::vector<uint8_t> &credential_data) const
-{
-  return (credential_data.size() >= min_credential_length
-          && credential_data.size() <= max_credential_length);
-}
-
-std::vector<uint8_t>
-  credential_capabilities::convert_and_validate_credential_data(
-    const char *credential_data, user_credential_slot_t credential_slot) const
-{
-  std::vector<uint8_t> credential_data_vector
-    = convert_credential_data(credential_data);
-
-  // Credential not valid, we are not adding it
-  if (!this->is_credential_valid(this->credential_type,
-                                 credential_slot,
-                                 credential_data_vector)) {
-    throw std::runtime_error("Credential capabilities are not valid.");
-  }
-
-  return credential_data_vector;
-}
-
-std::vector<uint8_t>
-  credential_capabilities::convert_credential_data(const char *credential_data) const
-{
-  std::vector<uint8_t> credential_data_vector;
-  std::string credential_data_str(credential_data);
-  switch (credential_type) {
-    case CREDENTIAL_REPORT_PASSWORD: {
-      // CC:0083.01.0A.11.021 Passwords MUST be transmitted in Unicode UTF-16 format, in big endian order
-      auto credential_data_utf16 = utf8_to_utf16(credential_data_str);
-      for (const auto &c: credential_data_utf16) {
-        credential_data_vector.push_back((uint8_t)(c >> 8));
-        credential_data_vector.push_back((uint8_t)c);
-      }
-    } break;
-    case CREDENTIAL_REPORT_PIN_CODE:
-      for (const auto &c: credential_data_str) {
-        if (c < '0' || c > '9') {
-          throw std::runtime_error(
-            (boost::format("Invalid character in PIN code : %1%. Only digits "
-                           "are allowed.")
-             % c)
-              .str());
-        }
-        credential_data_vector.push_back(c);
-      }
-      break;
-    default:
-      for (const auto &c: credential_data_str) {
-        credential_data_vector.push_back(c);
-      }
-  }
-
-  return credential_data_vector;
-}
-
-uint8_t credential_capabilities::get_learn_recommended_timeout() const
-{
-  return learn_recommended_timeout;
-}
-
-std::u16string credential_capabilities::utf8_to_utf16(const std::string &utf8) const
-{
-  std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> cnv;
-  std::u16string s = cnv.from_bytes(utf8);
-  if (cnv.converted() < utf8.size())
-    throw std::runtime_error("Something went wrong converting UTF8 to UTF16");
-  return s;
+  return is_data_valid && admin_code_deactivation_support > 0;
 }
 
 }  // namespace user_credential

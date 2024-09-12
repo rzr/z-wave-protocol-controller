@@ -13,8 +13,11 @@
 // Get attribute store names
 #include "user_credential_helpers.hpp"
 
+// Boost
 #include "boost/format.hpp"
 
+// Cpp standard includes
+#include <vector>
 namespace user_credential_helpers
 {
 
@@ -270,6 +273,21 @@ credential_id_nodes get_credential_identifier_nodes(
         .str());
   }
   return nodes;
+}
+
+bool is_admin_code_empty(const std::vector<uint8_t>& admin_pin_code)
+{
+  return admin_pin_code.size() == 1 && admin_pin_code[0] == 0;
+}
+
+void set_empty_admin_code(attribute_store::attribute &admin_pin_code_node,
+                          attribute_store_node_value_state_t state)
+{
+  if (!admin_pin_code_node.is_valid()) {
+    throw std::runtime_error("Admin code node is not valid.");
+  }
+  std::vector<uint8_t> empty_code = {0};
+  admin_pin_code_node.set(state, empty_code);
 }
 
 }  // namespace user_credential_helpers

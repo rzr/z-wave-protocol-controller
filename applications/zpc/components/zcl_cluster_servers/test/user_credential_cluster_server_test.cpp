@@ -91,6 +91,8 @@ uic_mqtt_dotdot_user_credential_credential_association_callback_t credential_ass
 uic_mqtt_dotdot_user_credential_get_user_checksum_callback_t get_user_checksum_command = NULL;
 uic_mqtt_dotdot_user_credential_get_credential_checksum_callback_t get_credential_checksum_command = NULL;
 uic_mqtt_dotdot_user_credential_get_all_users_checksum_callback_t get_all_users_checksum_command = NULL;
+uic_mqtt_dotdot_user_credential_set_admin_pin_code_callback_t set_admin_pin_code_command = NULL;
+uic_mqtt_dotdot_user_credential_deactivate_admin_pin_code_callback_t deactivate_admin_pin_code_command = NULL;
 // clang-format on
 
 // Stub functions for intercepting callback registration.
@@ -223,6 +225,20 @@ void uic_mqtt_dotdot_user_credential_get_all_users_checksum_callback_set_stub(
   get_all_users_checksum_command = callback;
 }
 
+void uic_mqtt_dotdot_user_credential_set_admin_pin_code_callback_set_stub(
+  const uic_mqtt_dotdot_user_credential_set_admin_pin_code_callback_t callback,
+  int cmock_num_calls)
+{
+  set_admin_pin_code_command = callback;
+}
+
+void uic_mqtt_dotdot_user_credential_deactivate_admin_pin_code_callback_set_stub(
+  const uic_mqtt_dotdot_user_credential_deactivate_admin_pin_code_callback_t
+    callback,
+  int cmock_num_calls)
+{
+  deactivate_admin_pin_code_command = callback;
+}
 
 /// Setup the test suite (called once before all test_xxx functions are called)
 void suiteSetUp()
@@ -308,6 +324,9 @@ void setUp()
   // Credential checksum
   uic_mqtt_dotdot_user_credential_get_credential_checksum_callback_set_Stub(&uic_mqtt_dotdot_user_credential_get_credential_checksum_callback_set_stub);
   uic_mqtt_dotdot_user_credential_get_all_users_checksum_callback_set_Stub(&uic_mqtt_dotdot_user_credential_get_all_users_checksum_callback_set_stub);
+  // Admin code
+  uic_mqtt_dotdot_user_credential_set_admin_pin_code_callback_set_Stub(&uic_mqtt_dotdot_user_credential_set_admin_pin_code_callback_set_stub);
+  uic_mqtt_dotdot_user_credential_deactivate_admin_pin_code_callback_set_Stub(&uic_mqtt_dotdot_user_credential_deactivate_admin_pin_code_callback_set_stub);
   // clang-format on
 
   // Run the component init
@@ -321,15 +340,20 @@ void setUp()
 
   // Setup helper
   cpp_endpoint_node = attribute_store::attribute(endpoint_id_node);
+
+  // Setup global cred capabilities
+  cpp_endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_ADMIN_PIN_CODE),
+                                 static_cast<uint8_t>(1));
+  cpp_endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM),
+                                 static_cast<uint8_t>(1));
+  cpp_endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_ADMIN_PIN_CODE_DEACTIVATION),
+                                 static_cast<uint8_t>(1));
+
+  // Set command class version
+  cpp_endpoint_node.emplace_node(ATTRIBUTE(VERSION)).set_reported(1);
 }
 
-void set_version(zwave_cc_version_t version)
-{
-  // Set the version
-  cpp_endpoint_node
-    .emplace_node(ATTRIBUTE(VERSION))
-    .set_reported(version);
-}
+
 
 /////////////////////////////////////////////////////////////////////////
 // Mqtt topics helpers
@@ -2381,8 +2405,6 @@ void test_user_credential_cluster_test_credential_checksum_happy_case()
 
 void test_user_credential_cluster_test_all_users_checksum_happy_case()
 {
-  set_version(1);
-
   // Command not supported yet (default user capabilities SUPPORT_ALL_USERS_CHECKSUM set to 0)
   TEST_ASSERT_EQUAL_MESSAGE(
     SL_STATUS_FAIL,
@@ -2428,6 +2450,96 @@ void test_user_credential_cluster_test_all_users_checksum_happy_case()
     "Checksum node reported value should NOT exists");
 }
 
+void test_user_credential_cluster_test_admin_set_command_happy_case()
+{
+  auto support_admin_pin_code_node
+    = cpp_endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_ADMIN_PIN_CODE))
+        .set_reported<uint8_t>(0);
+  auto status
+    = set_admin_pin_code_command(supporting_node_unid,
+                                 endpoint_id,
+                                 UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK,
+                                 "");
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_FAIL,
+    status,
+    "Admin set should NOT be supported since SUPPORT_ADMIN_PIN_CODE is 0");
+
+  support_admin_pin_code_node.set_reported<uint8_t>(1);
+
+  status
+    = set_admin_pin_code_command(supporting_node_unid,
+                                 endpoint_id,
+                                 UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK,
+                                 "");
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    status,
+    "Admin set should be supported since SUPPORT_ADMIN_PIN_CODE is 1");
+
+  std::string expected_pin_code = "1234";
+  status
+    = set_admin_pin_code_command(supporting_node_unid,
+                                 endpoint_id,
+                                 UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL,
+                                 expected_pin_code.c_str());
+
+  auto raw_pin_code
+    = cpp_endpoint_node.child_by_type(ATTRIBUTE(ADMIN_PIN_CODE))
+        .desired<std::vector<uint8_t>>();
+  
+  std::string reported_pin_code;
+  for (char c : raw_pin_code) {
+    reported_pin_code += c;
+  }
+
+  TEST_ASSERT_EQUAL_STRING_MESSAGE(expected_pin_code.c_str(),
+                                   reported_pin_code.c_str(),
+                                   "Admin pin code mismatch");
+}
+
+void test_user_credential_cluster_test_admin_deactivate_command_happy_case()
+{
+  auto support_admin_deactivation_node
+    = cpp_endpoint_node
+        .emplace_node(ATTRIBUTE(SUPPORT_ADMIN_PIN_CODE_DEACTIVATION))
+        .set_reported<uint8_t>(0);
+  auto status = deactivate_admin_pin_code_command(
+    supporting_node_unid,
+    endpoint_id,
+    UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK);
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_FAIL,
+                            status,
+                            "Admin deactivation should NOT be supported since "
+                            "SUPPORT_ADMIN_PIN_CODE_DEACTIVATION is 0");
+
+  support_admin_deactivation_node.set_reported<uint8_t>(1);
+
+  status = deactivate_admin_pin_code_command(
+    supporting_node_unid,
+    endpoint_id,
+    UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK);
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_OK,
+    status,
+    "Admin deactivation should be supported since SUPPORT_ADMIN_PIN_CODE is 1");
+
+  status
+    = deactivate_admin_pin_code_command(supporting_node_unid,
+                                        endpoint_id,
+                                        UIC_MQTT_DOTDOT_CALLBACK_TYPE_NORMAL);
+
+  std::vector<uint8_t> expected_empty_pin_code = {0};
+  TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(
+    expected_empty_pin_code.data(),
+    cpp_endpoint_node.child_by_type(ATTRIBUTE(ADMIN_PIN_CODE))
+      .desired<std::vector<uint8_t>>()
+      .data(),
+    expected_empty_pin_code.size(),
+    "Admin pin code should be at empty value");
+}
 
 ///////////////////////////////////////////////////
 // Support tests
@@ -2537,5 +2649,6 @@ void test_user_credential_cluster_test_user_command_not_supported_happy_case()
                         user_unique_id),
     "Delete user should not be supported");
 }
+
 
 }  // extern "C"

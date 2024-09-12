@@ -13,10 +13,13 @@
 
 #include "zwave_command_class_user_credential_api.h"
 
+#include "zap-types.h"
+
 // Private definitions
 #include "private/user_credential/user_credential_helpers.hpp"
 #include "private/user_credential/user_credential_user_capabilities.h"
 #include "private/user_credential/user_credential_credential_capabilities.h"
+#include "private/user_credential/user_credential_credential_type_capabilities.h"
 
 // Cpp includes
 #include <map>
@@ -60,7 +63,7 @@ sl_status_t zwave_command_class_user_credential_add_new_user(
   user_credential_user_name_encoding_t user_name_encoding,
   const char *user_name)
 {
-    // Debug info
+  // Debug info
   sl_log_debug(
     LOG_TAG,
     "zwave_command_class_user_credential_add_new_user called with : ");
@@ -71,7 +74,6 @@ sl_status_t zwave_command_class_user_credential_add_new_user(
   sl_log_debug(LOG_TAG, "\texpiring_timeout : %d", expiring_timeout);
   sl_log_debug(LOG_TAG, "\tuser_name_encoding : %d", user_name_encoding);
   sl_log_debug(LOG_TAG, "\tuser_name : %s", user_name);
-
 
   auto endpoint_node = attribute_store::attribute(node);
 
@@ -267,8 +269,8 @@ sl_status_t zwave_command_class_user_credential_add_new_credential(
     }
 
     auto capabilities
-      = user_credential::credential_capabilities(endpoint_node,
-                                                 credential_type);
+      = user_credential::credential_type_capabilities(endpoint_node,
+                                                      credential_type);
 
     if (!capabilities.is_slot_valid(credential_slot)) {
       sl_log_error(LOG_TAG,
@@ -354,8 +356,8 @@ sl_status_t zwave_command_class_user_credential_modify_credential(
     auto credential_slot_node = nodes.slot_node;
     // Process credential data
     auto capabilities
-      = user_credential::credential_capabilities(endpoint_node,
-                                                 credential_type);
+      = user_credential::credential_type_capabilities(endpoint_node,
+                                                      credential_type);
     std::vector<uint8_t> credential_data_vector
       = capabilities.convert_and_validate_credential_data(credential_data,
                                                           credential_slot);
@@ -520,10 +522,11 @@ sl_status_t zwave_command_class_user_credential_credential_learn_start_add(
                "\tcredential_learn_timeout : %d",
                credential_learn_timeout);
 
-  auto credential_capabilities
-    = user_credential::credential_capabilities(endpoint_node, credential_type);
+  auto credential_type_capabilities
+    = user_credential::credential_type_capabilities(endpoint_node,
+                                                    credential_type);
 
-  if (!credential_capabilities.is_learn_supported()) {
+  if (!credential_type_capabilities.is_learn_supported()) {
     sl_log_error(LOG_TAG,
                  "Learn is not supported for credential type %d. Not starting "
                  "learn process.",
@@ -531,7 +534,7 @@ sl_status_t zwave_command_class_user_credential_credential_learn_start_add(
     return SL_STATUS_FAIL;
   }
 
-  if (!credential_capabilities.is_slot_valid(credential_slot)) {
+  if (!credential_type_capabilities.is_slot_valid(credential_slot)) {
     sl_log_error(LOG_TAG,
                  "Credential slot %d is not valid for Credential Type %d. Not "
                  "starting learn process.",
@@ -573,7 +576,7 @@ sl_status_t zwave_command_class_user_credential_credential_learn_start_add(
 
     if (credential_learn_timeout == 0) {
       credential_learn_timeout
-        = credential_capabilities.get_learn_recommended_timeout();
+        = credential_type_capabilities.get_learn_recommended_timeout();
       sl_log_debug(LOG_TAG,
                    "Credential learn timeout is 0. Setting it to default "
                    "reported value (%d seconds).",
@@ -613,10 +616,11 @@ sl_status_t zwave_command_class_user_credential_credential_learn_start_modify(
                "\tcredential_learn_timeout : %d",
                credential_learn_timeout);
 
-  auto credential_capabilities
-    = user_credential::credential_capabilities(endpoint_node, credential_type);
+  auto credential_type_capabilities
+    = user_credential::credential_type_capabilities(endpoint_node,
+                                                    credential_type);
 
-  if (!credential_capabilities.is_learn_supported()) {
+  if (!credential_type_capabilities.is_learn_supported()) {
     sl_log_error(LOG_TAG,
                  "Learn is not supported for credential type %d. Not starting "
                  "learn process.",
@@ -634,7 +638,7 @@ sl_status_t zwave_command_class_user_credential_credential_learn_start_modify(
 
   if (credential_learn_timeout == 0) {
     credential_learn_timeout
-      = credential_capabilities.get_learn_recommended_timeout();
+      = credential_type_capabilities.get_learn_recommended_timeout();
     sl_log_debug(LOG_TAG,
                  "Credential learn timeout is 0. Setting it to default "
                  "reported value (%d seconds).",
@@ -782,21 +786,85 @@ sl_status_t zwave_command_class_user_credential_get_all_users_checksum(
   return SL_STATUS_OK;
 }
 
+sl_status_t zwave_command_class_user_credential_set_admin_pin_code(
+  attribute_store_node_t endpoint_node, const char *raw_credential_data)
+{
+  try {
+    // Capabilities
+    user_credential::credential_type_capabilities credential_type_capabilities(
+      endpoint_node,
+      ZCL_CRED_TYPE_PIN_CODE);
+    user_credential::credential_capabilities credential_capabilities(
+      endpoint_node);
+
+    // Base check
+    if (!credential_capabilities.has_admin_code_support()) {
+      sl_log_error(
+        LOG_TAG,
+        "Admin PIN code not supported.");
+      return SL_STATUS_FAIL;
+    }
+
+    // Get credential data in the right format
+    auto credential_data
+      = credential_type_capabilities.convert_credential_data(raw_credential_data);
+
+    // Create or get admin pin code node
+    auto admin_pin_code_node = attribute_store::attribute(endpoint_node)
+                                 .emplace_node(ATTRIBUTE(ADMIN_PIN_CODE));
+
+    // Check if we can deactivate it
+    if (credential_data.empty()
+        && !credential_capabilities.has_admin_code_deactivation_support()) {
+      sl_log_error(
+        LOG_TAG,
+        "Admin PIN code deactivation disabled, can't deactivate it.");
+      return SL_STATUS_FAIL;
+    }
+
+    // Special case if credential data is empty
+    // Need this since no value is the same as undefined for the attribute store
+    if (credential_data.empty()) {
+      sl_log_debug(LOG_TAG, "Admin pin code data is empty. Deactivating it.");
+      set_empty_admin_code(admin_pin_code_node, DESIRED_ATTRIBUTE);
+    } else if (credential_type_capabilities.is_credential_data_valid(
+                 credential_data)) {
+      // Set new value for desired node
+      admin_pin_code_node.set_desired(credential_data);
+    } else {
+      sl_log_error(LOG_TAG,
+                   "Admin pin code data is not valid. Not setting it.");
+      return SL_STATUS_FAIL;
+    }
+
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while setting up set admin pin code : %s",
+                 e.what());
+    return SL_STATUS_FAIL;
+  }
+  return SL_STATUS_OK;
+}
+
 bool zwave_command_class_user_credential_supports(
   attribute_store_node_t endpoint_node, uint8_t command_id)
-{ 
+{
   // Checks first if the node supports User Credential
   auto cpp_endpoint_node = attribute_store::attribute(endpoint_node);
   if (!cpp_endpoint_node.child_by_type(ATTRIBUTE(VERSION)).is_valid()) {
     return false;
   }
-  
-  user_credential::user_capabilities user_capabilities(endpoint_node);
-  //user_credential::credential_capabilities credential_capabilities(endpoint_node);
 
-  switch(command_id) {
+  user_credential::user_capabilities user_capabilities(endpoint_node);
+  user_credential::credential_capabilities credential_capabilities(
+    endpoint_node);
+
+  switch (command_id) {
     case ALL_USERS_CHECKSUM_GET:
       return user_capabilities.is_all_users_checksum_supported();
+    case ADMIN_PIN_CODE_SET: 
+    case ADMIN_PIN_CODE_GET:
+      return credential_capabilities.has_admin_code_support();
     default:
       sl_log_critical(
         LOG_TAG,
@@ -804,4 +872,12 @@ bool zwave_command_class_user_credential_supports(
         command_id);
       return false;
   }
+}
+
+bool zwave_command_class_user_credential_supports_admin_pin_code_deactivation(
+  attribute_store_node_t endpoint_node)
+{
+  user_credential::credential_capabilities credential_capabilities(
+    endpoint_node);
+  return credential_capabilities.has_admin_code_deactivation_support();
 }

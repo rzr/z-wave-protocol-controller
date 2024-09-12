@@ -57,21 +57,21 @@ extern "C" {
 
 #define ATTRIBUTE(type) ATTRIBUTE_COMMAND_CLASS_USER_CREDENTIAL_##type
 
-const resolver_function_map attributes_binding = {
-  {ATTRIBUTE(NUMBER_OF_USERS), {USER_CAPABILITIES_GET, 0}},
-  {ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM), {CREDENTIAL_CAPABILITIES_GET, 0}},
-  {ATTRIBUTE(ALL_USERS_CHECKSUM), {ALL_USERS_CHECKSUM_GET, 0}},
-  {ATTRIBUTE(USER_UNIQUE_ID), {USER_GET, 0}},
-  {ATTRIBUTE(USER_OPERATION_TYPE), {0, USER_SET}},
-  {ATTRIBUTE(CREDENTIAL_SLOT), {CREDENTIAL_GET, 0}},
-  {ATTRIBUTE(CREDENTIAL_OPERATION_TYPE), {0, CREDENTIAL_SET}},
-  {ATTRIBUTE(CREDENTIAL_LEARN_OPERATION_TYPE), {0, CREDENTIAL_LEARN_START}},
-  {ATTRIBUTE(CREDENTIAL_LEARN_STOP), {0, CREDENTIAL_LEARN_CANCEL}},
-  {ATTRIBUTE(ASSOCIATION_DESTINATION_CREDENTIAL_SLOT),
-   {0, USER_CREDENTIAL_ASSOCIATION_SET}},
-  {ATTRIBUTE(USER_CHECKSUM), {USER_CHECKSUM_GET, 0}},
-  {ATTRIBUTE(CREDENTIAL_CHECKSUM), {CREDENTIAL_CHECKSUM_GET, 0}},
-};
+const resolver_function_map attributes_binding
+  = {{ATTRIBUTE(NUMBER_OF_USERS), {USER_CAPABILITIES_GET, 0}},
+     {ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM), {CREDENTIAL_CAPABILITIES_GET, 0}},
+     {ATTRIBUTE(ALL_USERS_CHECKSUM), {ALL_USERS_CHECKSUM_GET, 0}},
+     {ATTRIBUTE(USER_UNIQUE_ID), {USER_GET, 0}},
+     {ATTRIBUTE(USER_OPERATION_TYPE), {0, USER_SET}},
+     {ATTRIBUTE(CREDENTIAL_SLOT), {CREDENTIAL_GET, 0}},
+     {ATTRIBUTE(CREDENTIAL_OPERATION_TYPE), {0, CREDENTIAL_SET}},
+     {ATTRIBUTE(CREDENTIAL_LEARN_OPERATION_TYPE), {0, CREDENTIAL_LEARN_START}},
+     {ATTRIBUTE(CREDENTIAL_LEARN_STOP), {0, CREDENTIAL_LEARN_CANCEL}},
+     {ATTRIBUTE(ASSOCIATION_DESTINATION_CREDENTIAL_SLOT),
+      {0, USER_CREDENTIAL_ASSOCIATION_SET}},
+     {ATTRIBUTE(USER_CHECKSUM), {USER_CHECKSUM_GET, 0}},
+     {ATTRIBUTE(CREDENTIAL_CHECKSUM), {CREDENTIAL_CHECKSUM_GET, 0}},
+     {ATTRIBUTE(ADMIN_PIN_CODE), {ADMIN_PIN_CODE_GET, ADMIN_PIN_CODE_SET}}};
 
 // Tested command class handler
 const zwave_struct_handler_args command_class_handler
@@ -160,6 +160,8 @@ void helper_simulate_user_capabilites_report(
 
 void helper_simulate_credential_capabilites_report(
   uint8_t credential_checksum_support,
+  uint8_t admin_code_support,
+  uint8_t admin_code_deactivation_support,
   std::vector<user_credential_type_t> credential_type,
   std::vector<uint8_t> cl_support,
   std::vector<uint16_t> supported_credential_slots,
@@ -182,7 +184,9 @@ void helper_simulate_credential_capabilites_report(
 
   zwave_frame report_frame;
 
-  report_frame.add(static_cast<uint8_t>(credential_checksum_support << 7));
+  report_frame.add(static_cast<uint8_t>(
+    credential_checksum_support << 7 | admin_code_support << 6
+    | admin_code_deactivation_support << 5));
   report_frame.add(static_cast<uint8_t>(credential_type.size()));
 
   for (auto &c: credential_type) {
@@ -434,6 +438,8 @@ void helper_create_credential_checksum_structure()
 
   // Create simulated envrionment for credentials
   helper_simulate_credential_capabilites_report(1,
+                                                1,
+                                                1,
                                                 {ZCL_CRED_TYPE_PIN_CODE,
                                                  ZCL_CRED_TYPE_PASSWORD,
                                                  ZCL_CRED_TYPE_EYE_BIOMETRIC},
@@ -607,6 +613,8 @@ void test_user_credential_credential_capabilities_get_happy_case()
 void test_user_credential_credential_capabilities_report_happy_case()
 {
   uint8_t credential_checksum_support                 = 1;
+  uint8_t admin_code_support                          = 1;
+  uint8_t admin_code_deactivation_support             = 1;
   std::vector<user_credential_type_t> credential_type = {1, 3, 4, 5};
   std::vector<uint8_t> cl_support                     = {1, 0, 0, 1};
   std::vector<uint16_t> supported_credential_slots = {1233, 11233, 21233, 33};
@@ -619,6 +627,22 @@ void test_user_credential_credential_capabilities_report_happy_case()
   auto test_report_values = [&]() {
     helper_test_attribute_value(ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM),
                                 credential_checksum_support);
+    helper_test_attribute_value(ATTRIBUTE(SUPPORT_ADMIN_PIN_CODE),
+                                admin_code_support);
+    helper_test_attribute_value(ATTRIBUTE(SUPPORT_ADMIN_PIN_CODE_DEACTIVATION),
+                                admin_code_deactivation_support);
+    auto admin_code_node
+      = cpp_endpoint_id_node.child_by_type(ATTRIBUTE(ADMIN_PIN_CODE));
+    if (admin_code_support == 1) {
+      TEST_ASSERT_TRUE_MESSAGE(admin_code_node.is_valid(),
+                               "Admin code node should exists");
+      // For next tests
+      admin_code_node.delete_node();
+    } else {
+      TEST_ASSERT_FALSE_MESSAGE(admin_code_node.is_valid(),
+                                "Admin code node should NOT exists");
+    }
+
     helper_test_attribute_value(
       DOTDOT_ATTRIBUTE_ID_USER_CREDENTIAL_SUPPORTED_CREDENTIAL_TYPES,
       expected_credential_type_mask);
@@ -660,6 +684,8 @@ void test_user_credential_credential_capabilities_report_happy_case()
 
   printf("Test with first set of data\n");
   helper_simulate_credential_capabilites_report(credential_checksum_support,
+                                                admin_code_support,
+                                                admin_code_deactivation_support,
                                                 credential_type,
                                                 cl_support,
                                                 supported_credential_slots,
@@ -671,17 +697,21 @@ void test_user_credential_credential_capabilities_report_happy_case()
   test_report_values();
 
   printf("Test with second set of data\n");
-  credential_checksum_support   = 0;
-  credential_type               = {6, 7, 8};
-  cl_support                    = {0, 1, 1};
-  supported_credential_slots    = {15, 1565, 153};
-  min_length                    = {155, 15, 5};
-  max_length                    = {180, 111, 11};
-  cl_timeout                    = {0, 10, 12};
-  cl_steps                      = {0, 1, 2};
-  expected_credential_type_mask = 0b11100000;
+  credential_checksum_support     = 0;
+  admin_code_support              = 0;
+  admin_code_deactivation_support = 0;
+  credential_type                 = {6, 7, 8};
+  cl_support                      = {0, 1, 1};
+  supported_credential_slots      = {15, 1565, 153};
+  min_length                      = {155, 15, 5};
+  max_length                      = {180, 111, 11};
+  cl_timeout                      = {0, 10, 12};
+  cl_steps                        = {0, 1, 2};
+  expected_credential_type_mask   = 0b11100000;
 
   helper_simulate_credential_capabilites_report(credential_checksum_support,
+                                                admin_code_support,
+                                                admin_code_deactivation_support,
                                                 credential_type,
                                                 cl_support,
                                                 supported_credential_slots,
@@ -1639,7 +1669,9 @@ void test_user_credential_add_credential_already_defined_cred_type_and_slot()
   cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_PIN_CODE};
   std::vector<uint8_t> supported_cl                = {1};
@@ -1647,6 +1679,8 @@ void test_user_credential_add_credential_already_defined_cred_type_and_slot()
   std::vector<uint8_t> supported_cred_min_length   = {2};
   std::vector<uint8_t> supported_cred_max_length   = {6};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -1723,7 +1757,9 @@ void test_user_credential_add_credential_invalid_slot()
   cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Se capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_PIN_CODE};
   std::vector<uint8_t> supported_cl                = {1};
@@ -1731,6 +1767,8 @@ void test_user_credential_add_credential_invalid_slot()
   std::vector<uint8_t> supported_cred_min_length   = {2};
   std::vector<uint8_t> supported_cred_max_length   = {6};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -1984,7 +2022,9 @@ void test_user_credential_credential_add_modify_delete_happy_case()
     = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Se capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_PIN_CODE};
   std::vector<uint8_t> supported_cl                = {1};
@@ -1992,6 +2032,8 @@ void test_user_credential_credential_add_modify_delete_happy_case()
   std::vector<uint8_t> supported_cred_min_length   = {2};
   std::vector<uint8_t> supported_cred_max_length   = {6};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -2367,7 +2409,9 @@ void test_user_credential_credential_add_capabilites_failure_cases()
                           sizeof(user_id));
 
   // Se capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1};
@@ -2375,6 +2419,8 @@ void test_user_credential_credential_add_capabilites_failure_cases()
   std::vector<uint8_t> supported_cred_min_length   = {2};
   std::vector<uint8_t> supported_cred_max_length   = {6};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -2437,7 +2483,9 @@ void test_user_credential_credential_add_capabilites_happy_case()
   cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Se capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_HAND_BIOMETRIC, ZCL_CRED_TYPE_PIN_CODE};
   std::vector<uint8_t> supported_cl                = {1, 0};
@@ -2445,6 +2493,8 @@ void test_user_credential_credential_add_capabilites_happy_case()
   std::vector<uint8_t> supported_cred_min_length   = {2, 4};
   std::vector<uint8_t> supported_cred_max_length   = {6, 8};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -2485,7 +2535,9 @@ void test_user_credential_credential_modify_capabilites_failure_cases()
   cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Se capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1};
@@ -2493,6 +2545,8 @@ void test_user_credential_credential_modify_capabilites_failure_cases()
   std::vector<uint8_t> supported_cred_min_length   = {2};
   std::vector<uint8_t> supported_cred_max_length   = {7};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -2945,7 +2999,9 @@ void test_user_credential_credential_learn_start_add_happy_case()
     = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Set capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
@@ -2955,6 +3011,8 @@ void test_user_credential_credential_learn_start_add_happy_case()
   std::vector<uint8_t> supported_cl_timeout        = {20, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -3028,7 +3086,9 @@ void test_user_credential_credential_learn_start_add_cl_not_supported()
   cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Set capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {0, 1};
@@ -3038,6 +3098,8 @@ void test_user_credential_credential_learn_start_add_cl_not_supported()
   std::vector<uint8_t> supported_cl_timeout        = {0, 2};
   std::vector<uint8_t> supported_cl_steps          = {0, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -3068,7 +3130,9 @@ void test_user_credential_credential_learn_start_add_slot_not_supported()
   cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Set capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
@@ -3078,6 +3142,8 @@ void test_user_credential_credential_learn_start_add_slot_not_supported()
   std::vector<uint8_t> supported_cl_timeout        = {10, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -3108,7 +3174,9 @@ void test_user_credential_credential_learn_start_add_type_not_supported()
   cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Set capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
@@ -3118,6 +3186,8 @@ void test_user_credential_credential_learn_start_add_type_not_supported()
   std::vector<uint8_t> supported_cl_timeout        = {10, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -3155,7 +3225,9 @@ void test_user_credential_credential_learn_start_add_credential_already_exists()
                                      REPORTED_ATTRIBUTE);
 
   // Set capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
@@ -3165,6 +3237,8 @@ void test_user_credential_credential_learn_start_add_credential_already_exists()
   std::vector<uint8_t> supported_cl_timeout        = {10, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -3199,7 +3273,9 @@ void test_user_credential_credential_learn_start_modify_happy_case()
                                          REPORTED_ATTRIBUTE);
 
   // Set capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
@@ -3209,6 +3285,8 @@ void test_user_credential_credential_learn_start_modify_happy_case()
   std::vector<uint8_t> supported_cl_timeout        = {20, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -3275,7 +3353,9 @@ void test_user_credential_credential_learn_start_modify_cl_not_supported()
                                      REPORTED_ATTRIBUTE);
 
   // Set capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {0, 1};
@@ -3285,6 +3365,8 @@ void test_user_credential_credential_learn_start_modify_cl_not_supported()
   std::vector<uint8_t> supported_cl_timeout        = {0, 2};
   std::vector<uint8_t> supported_cl_steps          = {0, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -3316,7 +3398,9 @@ void test_user_credential_credential_learn_start_modify_credential_not_existing(
   cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Set capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {0, 1};
@@ -3326,6 +3410,8 @@ void test_user_credential_credential_learn_start_modify_credential_not_existing(
   std::vector<uint8_t> supported_cl_timeout        = {0, 2};
   std::vector<uint8_t> supported_cl_steps          = {0, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -3364,7 +3450,9 @@ void test_user_credential_credential_learn_cancel_happy_case()
 void test_user_credential_uuic_association_same_slot_different_user()
 {
   // Capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
@@ -3374,6 +3462,8 @@ void test_user_credential_uuic_association_same_slot_different_user()
   std::vector<uint8_t> supported_cl_timeout        = {20, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -3472,7 +3562,9 @@ void test_user_credential_uuic_association_same_slot_different_user()
 void test_user_credential_uuic_association_different_slot_different_user_with_existing_type()
 {
   // Capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
@@ -3482,6 +3574,8 @@ void test_user_credential_uuic_association_different_slot_different_user_with_ex
   std::vector<uint8_t> supported_cl_timeout        = {20, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -3585,7 +3679,9 @@ void test_user_credential_uuic_association_different_slot_different_user_with_ex
 void test_user_credential_uuic_association_different_slot_same_user()
 {
   // Capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
@@ -3595,6 +3691,8 @@ void test_user_credential_uuic_association_different_slot_same_user()
   std::vector<uint8_t> supported_cl_timeout        = {20, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -3691,7 +3789,9 @@ void test_user_credential_uuic_association_different_slot_same_user()
 void test_user_credential_uuic_association_error_code()
 {
   // Capabilities
-  uint8_t supported_credential_checksum = 1;
+  uint8_t supported_credential_checksum   = 1;
+  uint8_t support_admin_code              = 1;
+  uint8_t support_admin_code_deactivation = 1;
   std::vector<user_credential_type_t> supported_credential_type
     = {ZCL_CRED_TYPE_PIN_CODE, ZCL_CRED_TYPE_HAND_BIOMETRIC};
   std::vector<uint8_t> supported_cl                = {1, 1};
@@ -3701,6 +3801,8 @@ void test_user_credential_uuic_association_error_code()
   std::vector<uint8_t> supported_cl_timeout        = {20, 2};
   std::vector<uint8_t> supported_cl_steps          = {1, 95};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
                                                 supported_credential_type,
                                                 supported_cl,
                                                 supported_credential_slots,
@@ -4207,6 +4309,147 @@ void test_user_credential_all_users_checksum_report_with_users_happy_case()
   helper_test_attribute_value(ATTRIBUTE(ALL_USERS_CHECKSUM), expected_checksum);
 }
 
+////////////////////////////////////////////////////////////////////////////
+// Admin PIN code Set/Get/Support
+////////////////////////////////////////////////////////////////////////////
+void test_user_credential_admin_pin_code_get_happy_case()
+{
+  helper_test_get_set_frame_happy_case(ADMIN_PIN_CODE_GET);
+}
 
+void helper_setup_credential_capabilities_admin_code(
+  uint8_t support_admin_code = 1, uint8_t support_admin_code_deactivation = 1)
+{
+  uint8_t supported_credential_checksum   = 1;
+  std::vector<user_credential_type_t> supported_credential_type
+    = {ZCL_CRED_TYPE_PIN_CODE};
+  std::vector<uint8_t> supported_cl                = {1};
+  std::vector<uint16_t> supported_credential_slots = {1};
+  std::vector<uint8_t> supported_cred_min_length   = {2};
+  std::vector<uint8_t> supported_cred_max_length   = {6};
+  helper_simulate_credential_capabilites_report(supported_credential_checksum,
+                                                support_admin_code,
+                                                support_admin_code_deactivation,
+                                                supported_credential_type,
+                                                supported_cl,
+                                                supported_credential_slots,
+                                                supported_cred_min_length,
+                                                supported_cred_max_length,
+                                                {1},
+                                                {1});
+}
+void test_user_credential_admin_pin_code_set_happy_case()
+{
+  helper_setup_credential_capabilities_admin_code();
+
+  std::string admin_pin_code = "1312";
+  auto admin_pin_code_data   = string_to_uint8_vector(admin_pin_code);
+
+  auto status = zwave_command_class_user_credential_set_admin_pin_code(
+    endpoint_id_node,
+    admin_pin_code.c_str());
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
+                            status,
+                            "Set Admin PIN API command should have worked");
+
+  auto admin_pin_code_node
+    = helper_test_and_get_node(ATTRIBUTE(ADMIN_PIN_CODE));
+
+  zwave_frame set_frame;
+  set_frame.add(admin_pin_code_data);
+
+  helper_test_get_set_frame_happy_case(ADMIN_PIN_CODE_SET,
+                                       admin_pin_code_node,
+                                       set_frame);
+}
+
+void test_user_credential_admin_pin_code_set_deactivation_happy_case()
+{
+  helper_setup_credential_capabilities_admin_code();
+
+  auto status
+    = zwave_command_class_user_credential_set_admin_pin_code(endpoint_id_node,
+                                                             "");
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
+                            status,
+                            "Set Admin PIN API command should have worked");
+
+  auto admin_pin_code_node
+    = helper_test_and_get_node(ATTRIBUTE(ADMIN_PIN_CODE));
+
+  zwave_frame set_frame;
+  set_frame.add(static_cast<uint8_t>(0));
+  helper_test_get_set_frame_happy_case(ADMIN_PIN_CODE_SET,
+                                       admin_pin_code_node,
+                                       set_frame);
+}
+
+void test_user_credential_admin_pin_code_set_deactivation_not_supported()
+{
+  helper_setup_credential_capabilities_admin_code(1, 0);
+
+  auto status
+    = zwave_command_class_user_credential_set_admin_pin_code(endpoint_id_node,
+                                                             "");
+  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_FAIL,
+                            status,
+                            "Set Admin PIN API command should NOT have worked");
+
+  auto admin_pin_code_node
+    = helper_test_and_get_node(ATTRIBUTE(ADMIN_PIN_CODE));
+
+  helper_test_get_set_fail_case(ADMIN_PIN_CODE_SET,
+                                SL_STATUS_NOT_SUPPORTED,
+                                admin_pin_code_node);
+}
+
+void test_user_credential_admin_pin_code_report_happy_case()
+{
+  auto expected_admin_pin_code = string_to_uint8_vector("1312");
+  uint8_t admin_pin_code_size
+    = static_cast<uint8_t>(expected_admin_pin_code.size());
+  uint8_t expected_operation_result = 0x04;
+
+  // Report frame
+  zwave_frame report_frame;
+  uint8_t size_byte = (expected_operation_result << 4) | admin_pin_code_size;
+  report_frame.add(size_byte);
+  for (uint8_t c: expected_admin_pin_code) {
+    report_frame.add(c);
+  }
+
+  helper_test_report_frame(ADMIN_PIN_CODE_REPORT, report_frame);
+
+  // Attribute store test
+  helper_test_attribute_value(ATTRIBUTE(ADMIN_PIN_CODE_OPERATION_RESULT),
+                              expected_operation_result);
+  helper_test_attribute_value(ATTRIBUTE(ADMIN_PIN_CODE),
+                              expected_admin_pin_code);
+}
+
+void test_user_credential_admin_pin_code_report_deletion_happy_case()
+{
+  // Simulate report with 0 as pin code size
+  uint8_t admin_pin_code_size       = 0;
+  uint8_t expected_operation_result = 0x04;
+
+  // Simulate already present code
+  auto admin_pin_code_node
+    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(ADMIN_PIN_CODE));
+  admin_pin_code_node.set_reported(string_to_uint8_vector("1312"));
+
+  // Report frame
+  zwave_frame report_frame;
+  uint8_t size_byte = (expected_operation_result << 4) | admin_pin_code_size;
+  report_frame.add(size_byte);
+
+  helper_test_report_frame(ADMIN_PIN_CODE_REPORT, report_frame);
+
+  // Attribute store test
+  helper_test_attribute_value(ATTRIBUTE(ADMIN_PIN_CODE_OPERATION_RESULT),
+                              expected_operation_result);
+  std::vector<uint8_t> empty_vector = {0};
+  helper_test_attribute_value(ATTRIBUTE(ADMIN_PIN_CODE), empty_vector);
+}
 
 }  // extern "C"
