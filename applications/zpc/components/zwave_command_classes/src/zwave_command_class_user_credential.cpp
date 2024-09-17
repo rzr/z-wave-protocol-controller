@@ -1607,13 +1607,9 @@ sl_status_t zwave_command_class_user_credential_user_handle_report(
     // Each report type has a different behavior
     attribute_store::attribute current_user_id_node;
     switch (user_report_type) {
-      // Need to create new user node
+      // In either case we want to create the user node if it doesn't exists
+      // or update the desired value if it does
       case user_report_type_t::USER_ADDED:
-        current_user_id_node
-          = endpoint_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID),
-                                       current_user_id);
-      // If this is the first user we get it might not exists yet so we create it.
-      // Otherwise we just update the reported value
       case user_report_type_t::RESPONSE_TO_GET:
         current_user_id_node
           = create_or_update_desired_value(endpoint_node,
