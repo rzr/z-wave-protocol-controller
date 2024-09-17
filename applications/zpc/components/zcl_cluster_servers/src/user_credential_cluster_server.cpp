@@ -138,12 +138,9 @@ static sl_status_t
   // Now that we know that the command is supported, return here if it is
   // a support check type of call.
   if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
-    attribute_store_node_t user_count_node
-      = attribute_store_get_first_child_by_type(endpoint_node,
-                                                ATTRIBUTE(NUMBER_OF_USERS));
-
-    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
-                                                        : SL_STATUS_FAIL;
+    return zwave_command_class_user_credential_supports(endpoint_node, USER_SET)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
   }
 
   return zwave_command_class_user_credential_add_new_user(
@@ -175,12 +172,9 @@ static sl_status_t
   // Now that we know that the command is supported, return here if it is
   // a support check type of call.
   if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
-    attribute_store_node_t user_count_node
-      = attribute_store_get_first_child_by_type(endpoint_node,
-                                                ATTRIBUTE(NUMBER_OF_USERS));
-
-    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
-                                                        : SL_STATUS_FAIL;
+    return zwave_command_class_user_credential_supports(endpoint_node, USER_SET)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
   }
 
   return zwave_command_class_user_credential_modify_user(
@@ -208,12 +202,9 @@ static sl_status_t
   // Now that we know that the command is supported, return here if it is
   // a support check type of call.
   if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
-    attribute_store_node_t user_count_node
-      = attribute_store_get_first_child_by_type(endpoint_node,
-                                                ATTRIBUTE(NUMBER_OF_USERS));
-
-    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
-                                                        : SL_STATUS_FAIL;
+    return zwave_command_class_user_credential_supports(endpoint_node, USER_SET)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
   }
 
   return zwave_command_class_user_credential_delete_user(endpoint_node,
@@ -235,12 +226,10 @@ static sl_status_t
   // Now that we know that the command is supported, return here if it is
   // a support check type of call.
   if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
-    attribute_store_node_t user_count_node
-      = attribute_store_get_first_child_by_type(endpoint_node,
-                                                ATTRIBUTE(NUMBER_OF_USERS));
-
-    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
-                                                        : SL_STATUS_FAIL;
+    return zwave_command_class_user_credential_supports(endpoint_node,
+                                                        CREDENTIAL_SET)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
   }
 
   return zwave_command_class_user_credential_add_new_credential(
@@ -266,11 +255,10 @@ static sl_status_t
   // Now that we know that the command is supported, return here if it is
   // a support check type of call.
   if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
-    attribute_store_node_t user_count_node
-      = attribute_store_get_first_child_by_type(endpoint_node,
-                                                ATTRIBUTE(NUMBER_OF_USERS));
-    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
-                                                        : SL_STATUS_FAIL;
+    return zwave_command_class_user_credential_supports(endpoint_node,
+                                                        CREDENTIAL_SET)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
   }
   return zwave_command_class_user_credential_modify_credential(
     endpoint_node,
@@ -294,12 +282,10 @@ static sl_status_t
   // Now that we know that the command is supported, return here if it is
   // a support check type of call.
   if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
-    attribute_store_node_t user_count_node
-      = attribute_store_get_first_child_by_type(endpoint_node,
-                                                ATTRIBUTE(NUMBER_OF_USERS));
-
-    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
-                                                        : SL_STATUS_FAIL;
+    return zwave_command_class_user_credential_supports(endpoint_node,
+                                                        CREDENTIAL_SET)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
   }
 
   return zwave_command_class_user_credential_delete_credential(
@@ -320,12 +306,9 @@ static sl_status_t
   // Now that we know that the command is supported, return here if it is
   // a support check type of call.
   if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
-    attribute_store_node_t user_count_node
-      = attribute_store_get_first_child_by_type(endpoint_node,
-                                                ATTRIBUTE(NUMBER_OF_USERS));
-
-    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
-                                                        : SL_STATUS_FAIL;
+    return zwave_command_class_user_credential_supports(endpoint_node, USER_SET)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
   }
 
   return zwave_command_class_user_credential_delete_all_users(endpoint_node);
@@ -342,12 +325,10 @@ static sl_status_t
   // Now that we know that the command is supported, return here if it is
   // a support check type of call.
   if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
-    attribute_store_node_t user_count_node
-      = attribute_store_get_first_child_by_type(endpoint_node,
-                                                ATTRIBUTE(NUMBER_OF_USERS));
-
-    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
-                                                        : SL_STATUS_FAIL;
+    return zwave_command_class_user_credential_supports(endpoint_node,
+                                                        CREDENTIAL_SET)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
   }
 
   return zwave_command_class_user_credential_delete_all_credentials(
@@ -366,12 +347,10 @@ static sl_status_t
   // Now that we know that the command is supported, return here if it is
   // a support check type of call.
   if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
-    attribute_store_node_t user_count_node
-      = attribute_store_get_first_child_by_type(endpoint_node,
-                                                ATTRIBUTE(NUMBER_OF_USERS));
-
-    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
-                                                        : SL_STATUS_FAIL;
+    return zwave_command_class_user_credential_supports(endpoint_node,
+                                                        CREDENTIAL_SET)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
   }
 
   return zwave_command_class_user_credential_delete_all_credentials_by_type(
@@ -391,12 +370,10 @@ static sl_status_t delete_all_credentials_for_user(
   // Now that we know that the command is supported, return here if it is
   // a support check type of call.
   if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
-    attribute_store_node_t user_count_node
-      = attribute_store_get_first_child_by_type(endpoint_node,
-                                                ATTRIBUTE(NUMBER_OF_USERS));
-
-    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
-                                                        : SL_STATUS_FAIL;
+    return zwave_command_class_user_credential_supports(endpoint_node,
+                                                        CREDENTIAL_SET)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
   }
 
   return zwave_command_class_user_credential_delete_all_credentials_for_user(
@@ -417,12 +394,10 @@ static sl_status_t delete_all_credentials_for_user_by_type(
   // Now that we know that the command is supported, return here if it is
   // a support check type of call.
   if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
-    attribute_store_node_t user_count_node
-      = attribute_store_get_first_child_by_type(endpoint_node,
-                                                ATTRIBUTE(NUMBER_OF_USERS));
-
-    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
-                                                        : SL_STATUS_FAIL;
+    return zwave_command_class_user_credential_supports(endpoint_node,
+                                                        CREDENTIAL_SET)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
   }
 
   return zwave_command_class_user_credential_delete_all_credentials_for_user_by_type(
@@ -446,12 +421,10 @@ sl_status_t
   // Now that we know that the command is supported, return here if it is
   // a support check type of call.
   if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
-    attribute_store_node_t user_count_node
-      = attribute_store_get_first_child_by_type(endpoint_node,
-                                                ATTRIBUTE(NUMBER_OF_USERS));
-
-    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
-                                                        : SL_STATUS_FAIL;
+    return zwave_command_class_user_credential_supports(endpoint_node,
+                                                        CREDENTIAL_LEARN_START)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
   }
 
   return zwave_command_class_user_credential_credential_learn_start_add(
@@ -477,12 +450,10 @@ sl_status_t
   // Now that we know that the command is supported, return here if it is
   // a support check type of call.
   if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
-    attribute_store_node_t user_count_node
-      = attribute_store_get_first_child_by_type(endpoint_node,
-                                                ATTRIBUTE(NUMBER_OF_USERS));
-
-    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
-                                                        : SL_STATUS_FAIL;
+    return zwave_command_class_user_credential_supports(endpoint_node,
+                                                        CREDENTIAL_LEARN_START)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
   }
 
   return zwave_command_class_user_credential_credential_learn_start_modify(
@@ -504,12 +475,10 @@ sl_status_t
   // Now that we know that the command is supported, return here if it is
   // a support check type of call.
   if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
-    attribute_store_node_t user_count_node
-      = attribute_store_get_first_child_by_type(endpoint_node,
-                                                ATTRIBUTE(NUMBER_OF_USERS));
-
-    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
-                                                        : SL_STATUS_FAIL;
+    return zwave_command_class_user_credential_supports(endpoint_node,
+                                                        CREDENTIAL_LEARN_CANCEL)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
   }
 
   return zwave_command_class_user_credential_credential_learn_stop(
@@ -531,12 +500,11 @@ sl_status_t uuic_association_set(dotdot_unid_t unid,
   // Now that we know that the command is supported, return here if it is
   // a support check type of call.
   if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
-    attribute_store_node_t user_count_node
-      = attribute_store_get_first_child_by_type(endpoint_node,
-                                                ATTRIBUTE(NUMBER_OF_USERS));
-
-    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
-                                                        : SL_STATUS_FAIL;
+    return zwave_command_class_user_credential_supports(
+             endpoint_node,
+             USER_CREDENTIAL_ASSOCIATION_SET)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
   }
 
   return zwave_command_class_user_credential_uuic_association_set(
@@ -548,9 +516,10 @@ sl_status_t uuic_association_set(dotdot_unid_t unid,
     destination_credential_slot);
 }
 
-sl_status_t get_all_users_checksum(dotdot_unid_t unid,
-                                  dotdot_endpoint_id_t endpoint,
-                                  uic_mqtt_dotdot_callback_call_type_t call_type)
+sl_status_t
+  get_all_users_checksum(dotdot_unid_t unid,
+                         dotdot_endpoint_id_t endpoint,
+                         uic_mqtt_dotdot_callback_call_type_t call_type)
 {
   attribute_store_node_t endpoint_node
     = attribute_store_network_helper_get_endpoint_node(unid, endpoint);
@@ -564,7 +533,8 @@ sl_status_t get_all_users_checksum(dotdot_unid_t unid,
              : SL_STATUS_FAIL;
   }
 
-  return zwave_command_class_user_credential_get_all_users_checksum(endpoint_node);
+  return zwave_command_class_user_credential_get_all_users_checksum(
+    endpoint_node);
 }
 
 sl_status_t get_user_checksum(dotdot_unid_t unid,
@@ -578,12 +548,10 @@ sl_status_t get_user_checksum(dotdot_unid_t unid,
   // Now that we know that the command is supported, return here if it is
   // a support check type of call.
   if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
-    attribute_store_node_t user_count_node
-      = attribute_store_get_first_child_by_type(endpoint_node,
-                                                ATTRIBUTE(NUMBER_OF_USERS));
-
-    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
-                                                        : SL_STATUS_FAIL;
+    return zwave_command_class_user_credential_supports(endpoint_node,
+                                                        USER_CHECKSUM_GET)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
   }
 
   return zwave_command_class_user_credential_get_user_checksum(endpoint_node,
@@ -602,12 +570,10 @@ sl_status_t
   // Now that we know that the command is supported, return here if it is
   // a support check type of call.
   if (UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK == call_type) {
-    attribute_store_node_t user_count_node
-      = attribute_store_get_first_child_by_type(endpoint_node,
-                                                ATTRIBUTE(NUMBER_OF_USERS));
-
-    return attribute_store_node_exists(user_count_node) ? SL_STATUS_OK
-                                                        : SL_STATUS_FAIL;
+    return zwave_command_class_user_credential_supports(endpoint_node,
+                                                        CREDENTIAL_CHECKSUM_GET)
+             ? SL_STATUS_OK
+             : SL_STATUS_FAIL;
   }
 
   return zwave_command_class_user_credential_get_credential_checksum(
@@ -1139,11 +1105,14 @@ void on_user_credential_message(sl_log_level_t log_level,
                                 const std::string message)
 {
   nlohmann::json payload;
-  payload["level"]        = log_level;
-  payload["message"]      = message;
+  payload["level"]   = log_level;
+  payload["message"] = message;
 
   std::string payload_str = payload.dump();
-  uic_mqtt_publish("ucl/Event", payload_str.c_str(), payload_str.length(), true);
+  uic_mqtt_publish("ucl/Event",
+                   payload_str.c_str(),
+                   payload_str.length(),
+                   true);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1213,13 +1182,12 @@ sl_status_t user_credential_cluster_server_init()
   uic_mqtt_dotdot_user_credential_set_admin_pin_code_callback_set(
     &admin_pin_code_set);
   uic_mqtt_dotdot_user_credential_deactivate_admin_pin_code_callback_set(
-    &admin_pin_code_deactivate);  
+    &admin_pin_code_deactivate);
 
   // Types that can't be mapped with UAM
-  attribute_store_register_callback_by_type_and_state(
-    &on_admin_pin_code_update,
-    ATTRIBUTE(ADMIN_PIN_CODE),
-    REPORTED_ATTRIBUTE);
+  attribute_store_register_callback_by_type_and_state(&on_admin_pin_code_update,
+                                                      ATTRIBUTE(ADMIN_PIN_CODE),
+                                                      REPORTED_ATTRIBUTE);
 
   return SL_STATUS_OK;
 }

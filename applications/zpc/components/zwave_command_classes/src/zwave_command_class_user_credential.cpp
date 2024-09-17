@@ -2025,7 +2025,7 @@ static sl_status_t zwave_command_class_user_credential_admin_pin_code_set(
       admin_pin_code_node.first_parent(ATTRIBUTE_ENDPOINT_ID));
 
     if (admin_pin_code.empty()
-        && !credential_capabilities.has_admin_code_deactivation_support()) {
+        && !credential_capabilities.is_admin_code_deactivation_supported()) {
       send_message_to_mqtt(SL_LOG_ERROR,
                            "Admin PIN code is empty and the device doesn't "
                            "support deactivation. Not sending Admin PIN code.");

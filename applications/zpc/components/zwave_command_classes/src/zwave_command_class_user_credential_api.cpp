@@ -798,7 +798,7 @@ sl_status_t zwave_command_class_user_credential_set_admin_pin_code(
       endpoint_node);
 
     // Base check
-    if (!credential_capabilities.has_admin_code_support()) {
+    if (!credential_capabilities.is_admin_code_supported()) {
       sl_log_error(
         LOG_TAG,
         "Admin PIN code not supported.");
@@ -815,7 +815,7 @@ sl_status_t zwave_command_class_user_credential_set_admin_pin_code(
 
     // Check if we can deactivate it
     if (credential_data.empty()
-        && !credential_capabilities.has_admin_code_deactivation_support()) {
+        && !credential_capabilities.is_admin_code_deactivation_supported()) {
       sl_log_error(
         LOG_TAG,
         "Admin PIN code deactivation disabled, can't deactivate it.");
@@ -855,6 +855,26 @@ bool zwave_command_class_user_credential_supports(
     return false;
   }
 
+  // Commands that don't need specific capabilities
+  // Note : We don't have the granularity to check if the learn is supported for a specific credential at this level
+  // so some commands (e.g CREDENTIAL_LEARN_START) are marked as supported even if the credential type doesn't support it.
+  // The API call will check that for us instead.
+  const std::vector<uint8_t> supported_commands = {
+    USER_SET,
+    CREDENTIAL_SET,
+    CREDENTIAL_LEARN_START, 
+    CREDENTIAL_LEARN_CANCEL,
+    USER_CREDENTIAL_ASSOCIATION_SET
+  };
+
+  // Check if we support the command_id without checking the capabilities
+  if (std::find(supported_commands.begin(),
+                supported_commands.end(),
+                command_id)
+      != supported_commands.end()) {
+    return true;
+  }
+
   user_credential::user_capabilities user_capabilities(endpoint_node);
   user_credential::credential_capabilities credential_capabilities(
     endpoint_node);
@@ -862,9 +882,12 @@ bool zwave_command_class_user_credential_supports(
   switch (command_id) {
     case ALL_USERS_CHECKSUM_GET:
       return user_capabilities.is_all_users_checksum_supported();
+    case USER_CHECKSUM_GET:
+      return user_capabilities.is_user_checksum_supported();
+    case CREDENTIAL_CHECKSUM_GET:
+      return credential_capabilities.is_credential_checksum_supported();
     case ADMIN_PIN_CODE_SET: 
-    case ADMIN_PIN_CODE_GET:
-      return credential_capabilities.has_admin_code_support();
+      return credential_capabilities.is_admin_code_supported();
     default:
       sl_log_critical(
         LOG_TAG,
@@ -879,5 +902,5 @@ bool zwave_command_class_user_credential_supports_admin_pin_code_deactivation(
 {
   user_credential::credential_capabilities credential_capabilities(
     endpoint_node);
-  return credential_capabilities.has_admin_code_deactivation_support();
+  return credential_capabilities.is_admin_code_deactivation_supported();
 }

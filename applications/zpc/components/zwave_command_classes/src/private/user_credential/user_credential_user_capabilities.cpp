@@ -119,7 +119,17 @@ bool user_capabilities::is_credential_rule_supported(
 
 bool user_capabilities::is_all_users_checksum_supported() const
 {
-  return support_all_users_checksum;
+  return is_data_valid && support_all_users_checksum > 0;
+}
+
+bool user_capabilities::is_user_checksum_supported() const
+{
+  return is_data_valid && support_by_user_checksum > 0;
+}
+
+bool user_capabilities::is_user_schedule_supported() const
+{
+  return is_data_valid && support_user_schedule > 0;
 }
 
 }  // namespace user_credential
