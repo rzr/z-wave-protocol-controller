@@ -86,6 +86,19 @@ class user_capabilities
    */
   bool is_all_users_checksum_supported() const;
 
+  /**
+   * @brief Check if user checksum is supported
+   * @return true User checksum is supported
+   * @return false User checksum is not supported
+   */
+  bool is_user_checksum_supported() const;
+  /**
+  * @brief Check if user schedule is supported
+  * @return true User schedule is supported
+  * @return false User schedule is not supported
+  */
+  bool is_user_schedule_supported() const;
+
   private:
   // Maximum number of users that can be stored in the device
   uint16_t max_user_count = 0;

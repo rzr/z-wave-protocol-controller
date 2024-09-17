@@ -38,7 +38,8 @@ credential_capabilities::credential_capabilities(
       = endpoint_node.child_by_type(ATTRIBUTE(SUPPORT_ADMIN_PIN_CODE))
           .reported<uint8_t>();
     this->admin_code_deactivation_support
-      = endpoint_node.child_by_type(ATTRIBUTE(SUPPORT_ADMIN_PIN_CODE_DEACTIVATION))
+      = endpoint_node
+          .child_by_type(ATTRIBUTE(SUPPORT_ADMIN_PIN_CODE_DEACTIVATION))
           .reported<uint8_t>();
 
     this->is_data_valid = true;
@@ -49,15 +50,15 @@ credential_capabilities::credential_capabilities(
   }
 }
 
-bool credential_capabilities::has_credential_checksum_support() const
+bool credential_capabilities::is_credential_checksum_supported() const
 {
   return is_data_valid && credential_checksum_support > 0;
 }
-bool credential_capabilities::has_admin_code_support() const
+bool credential_capabilities::is_admin_code_supported() const
 {
   return is_data_valid && admin_code_support > 0;
 }
-bool credential_capabilities::has_admin_code_deactivation_support() const
+bool credential_capabilities::is_admin_code_deactivation_supported() const
 {
   return is_data_valid && admin_code_deactivation_support > 0;
 }

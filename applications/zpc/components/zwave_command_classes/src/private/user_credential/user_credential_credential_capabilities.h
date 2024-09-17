@@ -27,9 +27,9 @@ class credential_capabilities
     const attribute_store::attribute &endpoint_node);
   ~credential_capabilities() = default;
 
-  bool has_credential_checksum_support() const;
-  bool has_admin_code_support() const;
-  bool has_admin_code_deactivation_support() const;
+  bool is_credential_checksum_supported() const;
+  bool is_admin_code_supported() const;
+  bool is_admin_code_deactivation_supported() const;
 
   private:
   uint8_t credential_checksum_support     = 0;
