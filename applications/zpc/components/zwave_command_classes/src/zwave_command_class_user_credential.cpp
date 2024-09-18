@@ -73,13 +73,14 @@ using namespace user_credential_helpers;
 
 namespace
 {
-zwave_frame_generator frame_generator(COMMAND_CLASS_USER_CREDENTIAL);
+zwave_frame_generator frame_generator(
+  COMMAND_CLASS_USER_CREDENTIAL);  //NOSONAR - false positive since it is warped in a namespace
 
 // Callbacks
 std::set<user_credential_slot_changed_callback_t>
-  user_credential_slot_changed_callback;
+  user_credential_slot_changed_callback;  //NOSONAR - false positive since it is warped in a namespace
 std::set<user_credential_slot_message_callback_t>
-  user_credential_slot_message_callback;
+  user_credential_slot_message_callback;  //NOSONAR - false positive since it is warped in a namespace
 }  // namespace
 
 /////////////////////////////////////////////////////////////////////////////
@@ -146,27 +147,23 @@ static void zwave_command_class_user_credential_on_version_attribute_update(
 
   sl_log_debug(LOG_TAG, "User Credential version %d", version);
 
-  attribute_store_node_t endpoint_node
+  attribute_store::attribute endpoint_node
     = attribute_store_get_first_parent_with_type(updated_node,
                                                  ATTRIBUTE_ENDPOINT_ID);
 
   // The order of the attribute matter since it defines the order of the
   // Z-Wave get command order.
-  const attribute_store_type_t attributes[] = {
-    ATTRIBUTE(NUMBER_OF_USERS),
-    ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM),
-  };
-
-  attribute_store_add_if_missing(endpoint_node,
-                                 attributes,
-                                 COUNT_OF(attributes));
+  endpoint_node.emplace_node(ATTRIBUTE(NUMBER_OF_USERS));
+  endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM));
 }
 
 /////////////////////////////////////////////////////////////////////////////
 // User Credential User Capabilities Get/Report
 /////////////////////////////////////////////////////////////////////////////
 static sl_status_t zwave_command_class_user_credential_user_capabilities_get(
-  attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
+  [[maybe_unused]] attribute_store_node_t node,
+  uint8_t *frame,
+  uint16_t *frame_length)
 {
   sl_log_debug(LOG_TAG, "User Capabilities Get");
 
@@ -229,7 +226,9 @@ sl_status_t zwave_command_class_user_credential_user_capabilities_handle_report(
 /////////////////////////////////////////////////////////////////////////////
 static sl_status_t
   zwave_command_class_user_credential_credential_capabilities_get(
-    attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
+    [[maybe_unused]] attribute_store_node_t node,
+    uint8_t *frame,
+    uint16_t *frame_length)
 {
   sl_log_debug(LOG_TAG, "Credential Capabilities Get");
 
@@ -263,12 +262,14 @@ sl_status_t
     }
 
     const uint8_t support_admin_code_bitmask = 0x40;
-    auto result = parser.read_byte_with_bitmask(
+    auto result                              = parser.read_byte_with_bitmask(
       {{CREDENTIAL_CAPABILITIES_REPORT_PROPERTIES1_CREDENTIAL_CHECKSUM_SUPPORT_BIT_MASK,
-        endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM))},
-       {support_admin_code_bitmask, endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_ADMIN_PIN_CODE))},
-       {0x20,
-        endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_ADMIN_PIN_CODE_DEACTIVATION))}});
+                                     endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM))},
+                                    {support_admin_code_bitmask,
+                                     endpoint_node.emplace_node(ATTRIBUTE(SUPPORT_ADMIN_PIN_CODE))},
+                                    {0x20,
+                                     endpoint_node.emplace_node(
+          ATTRIBUTE(SUPPORT_ADMIN_PIN_CODE_DEACTIVATION))}});
 
     if (result[support_admin_code_bitmask]) {
       endpoint_node.emplace_node(ATTRIBUTE(ADMIN_PIN_CODE));
@@ -417,7 +418,9 @@ void add_user_node_to_checksum(
 }
 
 static sl_status_t zwave_command_class_user_credential_all_user_checksum_get(
-  attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
+  [[maybe_unused]] attribute_store_node_t node,
+  uint8_t *frame,
+  uint16_t *frame_length)
 {
   sl_log_debug(LOG_TAG, "All Users Checksum Get");
 
@@ -631,8 +634,8 @@ enum class credential_report_type_t : uint8_t {
 };
 
 sl_status_t
-  handle_credential_deletion(attribute_store::attribute &endpoint_node,
-                             attribute_store::attribute &user_id_node,
+  handle_credential_deletion(attribute_store::attribute& endpoint_node,
+                             attribute_store::attribute& user_id_node,
                              user_credential_user_unique_id_t user_id,
                              user_credential_type_t credential_type,
                              user_credential_user_unique_id_t credential_slot)
@@ -656,7 +659,7 @@ sl_status_t
                 user_id);
     for_each_credential_type_nodes_for_user(
       user_id_node,
-      [&](attribute_store::attribute &credential_type_node) {
+      [](attribute_store::attribute &credential_type_node) {
         credential_type_node.delete_node();
       },
       credential_type);
@@ -664,14 +667,14 @@ sl_status_t
     sl_log_info(LOG_TAG, "All credentials for user %d deleted.", user_id);
     for_each_credential_type_nodes_for_user(
       user_id_node,
-      [&](attribute_store::attribute &credential_type_node) {
+      [](attribute_store::attribute &credential_type_node) {
         credential_type_node.delete_node();
       });
   } else if (user_id == 0 && credential_type == 0 && credential_slot == 0) {
     sl_log_info(LOG_TAG, "All credentials deleted.");
     for_each_credential_type_nodes(
       endpoint_node,
-      [&](attribute_store::attribute &credential_type_node) {
+      [](attribute_store::attribute &credential_type_node) {
         credential_type_node.delete_node();
       });
   } else if (user_id == 0 && credential_type != 0 && credential_slot == 0) {
@@ -680,7 +683,7 @@ sl_status_t
                 get_credential_type_debug_str(credential_type).c_str());
     for_each_credential_type_nodes(
       endpoint_node,
-      [&](attribute_store::attribute &credential_type_node) {
+      [](attribute_store::attribute &credential_type_node) {
         credential_type_node.delete_node();
       },
       credential_type);
@@ -746,7 +749,7 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
                      credential_slot,
                      get_credential_type_debug_str(credential_type).c_str(),
                      user_id);
-      } catch (const std::exception &e) {
+      } catch (...) {
         // Try again with reported attribute
         // That should not trigger an error, but if it does it means that something went wrong
         auto nodes = get_credential_identifier_nodes(
@@ -917,20 +920,24 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
         // We need to find the credential slot node that contains the same data
         for_each_credential_type_nodes(
           endpoint_node,
-          [&](attribute_store::attribute &credential_type_node) {
-            for (auto &credential_slot_node:
-                 credential_type_node.children(ATTRIBUTE(CREDENTIAL_SLOT))) {
-              if (credential_slot_node.desired_exists()) {
+          [&found_duplicate, &duplicate_data](
+            attribute_store::attribute &current_credential_type_node) {
+            for (auto &current_credential_slot_node:
+                 current_credential_type_node.children(
+                   ATTRIBUTE(CREDENTIAL_SLOT))) {
+              if (current_credential_slot_node.desired_exists()) {
                 auto current_data
-                  = credential_slot_node
+                  = current_credential_slot_node
                       .child_by_type(ATTRIBUTE(CREDENTIAL_DATA))
                       .get<std::vector<uint8_t>>(DESIRED_OR_REPORTED_ATTRIBUTE);
-                if (current_data == duplicate_data) {
-                  sl_log_debug(
-                    LOG_TAG,
-                    "Found the faulty credential slot node : %d",
-                    credential_slot_node.desired<user_credential_slot_t>());
-                  credential_slot_node.delete_node();
+                if (
+                  current_data
+                  == duplicate_data) {  //NOSONAR - Don't have a better way to write this
+                  sl_log_debug(LOG_TAG,
+                               "Found the faulty credential slot node : %d",
+                               current_credential_slot_node
+                                 .desired<user_credential_slot_t>());
+                  current_credential_slot_node.delete_node();
                   found_duplicate = true;
                   return;
                 }
@@ -972,7 +979,12 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
         clean_up_pending_credentials_slot_nodes();
         return SL_STATUS_OK;
       case credential_report_type_t::CREDENTIAL_DUPLICATE_ADMIN_CODE:
-        // TODO : Handle this case
+        sl_log_warning(LOG_TAG,
+                       "Credential data rejected as the new credential is the "
+                       "same as admin code");
+        // This should contains the faulty credential
+        clean_up_pending_credentials_slot_nodes();
+        break;
       default:
         sl_log_error(LOG_TAG,
                      "Invalid credential report type %d",
@@ -1409,7 +1421,7 @@ static sl_status_t zwave_command_class_user_credential_user_set(
     const bool is_delete_operation
       = (user_operation_type == USER_SET_OPERATION_TYPE_DELETE);
 
-    uint8_t expected_frame_size = (is_delete_operation) ? 5 : 12;
+    uint8_t expected_frame_size = is_delete_operation ? 5 : 12;
     uint8_t user_name_size      = 0;
 
     if (!is_delete_operation) {
@@ -1581,7 +1593,7 @@ sl_status_t zwave_command_class_user_credential_user_handle_report(
              endpoint_node.children(ATTRIBUTE(USER_UNIQUE_ID))) {
           // Don't delete special user 0
           if (user_node.reported_exists()
-              && user_node.reported<user_credential_user_unique_id_t>() == 0) {
+              && user_node.reported<user_credential_user_unique_id_t>() == 0) { //NOSONAR - Don't have a better way to write this
             continue;
           }
 
@@ -1654,8 +1666,6 @@ sl_status_t zwave_command_class_user_credential_user_handle_report(
 
     // Deleted special case
     if (user_report_type == user_report_type_t::USER_DELETED) {
-      // TODO : move all credential from this user to user 0
-      // Maybe it is done automatically by the credential report
       sl_log_info(LOG_TAG, "User %d has been deleted", current_user_id);
       current_user_id_node.delete_node();
       return SL_STATUS_OK;
@@ -1951,20 +1961,22 @@ sl_status_t
     user_credential::checksum_calculator checksum_calculator;
     for_each_credential_type_nodes(
       endpoint_node,
-      [&](auto credential_type_node) {
-        for (auto credential_slot_node:
-             credential_type_node.children(ATTRIBUTE(CREDENTIAL_SLOT))) {
-          if (!credential_slot_node.reported_exists()) {
+      [&checksum_calculator](auto current_credential_type_node) {
+        for (auto current_credential_slot_node:
+             current_credential_type_node.children(
+               ATTRIBUTE(CREDENTIAL_SLOT))) {
+          if (!current_credential_slot_node.reported_exists()) {
             sl_log_debug(
               LOG_TAG,
               "%s reported value is not defined. Not adding to checksum.",
-              credential_slot_node.value_to_string());
+              current_credential_slot_node.value_to_string());
             continue;
           }
 
-          checksum_calculator.add_node(credential_slot_node);
+          checksum_calculator.add_node(current_credential_slot_node);
           checksum_calculator.add_node(
-            credential_slot_node.child_by_type(ATTRIBUTE(CREDENTIAL_DATA)));
+            current_credential_slot_node.child_by_type(
+              ATTRIBUTE(CREDENTIAL_DATA)));
         }
       },
       credential_type);
@@ -2037,7 +2049,7 @@ static sl_status_t zwave_command_class_user_credential_admin_pin_code_set(
     frame_generator.initialize_frame(ADMIN_PIN_CODE_SET,
                                      frame,
                                      expected_frame_size);
-    
+
     // In every case we add 0 to the frame
     frame_generator.add_raw_byte(admin_code_size);
 
@@ -2058,11 +2070,15 @@ static sl_status_t zwave_command_class_user_credential_admin_pin_code_set(
 }
 
 static sl_status_t zwave_command_class_user_credential_admin_pin_code_get(
-  attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
+  [[maybe_unused]] attribute_store_node_t node,
+  uint8_t *frame,
+  uint16_t *frame_length)
 {
   sl_log_debug(LOG_TAG, "Admin PIN Code Get");
   // No definition yet for ADMIN_PIN_CODE_GET we use raw value
-  return frame_generator.generate_no_args_frame(ADMIN_PIN_CODE_GET, frame, frame_length);
+  return frame_generator.generate_no_args_frame(ADMIN_PIN_CODE_GET,
+                                                frame,
+                                                frame_length);
 }
 
 sl_status_t zwave_command_class_user_credential_admin_pin_code_handle_report(
@@ -2090,10 +2106,10 @@ sl_status_t zwave_command_class_user_credential_admin_pin_code_handle_report(
     constexpr uint8_t admin_code_op_result_bitmask = 0b11110000;
     constexpr uint8_t admin_code_length_bitmask    = 0b00001111;
     // First parse the code size and operation result
-    auto result = parser.read_byte_with_bitmask({
-      {admin_code_op_result_bitmask,
-       endpoint_node.emplace_node(ATTRIBUTE(ADMIN_PIN_CODE_OPERATION_RESULT))},
-      {admin_code_length_bitmask}});
+    auto result = parser.read_byte_with_bitmask(
+      {{admin_code_op_result_bitmask,
+        endpoint_node.emplace_node(ATTRIBUTE(ADMIN_PIN_CODE_OPERATION_RESULT))},
+       {admin_code_length_bitmask}});
 
     auto admin_code_op_result = result[admin_code_op_result_bitmask];
     switch (admin_code_op_result) {
@@ -2200,26 +2216,27 @@ void zwave_network_status_changed(attribute_store_node_t node,
       for (auto endpoint_node: node_id_node.children(ATTRIBUTE_ENDPOINT_ID)) {
         auto endpoint_id = endpoint_node.reported<zwave_endpoint_id_t>();
         // Check if the endpoint supports User Credential Command class
-        if (zwave_node_supports_command_class(COMMAND_CLASS_USER_CREDENTIAL,
-                                              node_id,
-                                              endpoint_id)) {
-          sl_log_debug(LOG_TAG,
-                       "Endpoint %d supports User Credential.",
-                       endpoint_id);
-          auto user_count
-            = endpoint_node.children(ATTRIBUTE(USER_UNIQUE_ID)).size();
-          if (user_count == 0) {
-            sl_log_debug(
-              LOG_TAG,
-              "No user found. Starting User and Credential interview");
-            // Start the interview process with user ID = 0
-            endpoint_node.add_node(ATTRIBUTE(USER_UNIQUE_ID))
-              .set_desired<user_credential_user_unique_id_t>(0);
-          } else {
-            sl_log_debug(LOG_TAG,
-                         "Users already discovered. No actions needed.");
-          }
+        if (!zwave_node_supports_command_class(COMMAND_CLASS_USER_CREDENTIAL,
+                                               node_id,
+                                               endpoint_id)) {
+          continue;
         }
+        
+        sl_log_debug(LOG_TAG,
+                     "Endpoint %d supports User Credential.",
+                     endpoint_id);
+        auto user_count
+          = endpoint_node.children(ATTRIBUTE(USER_UNIQUE_ID)).size();
+        if (user_count != 0) {
+          sl_log_debug(LOG_TAG, "Users already discovered. No actions needed.");
+          continue;
+        }
+
+        sl_log_debug(LOG_TAG,
+                     "No user found. Starting User and Credential interview");
+        // Start the interview process with user ID = 0
+        endpoint_node.add_node(ATTRIBUTE(USER_UNIQUE_ID))
+          .set_desired<user_credential_user_unique_id_t>(0);
       }
       sl_log_debug(LOG_TAG, "Done.");
     }

@@ -903,13 +903,13 @@ std::string get_payload_value(attribute_store::attribute updated_node_cpp,
       // Credential data are encoded in different way that's why we store them as raw byte array and interpret their value
 
       std::string output;
-      auto data = updated_node_cpp.reported<std::vector<uint8_t>>();
+      auto raw_data = updated_node_cpp.reported<std::vector<uint8_t>>();
 
       // Check if we need to convert the value to UTF-8
       if (need_utf8_conversion) {
         std::u16string utf16_str;
-        for (size_t i = 0; i < data.size(); i += 2) {
-          char16_t char16 = (data[i] << 8) | data[i + 1];
+        for (size_t i = 0; i < raw_data.size(); i += 2) {
+          char16_t char16 = (raw_data[i] << 8) | raw_data[i + 1];
           utf16_str.push_back(char16);
         }
         std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> cnv;
@@ -918,8 +918,8 @@ std::string get_payload_value(attribute_store::attribute updated_node_cpp,
           sl_log_error(LOG_TAG, "Error converting UTF-16 to UTF-8");
         }
       } else {
-        output.reserve(data.size());
-        for (auto c: data) {
+        output.reserve(raw_data.size());
+        for (auto c: raw_data) {
           output.push_back(static_cast<char>(c));
         }
       }
@@ -1005,7 +1005,7 @@ void publish_mqtt_topic(const std::string &base_topic,
 void on_attribute_update(
   attribute_store_node_t updated_node,
   attribute_store_change_t change,
-  std::function<std::string(attribute_store::attribute)> get_base_mqtt_topic,
+  const std::function<std::string(attribute_store::attribute)>& get_base_mqtt_topic,
   const user_attributes_mqtt_map_t &attributes)
 {
   try {
@@ -1087,7 +1087,7 @@ void on_uuic_slot_update(
                                          old_credential_slot.credential_type);
   // Simulate deletion of the old slot
   // First simulate deletion of all attributes
-  for (auto [attribute_store_type, mqtt_data]: credential_attributes) {
+  for (const auto& [attribute_store_type, mqtt_data]: credential_attributes) {
     std::string mqtt_topic
       = mqtt_topic_add_attribute(old_credential_topic, mqtt_data.topic);
     uic_mqtt_publish(mqtt_topic.c_str(), "", 0, true);
@@ -1102,7 +1102,7 @@ void on_uuic_slot_update(
 }
 
 void on_user_credential_message(sl_log_level_t log_level,
-                                const std::string message)
+                                const std::string& message)
 {
   nlohmann::json payload;
   payload["level"]   = log_level;
