@@ -181,15 +181,16 @@ bool is_credential_available(attribute_store_node_t endpoint_node,
 
   for_each_credential_type_nodes(
     endpoint_node,
-    [&](attribute_store::attribute &credential_type_node) {
-      for (auto &credential_slot_node:
-           credential_type_node.children(ATTRIBUTE(CREDENTIAL_SLOT))) {
+    [&credential_available, &credential_slot](
+      attribute_store::attribute &current_credential_type_node) {
+      for (auto &current_credential_slot_node:
+           current_credential_type_node.children(ATTRIBUTE(CREDENTIAL_SLOT))) {
         // If this credential slot node doesn't have a reported value, check the next one
-        if (!credential_slot_node.reported_exists()) {
+        if (!current_credential_slot_node.reported_exists()) {
           continue;
         }
 
-        if (credential_slot_node.reported<user_credential_slot_t>()
+        if (current_credential_slot_node.reported<user_credential_slot_t>()
             == credential_slot) {
           credential_available = false;
           return;
