@@ -63,17 +63,7 @@ zwave_frame_generator frame_generator(COMMAND_CLASS_SWITCH_ALL);
 ///////////////////////////////////////////////////////////////////////////////
 // Helper functions
 ///////////////////////////////////////////////////////////////////////////////
-zwave_cc_version_t get_current_switch_all_version(attribute_store_node_t node)
-{
-  zwave_cc_version_t version
-    = zwave_command_class_get_version_from_node(node, COMMAND_CLASS_SWITCH_ALL);
 
-  if (version == 0) {
-    sl_log_error(LOG_TAG, "switch_all Command Class Version not found");
-  }
-
-  return version;
-}
 ///////////////////////////////////////////////////////////////////////////////
 // Resolution functions
 ///////////////////////////////////////////////////////////////////////////////
@@ -143,12 +133,12 @@ static sl_status_t zwave_command_class_switch_all_set(
   try {
     attribute_store::attribute value_node(node);
     // Creating the frame
-    if (value_node.type() == ATTRIBUTE(MODE)) {
-      frame_generator.initialize_frame(SWITCH_ALL_SET, frame, 3);
-      frame_generator.add_value(value_node, DESIRED_ATTRIBUTE);
-      frame_generator.validate_frame(frame_length);
+    if (value_node.type() != ATTRIBUTE(MODE)) {
+      return SL_STATUS_INVALID_TYPE;
     }
-    return SL_STATUS_INVALID_TYPE;
+    frame_generator.initialize_frame(SWITCH_ALL_SET, frame, 3);
+    frame_generator.add_value(value_node, DESIRED_ATTRIBUTE);
+    frame_generator.validate_frame(frame_length);
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
                  "Error while generating switch_all Set frame : %s",
@@ -195,6 +185,7 @@ static sl_status_t zwave_command_class_switch_all_handle_report(
                  e.what());
     return SL_STATUS_FAIL;
   }
+
   return SL_STATUS_OK;
 }
 
@@ -296,6 +287,13 @@ sl_status_t zwave_command_class_unify_switch_all_write_attributes_callback(
   if (changed.on_off) {
     for (auto node: home.children()) {
       auto ep = node.child_by_type(ATTRIBUTE_ENDPOINT_ID);
+      if (!ep.child_by_type(ATTRIBUTE(MODE)).is_valid()) {
+        sl_log_debug(LOG_TAG,
+                     "Switch All CC not supported by ep %u of node %x",
+                     ep.reported<uint8_t>(),
+                     node.reported<uint16_t>());
+        continue;
+      }
       auto on_off
         = ep.emplace_node(DOTDOT_ATTRIBUTE_ID_UNIFY_SWITCH_ALL_ON_OFF);
 
