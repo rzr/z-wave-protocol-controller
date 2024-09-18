@@ -108,9 +108,9 @@ static sl_status_t zwave_command_class_switch_all_set_on_off(
     }
     if (!send_command) {
       sl_log_debug(LOG_TAG,
-                 "Not sending command %d since mode is %d",
-                 zwave_command_id,
-                 mode);
+                   "Not sending command %d since mode is %d",
+                   zwave_command_id,
+                   mode);
       return SL_STATUS_OK;
     }
     return frame_generator.generate_no_args_frame(zwave_command_id,
@@ -162,39 +162,41 @@ static sl_status_t zwave_command_class_switch_all_set(
 ///////////////////////////////////////////////////////////////////////////////
 // Frame parsing functions
 ///////////////////////////////////////////////////////////////////////////////
-//static sl_status_t zwave_command_class_switch_all_handle_report(
-//  const zwave_controller_connection_info_t *connection_info,
-//  const uint8_t *frame_data,
-//  uint16_t frame_length)
-//{
-//  // Setup
-//  attribute_store::attribute endpoint_node(
-//    zwave_command_class_get_endpoint_node(connection_info));
-//  auto current_version = get_current_switch_all_version(endpoint_node);
-//
-//  sl_log_debug(LOG_TAG, "switch_all Report frame received");
-//
-//  // Compute expected size for report frame
-//  const uint8_t expected_size = 12;
+static sl_status_t zwave_command_class_switch_all_handle_report(
+  const zwave_controller_connection_info_t *connection_info,
+  const uint8_t *frame_data,
+  uint16_t frame_length)
+{
+  // Setup
+  attribute_store::attribute endpoint_node(
+    zwave_command_class_get_endpoint_node(connection_info));
 
-//  // Parse the frame
-//  try {
-//   zwave_frame_parser parser(frame_data, frame_length);
+  sl_log_debug(LOG_TAG, "Switch All Report frame received");
 
-//   if (!parser.is_frame_size_valid(expected_size)) {
-//     sl_log_error(LOG_TAG,
-//                  "Invalid frame size for switch_all Report frame");
-//     return SL_STATUS_FAIL;
-//   }
+  // Compute expected size for report frame
+  const uint8_t expected_size = 3;
 
-//  } catch (const std::exception &e) {
-//   sl_log_error(LOG_TAG,
-//                "Error while parsing switch_all Report frame : %s",
-//                e.what());
-//   return SL_STATUS_FAIL;
-//  }
-//  return SL_STATUS_OK;
-//}
+  // Parse the frame
+  try {
+    zwave_frame_parser parser(frame_data, frame_length);
+
+    if (!parser.is_frame_size_valid(expected_size)) {
+      sl_log_error(LOG_TAG, "Invalid frame size for switch_all Report frame");
+      return SL_STATUS_FAIL;
+    }
+
+    attribute_store::attribute mode
+      = endpoint_node.child_by_type(ATTRIBUTE(MODE));
+    parser.read_byte(mode);
+
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while parsing switch_all Report frame : %s",
+                 e.what());
+    return SL_STATUS_FAIL;
+  }
+  return SL_STATUS_OK;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // Incoming commands handler
@@ -210,10 +212,10 @@ sl_status_t zwave_command_class_switch_all_control_handler(
   }
 
   switch (frame_data[COMMAND_INDEX]) {
-    // case switch_all_REPORT:
-    //   return zwave_command_class_switch_all_handle_report(connection_info,
-    //                                                    frame_data,
-    //                                                    frame_length);
+    case SWITCH_ALL_REPORT:
+      return zwave_command_class_switch_all_handle_report(connection_info,
+                                                          frame_data,
+                                                          frame_length);
     default:
       return SL_STATUS_NOT_SUPPORTED;
   }
