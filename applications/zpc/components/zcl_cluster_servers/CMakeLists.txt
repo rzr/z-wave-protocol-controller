@@ -11,6 +11,7 @@ add_library(
   src/humidity_control_cluster_server.c
   src/user_code_cluster_server.cpp
   src/fan_control_cluster_server.c
+  src/schedule_entry_lock_server.cpp
   src/zcl_binding_cluster_server.cpp
   src/zcl_cluster_servers.cpp
   src/zcl_cluster_servers_helpers.cpp
