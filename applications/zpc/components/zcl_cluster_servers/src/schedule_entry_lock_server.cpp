@@ -26,18 +26,8 @@
 #include "attribute_store_defined_attribute_types.h"
 #include "ZW_classcmd.h"
 
-// Includes from other Unify Components
-#include "dotdot_mqtt.h"
-#include "dotdot_mqtt_generated_commands.h"
-#include "attribute_store_helper.h"
-#include "attribute_resolver.h"
-#include "attribute_timeouts.h"
-#include "sl_log.h"
-
-// Cpp include
 #include "attribute.hpp"
-#include "zwave_frame_generator.hpp"
-#include "zwave_frame_parser.hpp"
+
 
 // Attribute macro, shortening those long defines for attribute types:
 #define ATTRIBUTE(type) ATTRIBUTE_COMMAND_CLASS_SCHEDULE_ENTRY_LOCK_##type
@@ -230,10 +220,12 @@ static sl_status_t
     uint8_t user_identifier,
     uint8_t schedule_slotid,
     uint8_t start_year,
+    uint8_t start_month,
     uint8_t start_day,
     uint8_t start_hour,
     uint8_t start_minute,
     uint8_t stop_year,
+    uint8_t stop_month,
     uint8_t stop_day,
     uint8_t stop_hour,
     uint8_t stop_minute)
@@ -251,10 +243,12 @@ static sl_status_t
     const std::map<attribute_store_type_t, uint8_t> attribute_map
       = {{ATTRIBUTE(YEAR_DAY_SCHEDULE_SET_ACTION), set_action},
          {ATTRIBUTE(YEAR_DAY_SCHEDULE_START_YEAR), start_year},
+         {ATTRIBUTE(YEAR_DAY_SCHEDULE_START_MONTH), start_month},
          {ATTRIBUTE(YEAR_DAY_SCHEDULE_START_DAY), start_day},
          {ATTRIBUTE(YEAR_DAY_SCHEDULE_START_HOUR), start_hour},
          {ATTRIBUTE(YEAR_DAY_SCHEDULE_START_MINUTE), start_minute},
          {ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_YEAR), stop_year},
+         {ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_MONTH), stop_month},
          {ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_DAY), stop_day},
          {ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_HOUR), stop_hour},
          {ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_MINUTE), stop_minute}};
@@ -438,6 +432,109 @@ sl_status_t zwave_command_class_schedule_entry_lock_write_attributes_callback(
   }
 
   return SL_STATUS_OK;
+}
+
+sl_status_t zwave_command_class_publish_generated_week_day_report_command(dotdot_unid_t unid, dotdot_endpoint_id_t endpoint, attribute_store_node_t ep_node){
+  attribute_store::attribute endpoint_node(ep_node);
+
+  uic_mqtt_dotdot_unify_schedule_entry_lock_command_week_day_report_fields_t fields;
+    attribute_store::attribute user_id_node
+      = endpoint_node.child_by_type(ATTRIBUTE(USER_IDENTIFIER));
+    attribute_store::attribute week_day_slot_id_node
+      = user_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_SLOT_ID));
+    attribute_store::attribute day_of_week_node
+      = week_day_slot_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_DAY_OF_WEEK));
+    attribute_store::attribute start_hour_node
+      = week_day_slot_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_START_HOUR));
+    attribute_store::attribute start_minute_node
+      = week_day_slot_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_START_MINUTE));
+    attribute_store::attribute stop_hour_node
+      = week_day_slot_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_STOP_HOUR));
+    attribute_store::attribute stop_minute_node
+      = week_day_slot_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_STOP_MINUTE));
+    fields.user_identifier = user_id_node.reported<uint8_t>();
+    fields.schedule_slotid = week_day_slot_id_node.reported<uint8_t>();
+    fields.day_of_week = day_of_week_node.reported<uint8_t>();
+    fields.start_hour = start_hour_node.reported<uint8_t>();
+    fields.start_minute = start_minute_node.reported<uint8_t>();
+    fields.stop_hour = stop_hour_node.reported<uint8_t>();
+    fields.stop_minute = stop_minute_node.reported<uint8_t>();
+    uic_mqtt_dotdot_unify_schedule_entry_lock_publish_generated_week_day_report_command(unid, endpoint, &fields);
+    return SL_STATUS_OK;
+}
+
+sl_status_t zwave_command_class_publish_generated_year_day_report_command(dotdot_unid_t unid, dotdot_endpoint_id_t endpoint, attribute_store_node_t ep_node){
+  attribute_store::attribute endpoint_node(ep_node);
+
+  uic_mqtt_dotdot_unify_schedule_entry_lock_command_year_day_report_fields_t fields;
+    attribute_store::attribute user_id_node
+      = endpoint_node.child_by_type(ATTRIBUTE(USER_IDENTIFIER));
+    attribute_store::attribute year_day_slot_id_node
+      = user_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_SLOT_ID));
+    attribute_store::attribute start_year_node
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_YEAR));
+    attribute_store::attribute start_month_node
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_MONTH));
+    attribute_store::attribute start_day_node
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_DAY));
+    attribute_store::attribute start_hour_node
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_HOUR));
+    attribute_store::attribute start_minute_node
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_MINUTE));
+    attribute_store::attribute stop_year_node
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_YEAR));
+    attribute_store::attribute stop_month_node
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_MONTH));
+    attribute_store::attribute stop_day_node
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_DAY));
+    attribute_store::attribute stop_hour_node
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_HOUR));
+    attribute_store::attribute stop_minute_node
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_MINUTE));
+    fields.user_identifier = user_id_node.reported<uint8_t>();
+    fields.schedule_slotid = year_day_slot_id_node.reported<uint8_t>();
+    fields.start_year = start_year_node.reported<uint8_t>();
+    fields.start_month = start_month_node.reported<uint8_t>();
+    fields.start_day= start_day_node.reported<uint8_t>();
+    fields.start_hour = start_hour_node.reported<uint8_t>();
+    fields.start_minute = start_minute_node.reported<uint8_t>();
+    fields.stop_year = stop_year_node.reported<uint8_t>();
+    fields.stop_month = stop_month_node.reported<uint8_t>();
+    fields.stop_day= stop_day_node.reported<uint8_t>();
+    fields.stop_hour = stop_hour_node.reported<uint8_t>();
+    fields.stop_minute = stop_minute_node.reported<uint8_t>();
+
+    uic_mqtt_dotdot_unify_schedule_entry_lock_publish_generated_year_day_report_command(unid, endpoint, &fields);
+    return SL_STATUS_OK;
+}
+
+sl_status_t zwave_command_class_publish_generated_daily_repeating_report_command(dotdot_unid_t unid, dotdot_endpoint_id_t endpoint, attribute_store_node_t ep_node){
+  attribute_store::attribute endpoint_node(ep_node);
+
+    uic_mqtt_dotdot_unify_schedule_entry_lock_command_daily_repeating_report_fields_t fields;
+    attribute_store::attribute user_id_node
+      = endpoint_node.child_by_type(ATTRIBUTE(USER_IDENTIFIER));
+    attribute_store::attribute daily_repeating_slot_id_node
+      = user_id_node.child_by_type(ATTRIBUTE(DAILY_REPEATING_SCHEDULE_SLOT_ID));
+    attribute_store::attribute week_day_node
+      = daily_repeating_slot_id_node.child_by_type(ATTRIBUTE(DAILY_REPEATING_WEEK_DAY));
+    attribute_store::attribute start_hour_node
+      = daily_repeating_slot_id_node.child_by_type(ATTRIBUTE(DAILY_REPEATING_START_HOUR));
+    attribute_store::attribute start_minute_node
+      = daily_repeating_slot_id_node.child_by_type(ATTRIBUTE(DAILY_REPEATING_START_MINUTE));
+    attribute_store::attribute duartion_hour_node
+      = daily_repeating_slot_id_node.child_by_type(ATTRIBUTE(DAILY_REPEATING_DURATION_HOUR));
+    attribute_store::attribute duration_minute_node
+      = daily_repeating_slot_id_node.child_by_type(ATTRIBUTE(DAILY_REPEATING_DURATION_MINUTE));
+    fields.user_identifier = user_id_node.reported<uint8_t>();
+    fields.schedule_slotid = daily_repeating_slot_id_node.reported<uint8_t>();
+    fields.week_day_bitmask = week_day_node.reported<uint8_t>();
+    fields.start_hour = start_hour_node.reported<uint8_t>();
+    fields.start_minute = start_minute_node.reported<uint8_t>();
+    fields.duration_hour= duartion_hour_node.reported<uint8_t>();
+    fields.duration_minute = duration_minute_node.reported<uint8_t>();
+    uic_mqtt_dotdot_unify_schedule_entry_lock_publish_generated_daily_repeating_report_command(unid, endpoint, &fields);
+    return SL_STATUS_OK;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

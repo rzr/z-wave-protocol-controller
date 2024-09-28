@@ -13,6 +13,7 @@
 // Includes from this component
 #include "zwave_command_class_schedule_entry_lock.h"
 #include "zwave_command_classes_utils.h"
+#include "schedule_entry_lock_server.h"
 
 // Generic includes
 #include <stdlib.h>
@@ -69,6 +70,7 @@ zwave_cc_version_t
 
   return version;
 }
+
 ///////////////////////////////////////////////////////////////////////////////
 // Resolution functions
 ///////////////////////////////////////////////////////////////////////////////
@@ -105,8 +107,8 @@ static sl_status_t zwave_command_class_schedule_entry_lock_week_day_get(
     try {
       // Retrieve the node attributes
       attribute_store::attribute weekday_schedule_slot_id_node(node);
-      auto user_id_node
-        = weekday_schedule_slot_id_node.first_parent(ATTRIBUTE(USER_IDENTIFIER));
+      auto user_id_node = weekday_schedule_slot_id_node.first_parent(
+        ATTRIBUTE(USER_IDENTIFIER));
 
       // Compute expected size for the set frame
       const uint8_t expected_frame_size = 4;
@@ -139,8 +141,8 @@ static sl_status_t zwave_command_class_schedule_entry_lock_year_day_get(
     try {
       // Retrieve the node attributes
       attribute_store::attribute yearday_schedule_slot_id_node(node);
-      auto user_id_node
-        = yearday_schedule_slot_id_node.first_parent(ATTRIBUTE(USER_IDENTIFIER));
+      auto user_id_node = yearday_schedule_slot_id_node.first_parent(
+        ATTRIBUTE(USER_IDENTIFIER));
 
       // Compute expected size for the set frame
       const uint8_t expected_frame_size = 4;
@@ -173,16 +175,17 @@ static sl_status_t zwave_command_class_schedule_entry_lock_daily_repeating_get(
     try {
       // Retrieve the node attributes
       attribute_store::attribute dailyrepeating_schedule_slot_id_node(node);
-      auto user_id_node
-        = dailyrepeating_schedule_slot_id_node.first_parent(ATTRIBUTE(USER_IDENTIFIER));
+      auto user_id_node = dailyrepeating_schedule_slot_id_node.first_parent(
+        ATTRIBUTE(USER_IDENTIFIER));
 
       // Compute expected size for the set frame
       const uint8_t expected_frame_size = 4;
 
       // Initialize the frame for Schedule Entry Lock Time Offset Set command
-      frame_generator.initialize_frame(SCHEDULE_ENTRY_LOCK_YEAR_DAY_GET,
-                                       frame,
-                                       expected_frame_size);
+      frame_generator.initialize_frame(
+        SCHEDULE_ENTRY_LOCK_DAILY_REPEATING_GET_V3,
+        frame,
+        expected_frame_size);
       frame_generator.add_value(user_id_node, DESIRED_OR_REPORTED_ATTRIBUTE);
       frame_generator.add_value(dailyrepeating_schedule_slot_id_node,
                                 DESIRED_OR_REPORTED_ATTRIBUTE);
@@ -478,7 +481,7 @@ static sl_status_t zwave_command_class_schedule_entry_lock_daily_repeating_set(
     const uint8_t expected_frame_size = 10;
 
     // Creating the frame
-    frame_generator.initialize_frame(SCHEDULE_ENTRY_LOCK_YEAR_DAY_SET,
+    frame_generator.initialize_frame(SCHEDULE_ENTRY_LOCK_DAILY_REPEATING_SET_V3,
                                      frame,
                                      expected_frame_size);
     frame_generator.add_value(dailyrepeating_schedule_set_action_node,
@@ -509,43 +512,324 @@ static sl_status_t zwave_command_class_schedule_entry_lock_daily_repeating_set(
   return SL_STATUS_OK;
 }
 
-
 ///////////////////////////////////////////////////////////////////////////////
 // Frame parsing functions
 ///////////////////////////////////////////////////////////////////////////////
-//static sl_status_t zwave_command_class_schedule_entry_lock_handle_report(
-//  const zwave_controller_connection_info_t *connection_info,
-//  const uint8_t *frame_data,
-//  uint16_t frame_length)
-//{
-//  // Setup
-//  attribute_store::attribute endpoint_node(
-//    zwave_command_class_get_endpoint_node(connection_info));
-//  auto current_version = get_current_schedule_entry_lock_version(endpoint_node);
-//
-//  sl_log_debug(LOG_TAG, "schedule_entry_lock Report frame received");
-//
-//  // Compute expected size for report frame
-//  const uint8_t expected_size = 12;
+static sl_status_t
+  zwave_command_class_schedule_entry_lock_type_supported_report(
+    const zwave_controller_connection_info_t *connection_info,
+    const uint8_t *frame_data,
+    uint16_t frame_length)
+{
+  //  Setup
+  attribute_store::attribute endpoint_node(
+    zwave_command_class_get_endpoint_node(connection_info));
+  auto current_version = get_current_schedule_entry_lock_version(endpoint_node);
 
-//  // Parse the frame
-//  try {
-//   zwave_frame_parser parser(frame_data, frame_length);
+  sl_log_debug(LOG_TAG, "schedule_entry_lock Report frame received");
 
-//   if (!parser.is_frame_size_valid(expected_size)) {
-//     sl_log_error(LOG_TAG,
-//                  "Invalid frame size for schedule_entry_lock Report frame");
-//     return SL_STATUS_FAIL;
-//   }
+  // Compute expected size for report frame
+  const uint8_t expected_size = 5;
 
-//  } catch (const std::exception &e) {
-//   sl_log_error(LOG_TAG,
-//                "Error while parsing schedule_entry_lock Report frame : %s",
-//                e.what());
-//   return SL_STATUS_FAIL;
-//  }
-//  return SL_STATUS_OK;
-//}
+  // Parse the frame
+  try {
+    zwave_frame_parser parser(frame_data, frame_length);
+
+    if (!parser.is_frame_size_valid(expected_size)) {
+      sl_log_error(LOG_TAG,
+                   "Invalid frame size for schedule_entry_lock Report frame");
+      return SL_STATUS_FAIL;
+    }
+
+    attribute_store::attribute week_day_node
+      = endpoint_node.child_by_type(ATTRIBUTE(SLOTS_WEEK_DAY));
+    parser.read_byte(week_day_node);
+    attribute_store::attribute year_day_node
+      = endpoint_node.child_by_type(ATTRIBUTE(SLOTS_YEAR_DAY));
+    parser.read_byte(year_day_node);
+
+    if (current_version >= 3) {
+      attribute_store::attribute number_of_slot_daily_repeating_node
+        = endpoint_node.child_by_type(
+          ATTRIBUTE(NUMBER_OF_SLOTS_DAILY_REPEATING));
+      parser.read_byte(number_of_slot_daily_repeating_node);
+    }
+
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while parsing schedule_entry_lock Report frame : %s",
+                 e.what());
+    return SL_STATUS_FAIL;
+  }
+  return SL_STATUS_OK;
+}
+
+static sl_status_t zwave_command_class_schedule_entry_lock_week_day_report(
+  const zwave_controller_connection_info_t *connection_info,
+  const uint8_t *frame_data,
+  uint16_t frame_length)
+{
+  unid_t unid;
+  dotdot_endpoint_id_t endpoint;
+
+  //  Setup
+  attribute_store::attribute endpoint_node(
+    zwave_command_class_get_endpoint_node(connection_info));
+
+  sl_log_debug(LOG_TAG, "schedule_entry_lock Report frame received");
+
+  // Compute expected size for report frame
+  const uint8_t expected_size = 9;
+
+  // Parse the frame
+  try {
+    zwave_frame_parser parser(frame_data, frame_length);
+
+    if (!parser.is_frame_size_valid(expected_size)) {
+      sl_log_error(LOG_TAG,
+                   "Invalid frame size for schedule_entry_lock Report frame");
+      return SL_STATUS_FAIL;
+    }
+
+    attribute_store::attribute user_id_node
+      = endpoint_node.child_by_type(ATTRIBUTE(USER_IDENTIFIER));
+    parser.read_byte(user_id_node);
+    attribute_store::attribute week_day_slot_id_node
+      = user_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_SLOT_ID));
+    parser.read_byte(week_day_slot_id_node);
+    attribute_store::attribute day_of_week_node
+      = week_day_slot_id_node.child_by_type(
+        ATTRIBUTE(WEEK_DAY_SCHEDULE_DAY_OF_WEEK));
+    parser.read_byte(day_of_week_node);
+    attribute_store::attribute start_hour_node
+      = week_day_slot_id_node.child_by_type(
+        ATTRIBUTE(WEEK_DAY_SCHEDULE_START_HOUR));
+    parser.read_byte(start_hour_node);
+    attribute_store::attribute start_minute_node
+      = week_day_slot_id_node.child_by_type(
+        ATTRIBUTE(WEEK_DAY_SCHEDULE_START_MINUTE));
+    parser.read_byte(start_minute_node);
+    attribute_store::attribute stop_hour_node
+      = week_day_slot_id_node.child_by_type(
+        ATTRIBUTE(WEEK_DAY_SCHEDULE_STOP_HOUR));
+    parser.read_byte(stop_hour_node);
+    attribute_store::attribute stop_minute_node
+      = week_day_slot_id_node.child_by_type(
+        ATTRIBUTE(WEEK_DAY_SCHEDULE_STOP_MINUTE));
+    parser.read_byte(stop_minute_node);
+    attribute_store_network_helper_get_unid_from_node(endpoint_node, unid);
+    endpoint = endpoint_node.reported<uint8_t>();
+    zwave_command_class_publish_generated_week_day_report_command(
+      unid,
+      endpoint,
+      endpoint_node);
+
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while parsing schedule_entry_lock Report frame : %s",
+                 e.what());
+    return SL_STATUS_FAIL;
+  }
+  return SL_STATUS_OK;
+}
+
+static sl_status_t zwave_command_class_schedule_entry_lock_year_day_report(
+  const zwave_controller_connection_info_t *connection_info,
+  const uint8_t *frame_data,
+  uint16_t frame_length)
+{
+  unid_t unid;
+  dotdot_endpoint_id_t endpoint;
+
+  //  Setup
+  attribute_store::attribute endpoint_node(
+    zwave_command_class_get_endpoint_node(connection_info));
+
+  sl_log_debug(LOG_TAG, "schedule_entry_lock Report frame received");
+
+  // Compute expected size for report frame
+  const uint8_t expected_size = 14;
+
+  // Parse the frame
+  try {
+    zwave_frame_parser parser(frame_data, frame_length);
+
+    if (!parser.is_frame_size_valid(expected_size)) {
+      sl_log_error(LOG_TAG,
+                   "Invalid frame size for schedule_entry_lock Report frame");
+      return SL_STATUS_FAIL;
+    }
+
+    attribute_store::attribute user_id_node
+      = endpoint_node.child_by_type(ATTRIBUTE(USER_IDENTIFIER));
+    parser.read_byte(user_id_node);
+    attribute_store::attribute year_day_slot_id_node
+      = user_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_SLOT_ID));
+    parser.read_byte(year_day_slot_id_node);
+    attribute_store::attribute start_year_node
+      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_YEAR));
+    parser.read_byte(start_year_node);
+    attribute_store::attribute start_month_node
+      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_MONTH));
+    parser.read_byte(start_month_node);
+    attribute_store::attribute start_day_node
+      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_DAY));
+    parser.read_byte(start_day_node);
+    attribute_store::attribute start_hour_node
+      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_HOUR));
+    parser.read_byte(start_hour_node);
+    attribute_store::attribute start_minute_node
+      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_MINUTE));
+    parser.read_byte(start_minute_node);
+    attribute_store::attribute stop_year_node
+      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_YEAR));
+    parser.read_byte(stop_year_node);
+    attribute_store::attribute stop_month_node
+      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_MONTH));
+    parser.read_byte(stop_month_node);
+    attribute_store::attribute stop_day_node
+      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_DAY));
+    parser.read_byte(stop_day_node);
+    attribute_store::attribute stop_hour_node
+      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_HOUR));
+    parser.read_byte(stop_hour_node);
+    attribute_store::attribute stop_minute_node
+      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_MINUTE));
+    parser.read_byte(stop_minute_node);
+    attribute_store_network_helper_get_unid_from_node(endpoint_node, unid);
+    endpoint = endpoint_node.reported<uint8_t>();
+    zwave_command_class_publish_generated_year_day_report_command(
+      unid,
+      endpoint,
+      endpoint_node);
+
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while parsing schedule_entry_lock Report frame : %s",
+                 e.what());
+    return SL_STATUS_FAIL;
+  }
+  return SL_STATUS_OK;
+}
+
+static sl_status_t zwave_command_class_schedule_entry_lock_time_offset_report(
+  const zwave_controller_connection_info_t *connection_info,
+  const uint8_t *frame_data,
+  uint16_t frame_length)
+{
+  //  Setup
+  attribute_store::attribute endpoint_node(
+    zwave_command_class_get_endpoint_node(connection_info));
+
+  sl_log_debug(LOG_TAG, "schedule_entry_lock Report frame received");
+
+  // Compute expected size for report frame
+  const uint8_t expected_size = 5;
+
+  // Parse the frame
+  try {
+    zwave_frame_parser parser(frame_data, frame_length);
+
+    if (!parser.is_frame_size_valid(expected_size)) {
+      sl_log_error(LOG_TAG,
+                   "Invalid frame size for schedule_entry_lock Report frame");
+      return SL_STATUS_FAIL;
+    }
+
+    attribute_store::attribute sign_tzo_node
+      = endpoint_node.child_by_type(ATTRIBUTE(SIGN_TZO));
+    parser.read_byte(sign_tzo_node);
+    attribute_store::attribute hour_tzo_node
+      = endpoint_node.child_by_type(ATTRIBUTE(HOUR_TZO));
+    parser.read_byte(hour_tzo_node);
+    attribute_store::attribute minute_tzo_node
+      = endpoint_node.child_by_type(ATTRIBUTE(MINUTE_TZO));
+    parser.read_byte(minute_tzo_node);
+    attribute_store::attribute dst_offset_sign_node
+      = endpoint_node.child_by_type(ATTRIBUTE(DST_OFFSET_SIGN));
+    parser.read_byte(dst_offset_sign_node);
+    attribute_store::attribute dst_offset_minute_node
+      = endpoint_node.child_by_type(ATTRIBUTE(DST_OFFSET_MINUTE));
+    parser.read_byte(dst_offset_minute_node);
+
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while parsing schedule_entry_lock Report frame : %s",
+                 e.what());
+    return SL_STATUS_FAIL;
+  }
+  return SL_STATUS_OK;
+}
+
+static sl_status_t
+  zwave_command_class_schedule_entry_lock_daily_repeating_report(
+    const zwave_controller_connection_info_t *connection_info,
+    const uint8_t *frame_data,
+    uint16_t frame_length)
+{
+  unid_t unid;
+  dotdot_endpoint_id_t endpoint;
+
+  //  Setup
+  attribute_store::attribute endpoint_node(
+    zwave_command_class_get_endpoint_node(connection_info));
+
+  sl_log_debug(LOG_TAG, "schedule_entry_lock Report frame received");
+
+  // Compute expected size for report frame
+  const uint8_t expected_size = 9;
+
+  // Parse the frame
+  try {
+    zwave_frame_parser parser(frame_data, frame_length);
+
+    if (!parser.is_frame_size_valid(expected_size)) {
+      sl_log_error(LOG_TAG,
+                   "Invalid frame size for schedule_entry_lock Report frame");
+      return SL_STATUS_FAIL;
+    }
+
+    attribute_store::attribute user_id_node
+      = endpoint_node.child_by_type(ATTRIBUTE(USER_IDENTIFIER));
+    parser.read_byte(user_id_node);
+    attribute_store::attribute daily_repeating_slot_id_node
+      = user_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_SLOT_ID));
+    parser.read_byte(daily_repeating_slot_id_node);
+    attribute_store::attribute week_day_node
+      = daily_repeating_slot_id_node.child_by_type(
+        ATTRIBUTE(DAILY_REPEATING_WEEK_DAY));
+    parser.read_byte(week_day_node);
+    attribute_store::attribute start_hour_node
+      = daily_repeating_slot_id_node.child_by_type(
+        ATTRIBUTE(DAILY_REPEATING_START_HOUR));
+    parser.read_byte(start_hour_node);
+    attribute_store::attribute start_minute_node
+      = daily_repeating_slot_id_node.child_by_type(
+        ATTRIBUTE(DAILY_REPEATING_START_MINUTE));
+    parser.read_byte(start_minute_node);
+    attribute_store::attribute duration_hour_node
+      = daily_repeating_slot_id_node.child_by_type(
+        ATTRIBUTE(DAILY_REPEATING_DURATION_HOUR));
+    parser.read_byte(duration_hour_node);
+    attribute_store::attribute duration_minute_node
+      = daily_repeating_slot_id_node.child_by_type(
+        ATTRIBUTE(DAILY_REPEATING_DURATION_MINUTE));
+    parser.read_byte(duration_minute_node);
+    attribute_store_network_helper_get_unid_from_node(endpoint_node, unid);
+    endpoint = endpoint_node.reported<uint8_t>();
+    zwave_command_class_publish_generated_daily_repeating_report_command(
+      unid,
+      endpoint,
+      endpoint_node);
+
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG,
+                 "Error while parsing schedule_entry_lock Report frame : %s",
+                 e.what());
+    return SL_STATUS_FAIL;
+  }
+  return SL_STATUS_OK;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // Incoming commands handler
@@ -559,17 +843,36 @@ sl_status_t zwave_command_class_schedule_entry_lock_control_handler(
   if (frame_length <= COMMAND_INDEX) {
     return SL_STATUS_NOT_SUPPORTED;
   }
-
   switch (frame_data[COMMAND_INDEX]) {
-    // case schedule_entry_lock_REPORT:
-    //   return zwave_command_class_schedule_entry_lock_handle_report(connection_info,
-    //                                                    frame_data,
-    //                                                    frame_length);
+    case SCHEDULE_ENTRY_TYPE_SUPPORTED_REPORT:
+      return zwave_command_class_schedule_entry_lock_type_supported_report(
+        connection_info,
+        frame_data,
+        frame_length);
+    case SCHEDULE_ENTRY_LOCK_WEEK_DAY_REPORT:
+      return zwave_command_class_schedule_entry_lock_week_day_report(
+        connection_info,
+        frame_data,
+        frame_length);
+    case SCHEDULE_ENTRY_LOCK_YEAR_DAY_REPORT:
+      return zwave_command_class_schedule_entry_lock_year_day_report(
+        connection_info,
+        frame_data,
+        frame_length);
+    case SCHEDULE_ENTRY_LOCK_TIME_OFFSET_REPORT_V2:
+      return zwave_command_class_schedule_entry_lock_time_offset_report(
+        connection_info,
+        frame_data,
+        frame_length);
+    case SCHEDULE_ENTRY_LOCK_DAILY_REPEATING_REPORT_V3:
+      return zwave_command_class_schedule_entry_lock_daily_repeating_report(
+        connection_info,
+        frame_data,
+        frame_length);
     default:
       return SL_STATUS_NOT_SUPPORTED;
   }
 }
-
 ///////////////////////////////////////////////////////////////////////////////
 // Attribute Store callback functions
 ///////////////////////////////////////////////////////////////////////////////
@@ -648,7 +951,7 @@ sl_status_t zwave_command_class_schedule_entry_lock_init()
     &zwave_command_class_schedule_entry_lock_year_day_set,
     NULL);
   attribute_resolver_register_rule(
-    ATTRIBUTE(YEAR_DAY_SCHEDULE_SET_ACTION),
+    ATTRIBUTE(DAILY_REPEATING_SET_ACTION),
     &zwave_command_class_schedule_entry_lock_daily_repeating_set,
     NULL);
   attribute_resolver_register_rule(

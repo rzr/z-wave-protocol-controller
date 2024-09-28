@@ -14,6 +14,18 @@
 #ifndef SCHEDULE_ENTRY_LOCK_SERVER_H
 #define SCHEDULE_ENTRY_LOCK_SERVER_H
 
+// Includes from other Unify Components
+#include "dotdot_mqtt.h"
+#include "dotdot_mqtt_generated_commands.h"
+#include "attribute_store_helper.h"
+#include "attribute_resolver.h"
+#include "attribute_timeouts.h"
+#include "sl_log.h"
+
+// Cpp include
+#include "zwave_frame_generator.hpp"
+#include "zwave_frame_parser.hpp"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -26,6 +38,22 @@ extern "C" {
  *
  */
 sl_status_t schedule_entry_lock_cluster_server_init(void);
+
+sl_status_t zwave_command_class_publish_generated_week_day_report_command(
+  dotdot_unid_t unid,
+  dotdot_endpoint_id_t endpoint,
+  attribute_store_node_t endpoint_node);
+
+sl_status_t zwave_command_class_publish_generated_year_day_report_command(
+  dotdot_unid_t unid,
+  dotdot_endpoint_id_t endpoint,
+  attribute_store_node_t endpoint_node);
+
+sl_status_t
+  zwave_command_class_publish_generated_daily_repeating_report_command(
+    dotdot_unid_t unid,
+    dotdot_endpoint_id_t endpoint,
+    attribute_store_node_t endpoint_node);
 
 #ifdef __cplusplus
 }

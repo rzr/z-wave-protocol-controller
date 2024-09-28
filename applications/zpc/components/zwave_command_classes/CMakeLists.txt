@@ -129,6 +129,7 @@ target_link_libraries(zwave_command_classes
     zpc_utils
     zpc_scripts
     unify
+    zcl_cluster_servers
     zwave_definitions)
 
 if(BUILD_TESTING)
