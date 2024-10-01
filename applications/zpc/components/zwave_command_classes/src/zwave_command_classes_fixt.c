@@ -90,6 +90,7 @@ sl_status_t zwave_command_classes_init()
   // Note: AGI should stay first, it allows others to register commands.
   status |= zwave_command_class_agi_init();
   status |= zwave_command_class_alarm_sensor_init();
+  status |= zwave_command_class_application_status_init();
   status |= zwave_command_class_association_init();
   status |= zwave_command_class_barrier_operator_init();
   status |= zwave_command_class_basic_init();
@@ -128,7 +129,6 @@ sl_status_t zwave_command_classes_init()
   status |= zwave_command_class_time_init();
   status |= zwave_command_class_transport_service_init();
   status |= zwave_command_class_user_code_init();
-  status |= zwave_command_class_application_status_init();
   status |= zwave_command_class_version_init();
   status |= zwave_command_class_wake_up_init();
   status |= zwave_command_class_zwave_plus_info_init();
