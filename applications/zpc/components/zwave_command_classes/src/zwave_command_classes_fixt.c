@@ -16,6 +16,7 @@
 #include "zwave_command_class_association.h"
 #include "zwave_command_class_agi.h"
 #include "zwave_command_class_alarm_sensor.h"
+#include "zwave_command_class_application_status.h"
 #include "zwave_command_class_barrier_operator.h"
 #include "zwave_command_class_binary_switch.h"
 #include "zwave_command_class_central_scene.h"
@@ -127,6 +128,7 @@ sl_status_t zwave_command_classes_init()
   status |= zwave_command_class_time_init();
   status |= zwave_command_class_transport_service_init();
   status |= zwave_command_class_user_code_init();
+  status |= zwave_command_class_application_status_init();
   status |= zwave_command_class_version_init();
   status |= zwave_command_class_wake_up_init();
   status |= zwave_command_class_zwave_plus_info_init();
