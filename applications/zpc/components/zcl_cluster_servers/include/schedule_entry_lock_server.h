@@ -55,6 +55,13 @@ sl_status_t
     dotdot_endpoint_id_t endpoint,
     attribute_store_node_t endpoint_node);
 
+sl_status_t zwave_command_class_schedule_entry_lock_write_attributes_callback(
+  const dotdot_unid_t unid,
+  const dotdot_endpoint_id_t endpoint,
+  uic_mqtt_dotdot_callback_call_type_t call_type,
+  uic_mqtt_dotdot_unify_schedule_entry_lock_state_t lock_state,
+  uic_mqtt_dotdot_unify_schedule_entry_lock_updated_state_t updated_lock_state);
+
 #ifdef __cplusplus
 }
 #endif

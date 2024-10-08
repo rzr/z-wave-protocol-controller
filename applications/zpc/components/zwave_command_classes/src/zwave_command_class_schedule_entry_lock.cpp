@@ -103,10 +103,11 @@ static sl_status_t zwave_command_class_schedule_entry_lock_week_day_get(
   attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
 {
   if (attribute_store_get_node_type(node)
-      == ATTRIBUTE(WEEK_DAY_SCHEDULE_SLOT_ID)) {
+      == ATTRIBUTE(WEEK_DAY_SCHEDULE_SET_ACTION)) {
     try {
       // Retrieve the node attributes
-      attribute_store::attribute weekday_schedule_slot_id_node(node);
+      attribute_store::attribute weekday_schedule_set_action_node(node);
+      auto weekday_schedule_slot_id_node = weekday_schedule_set_action_node.parent();
       auto user_id_node = weekday_schedule_slot_id_node.first_parent(
         ATTRIBUTE(USER_IDENTIFIER));
 
@@ -137,10 +138,11 @@ static sl_status_t zwave_command_class_schedule_entry_lock_year_day_get(
   attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
 {
   if (attribute_store_get_node_type(node)
-      == ATTRIBUTE(YEAR_DAY_SCHEDULE_SLOT_ID)) {
+      == ATTRIBUTE(YEAR_DAY_SCHEDULE_SET_ACTION)) {
     try {
       // Retrieve the node attributes
-      attribute_store::attribute yearday_schedule_slot_id_node(node);
+      attribute_store::attribute yearday_schedule_set_action_node(node);
+      auto yearday_schedule_slot_id_node = yearday_schedule_set_action_node.parent();
       auto user_id_node = yearday_schedule_slot_id_node.first_parent(
         ATTRIBUTE(USER_IDENTIFIER));
 
@@ -171,10 +173,11 @@ static sl_status_t zwave_command_class_schedule_entry_lock_daily_repeating_get(
   attribute_store_node_t node, uint8_t *frame, uint16_t *frame_length)
 {
   if (attribute_store_get_node_type(node)
-      == ATTRIBUTE(DAILY_REPEATING_SCHEDULE_SLOT_ID)) {
+      == ATTRIBUTE(DAILY_REPEATING_SET_ACTION)) {
     try {
       // Retrieve the node attributes
-      attribute_store::attribute dailyrepeating_schedule_slot_id_node(node);
+      attribute_store::attribute dailyrepeating_schedule_set_action_node(node);
+      auto dailyrepeating_schedule_slot_id_node = dailyrepeating_schedule_set_action_node.parent();
       auto user_id_node = dailyrepeating_schedule_slot_id_node.first_parent(
         ATTRIBUTE(USER_IDENTIFIER));
 
@@ -189,7 +192,6 @@ static sl_status_t zwave_command_class_schedule_entry_lock_daily_repeating_get(
       frame_generator.add_value(user_id_node, DESIRED_OR_REPORTED_ATTRIBUTE);
       frame_generator.add_value(dailyrepeating_schedule_slot_id_node,
                                 DESIRED_OR_REPORTED_ATTRIBUTE);
-
       // Validate the constructed frame and set the frame length
       frame_generator.validate_frame(frame_length);
     } catch (const std::exception &e) {
@@ -211,10 +213,10 @@ static sl_status_t zwave_command_class_schedule_entry_lock_time_offset_set(
     attribute_store::attribute hour_tzo_node(node);
     auto endpoint_node   = hour_tzo_node.parent();
     auto minute_tzo_node = endpoint_node.child_by_type(ATTRIBUTE(MINUTE_TZO));
-    auto sign_hour_tzo_node = endpoint_node.child_by_type(ATTRIBUTE(HOUR_TZO));
-    auto minute_offset_dst_node
-      = endpoint_node.child_by_type(ATTRIBUTE(DST_OFFSET_SIGN));
+    auto sign_tzo_node = endpoint_node.child_by_type(ATTRIBUTE(SIGN_TZO));
     auto sign_offset_dst_node
+      = endpoint_node.child_by_type(ATTRIBUTE(DST_OFFSET_SIGN));
+    auto minute_offset_dst_node
       = endpoint_node.child_by_type(ATTRIBUTE(DST_OFFSET_MINUTE));
 
     // Compute expected size for the set frame
@@ -228,7 +230,7 @@ static sl_status_t zwave_command_class_schedule_entry_lock_time_offset_set(
     // Create a vector for the values to be shifted into the frame
     frame_generator.add_shifted_values(
       {{.left_shift       = 7,  // Sign TZO (1 bit)
-        .node             = sign_hour_tzo_node,
+        .node             = sign_tzo_node,
         .node_value_state = DESIRED_OR_REPORTED_ATTRIBUTE},
        {.left_shift       = 0,  // Hour TZO (7 bits)
         .node             = hour_tzo_node,
@@ -458,9 +460,6 @@ static sl_status_t zwave_command_class_schedule_entry_lock_daily_repeating_set(
       ATTRIBUTE(USER_IDENTIFIER));
     auto dailyrepeating_schedule_slot_id_node
       = dailyrepeating_schedule_set_action_node.parent();
-    auto number_of_slot_node
-      = dailyrepeating_schedule_slot_id_node.child_by_type(
-        ATTRIBUTE(NUMBER_OF_SLOTS_DAILY_REPEATING));
     auto dailyrepeating_weekday_node
       = dailyrepeating_schedule_slot_id_node.child_by_type(
         ATTRIBUTE(DAILY_REPEATING_WEEK_DAY));
@@ -488,8 +487,6 @@ static sl_status_t zwave_command_class_schedule_entry_lock_daily_repeating_set(
                               DESIRED_OR_REPORTED_ATTRIBUTE);
     frame_generator.add_value(user_id_node, DESIRED_OR_REPORTED_ATTRIBUTE);
     frame_generator.add_value(dailyrepeating_schedule_slot_id_node,
-                              DESIRED_OR_REPORTED_ATTRIBUTE);
-    frame_generator.add_value(number_of_slot_node,
                               DESIRED_OR_REPORTED_ATTRIBUTE);
     frame_generator.add_value(dailyrepeating_weekday_node,
                               DESIRED_OR_REPORTED_ATTRIBUTE);
@@ -667,34 +664,34 @@ static sl_status_t zwave_command_class_schedule_entry_lock_year_day_report(
       = user_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_SLOT_ID));
     parser.read_byte(year_day_slot_id_node);
     attribute_store::attribute start_year_node
-      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_YEAR));
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_YEAR));
     parser.read_byte(start_year_node);
     attribute_store::attribute start_month_node
-      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_MONTH));
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_MONTH));
     parser.read_byte(start_month_node);
     attribute_store::attribute start_day_node
-      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_DAY));
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_DAY));
     parser.read_byte(start_day_node);
     attribute_store::attribute start_hour_node
-      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_HOUR));
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_HOUR));
     parser.read_byte(start_hour_node);
     attribute_store::attribute start_minute_node
-      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_MINUTE));
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_MINUTE));
     parser.read_byte(start_minute_node);
     attribute_store::attribute stop_year_node
-      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_YEAR));
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_YEAR));
     parser.read_byte(stop_year_node);
     attribute_store::attribute stop_month_node
-      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_MONTH));
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_MONTH));
     parser.read_byte(stop_month_node);
     attribute_store::attribute stop_day_node
-      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_DAY));
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_DAY));
     parser.read_byte(stop_day_node);
     attribute_store::attribute stop_hour_node
-      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_HOUR));
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_HOUR));
     parser.read_byte(stop_hour_node);
     attribute_store::attribute stop_minute_node
-      = endpoint_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_MINUTE));
+      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_MINUTE));
     parser.read_byte(stop_minute_node);
     attribute_store_network_helper_get_unid_from_node(endpoint_node, unid);
     endpoint = endpoint_node.reported<uint8_t>();
@@ -738,19 +735,25 @@ static sl_status_t zwave_command_class_schedule_entry_lock_time_offset_report(
 
     attribute_store::attribute sign_tzo_node
       = endpoint_node.child_by_type(ATTRIBUTE(SIGN_TZO));
-    parser.read_byte(sign_tzo_node);
     attribute_store::attribute hour_tzo_node
       = endpoint_node.child_by_type(ATTRIBUTE(HOUR_TZO));
-    parser.read_byte(hour_tzo_node);
+    std::vector<zwave_frame_parser::bitmask_data> data_first_byte = {
+    {.bitmask = SCHEDULE_ENTRY_LOCK_TIME_OFFSET_REPORT_LEVEL_SIGN_TZO_BIT_MASK_V2, .destination_node = sign_tzo_node},
+    {.bitmask = SCHEDULE_ENTRY_LOCK_TIME_OFFSET_REPORT_LEVEL_HOUR_TZO_MASK_V2, .destination_node = hour_tzo_node}
+    };
+    parser.read_byte_with_bitmask(data_first_byte);
     attribute_store::attribute minute_tzo_node
       = endpoint_node.child_by_type(ATTRIBUTE(MINUTE_TZO));
     parser.read_byte(minute_tzo_node);
     attribute_store::attribute dst_offset_sign_node
       = endpoint_node.child_by_type(ATTRIBUTE(DST_OFFSET_SIGN));
-    parser.read_byte(dst_offset_sign_node);
     attribute_store::attribute dst_offset_minute_node
       = endpoint_node.child_by_type(ATTRIBUTE(DST_OFFSET_MINUTE));
-    parser.read_byte(dst_offset_minute_node);
+    std::vector<zwave_frame_parser::bitmask_data> data_third_byte = {
+    {.bitmask = SCHEDULE_ENTRY_LOCK_TIME_OFFSET_REPORT_LEVEL2_SIGN_OFFSET_DST_BIT_MASK_V2, .destination_node = dst_offset_sign_node},
+    {.bitmask = SCHEDULE_ENTRY_LOCK_TIME_OFFSET_REPORT_LEVEL2_MINUTE_OFFSET_DST_MASK_V2, .destination_node = dst_offset_minute_node}
+    };
+    parser.read_byte_with_bitmask(data_third_byte);
 
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
@@ -793,7 +796,7 @@ static sl_status_t
       = endpoint_node.child_by_type(ATTRIBUTE(USER_IDENTIFIER));
     parser.read_byte(user_id_node);
     attribute_store::attribute daily_repeating_slot_id_node
-      = user_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_SLOT_ID));
+      = user_id_node.child_by_type(ATTRIBUTE(DAILY_REPEATING_SCHEDULE_SLOT_ID));
     parser.read_byte(daily_repeating_slot_id_node);
     attribute_store::attribute week_day_node
       = daily_repeating_slot_id_node.child_by_type(
@@ -945,26 +948,14 @@ sl_status_t zwave_command_class_schedule_entry_lock_init()
   attribute_resolver_register_rule(
     ATTRIBUTE(WEEK_DAY_SCHEDULE_SET_ACTION),
     &zwave_command_class_schedule_entry_lock_week_day_set,
-    NULL);
-  attribute_resolver_register_rule(
-    ATTRIBUTE(YEAR_DAY_SCHEDULE_SET_ACTION),
-    &zwave_command_class_schedule_entry_lock_year_day_set,
-    NULL);
-  attribute_resolver_register_rule(
-    ATTRIBUTE(DAILY_REPEATING_SET_ACTION),
-    &zwave_command_class_schedule_entry_lock_daily_repeating_set,
-    NULL);
-  attribute_resolver_register_rule(
-    ATTRIBUTE(WEEK_DAY_SCHEDULE_SET_ACTION),
-    NULL,
     &zwave_command_class_schedule_entry_lock_week_day_get);
   attribute_resolver_register_rule(
     ATTRIBUTE(YEAR_DAY_SCHEDULE_SET_ACTION),
-    NULL,
+    &zwave_command_class_schedule_entry_lock_year_day_set,
     &zwave_command_class_schedule_entry_lock_year_day_get);
   attribute_resolver_register_rule(
     ATTRIBUTE(DAILY_REPEATING_SET_ACTION),
-    NULL,
+    &zwave_command_class_schedule_entry_lock_daily_repeating_set,
     &zwave_command_class_schedule_entry_lock_daily_repeating_get);
 
   // The support side of things: Register our handler to the Z-Wave CC framework:

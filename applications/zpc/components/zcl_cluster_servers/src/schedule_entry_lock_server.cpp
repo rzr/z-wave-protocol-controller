@@ -28,7 +28,6 @@
 
 #include "attribute.hpp"
 
-
 // Attribute macro, shortening those long defines for attribute types:
 #define ATTRIBUTE(type) ATTRIBUTE_COMMAND_CLASS_SCHEDULE_ENTRY_LOCK_##type
 
@@ -62,10 +61,10 @@ sl_status_t
   attribute_store::attribute endpoint_node
     = base_id_node.child_by_type_and_value<>(ATTRIBUTE_ENDPOINT_ID, endpoint);
 
- // If both attribute are not defined, we definitely doesn't support this Command Class
-  if (!endpoint_node.child_by_type(ATTRIBUTE(SLOTS_WEEK_DAY)).is_valid() &&
-  !endpoint_node.child_by_type(ATTRIBUTE(HOUR_TZO)).is_valid()) {
-   return SL_STATUS_FAIL;
+  // If both attribute are not defined, we definitely doesn't support this Command Class
+  if (!endpoint_node.child_by_type(ATTRIBUTE(SLOTS_WEEK_DAY)).is_valid()
+      && !endpoint_node.child_by_type(ATTRIBUTE(HOUR_TZO)).is_valid()) {
+    return SL_STATUS_FAIL;
   }
 
   return SL_STATUS_OK;
@@ -82,9 +81,7 @@ static sl_status_t helper_set_desired_values(
       child_node.set_desired(value);
     }
   } catch (const std::exception &e) {
-    sl_log_error(LOG_TAG,
-                 "Error while generating schedule_entry_lock Set frame : %s",
-                 e.what());
+    sl_log_error(LOG_TAG, "Error while setting desired values : %s", e.what());
     return SL_STATUS_FAIL;
   }
   return SL_STATUS_OK;
@@ -106,11 +103,10 @@ static sl_status_t zwave_command_class_schedule_entry_lock_enable_set_callback(
   }
   try {
     auto user_id_node = get_user_id_node(unid, endpoint, user_identifier);
-    user_id_node.child_by_type(ATTRIBUTE(ENABLED))
-      .set_desired(enabled);
+    user_id_node.child_by_type(ATTRIBUTE(ENABLED)).set_desired(enabled);
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
-                 "Error while generating schedule_entry_lock Set frame : %s",
+                 "Error while generating schedule_entry_lock enable Set : %s",
                  e.what());
     return SL_STATUS_FAIL;
   }
@@ -132,12 +128,12 @@ static sl_status_t
       = attribute_store_network_helper_get_node_id_node(unid);
     attribute_store::attribute endpoint_node
       = base_id_node.child_by_type_and_value(ATTRIBUTE_ENDPOINT_ID, endpoint);
-    endpoint_node.child_by_type(ATTRIBUTE(ENABLED))
-        .set_desired<>(enabled);
+    endpoint_node.child_by_type(ATTRIBUTE(ENABLE_ALL)).set_desired<>(enabled);
   } catch (const std::exception &e) {
-    sl_log_error(LOG_TAG,
-                 "Error while generating schedule_entry_lock Set frame : %s",
-                 e.what());
+    sl_log_error(
+      LOG_TAG,
+      "Error while generating schedule_entry_lock enable all Set : %s",
+      e.what());
     return SL_STATUS_FAIL;
   }
   return SL_STATUS_OK;
@@ -177,7 +173,7 @@ static sl_status_t
 
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
-                 "Error while generating schedule_entry_lock Set frame : %s",
+                 "Error while generating schedule_entry_lock week day Set : %s",
                  e.what());
     return SL_STATUS_FAIL;
   }
@@ -197,14 +193,16 @@ static sl_status_t
 
   try {
     auto user_id_node = get_user_id_node(unid, endpoint, user_identifier);
-    auto slot_id_node = user_id_node.child_by_type_and_value(ATTRIBUTE(WEEK_DAY_SCHEDULE_SLOT_ID),
-                                         schedule_slotid);
-    auto set_action_node = slot_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_SET_ACTION));
+    auto slot_id_node = user_id_node.child_by_type_and_value(
+      ATTRIBUTE(WEEK_DAY_SCHEDULE_SLOT_ID),
+      schedule_slotid);
+    auto set_action_node
+      = slot_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_SET_ACTION));
     set_action_node.clear_reported();
 
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
-                 "Error while retrieving schedule_entry_lock: %s",
+                 "Error while retrieving schedule_entry_lock weekday get: %s",
                  e.what());
     return SL_STATUS_FAIL;
   }
@@ -256,7 +254,7 @@ static sl_status_t
     return helper_set_desired_values(slot_id_node, attribute_map);
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
-                 "Error while generating schedule_entry_lock Set frame: %s",
+                 "Error while generating schedule_entry_lock yearday set: %s",
                  e.what());
     return SL_STATUS_FAIL;
   }
@@ -275,13 +273,15 @@ static sl_status_t
   }
   try {
     auto user_id_node = get_user_id_node(unid, endpoint, user_identifier);
-    auto slot_id_node = user_id_node.child_by_type_and_value(ATTRIBUTE(YEAR_DAY_SCHEDULE_SLOT_ID),
-                                         schedule_slotid);
-    auto set_action_node = slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_SET_ACTION));
+    auto slot_id_node = user_id_node.child_by_type_and_value(
+      ATTRIBUTE(YEAR_DAY_SCHEDULE_SLOT_ID),
+      schedule_slotid);
+    auto set_action_node
+      = slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_SET_ACTION));
     set_action_node.clear_reported();
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
-                 "Error while generating schedule_entry_lock Set frame : %s",
+                 "Error while generating schedule_entry_lock yearday get : %s",
                  e.what());
     return SL_STATUS_FAIL;
   }
@@ -302,6 +302,9 @@ static sl_status_t
     uint8_t duration_hour,
     uint8_t duration_minute)
 {
+  if (call_type == UIC_MQTT_DOTDOT_CALLBACK_TYPE_SUPPORT_CHECK) {
+    return zwave_command_class_check_ep_support(unid, endpoint);
+  }
   try {
     auto user_id_node = get_user_id_node(unid, endpoint, user_identifier);
     auto slot_id_node = user_id_node.child_by_type_and_value(
@@ -318,9 +321,10 @@ static sl_status_t
 
     return helper_set_desired_values(slot_id_node, attribute_map);
   } catch (const std::exception &e) {
-    sl_log_error(LOG_TAG,
-                 "Error while generating schedule_entry_lock Set frame: %s",
-                 e.what());
+    sl_log_error(
+      LOG_TAG,
+      "Error while generating schedule_entry_lock daily repeating Set: %s",
+      e.what());
     return SL_STATUS_FAIL;
   }
 }
@@ -345,14 +349,17 @@ static sl_status_t
     auto user_id_node
       = endpoint_node.child_by_type_and_value(ATTRIBUTE(USER_IDENTIFIER),
                                               user_identifier);
-    auto slot_id_node = user_id_node.child_by_type_and_value(ATTRIBUTE(YEAR_DAY_SCHEDULE_SLOT_ID),
-                                         schedule_slotid);
-    auto set_action_node = slot_id_node.child_by_type(ATTRIBUTE(DAILY_REPEATING_SET_ACTION));
+    auto slot_id_node = user_id_node.child_by_type_and_value(
+      ATTRIBUTE(DAILY_REPEATING_SCHEDULE_SLOT_ID),
+      schedule_slotid);
+    auto set_action_node
+      = slot_id_node.child_by_type(ATTRIBUTE(DAILY_REPEATING_SET_ACTION));
     set_action_node.clear_reported();
   } catch (const std::exception &e) {
-    sl_log_error(LOG_TAG,
-                 "Error while generating schedule_entry_lock Set frame : %s",
-                 e.what());
+    sl_log_error(
+      LOG_TAG,
+      "Error while generating schedule_entry_lock daily repeating Set : %s",
+      e.what());
     return SL_STATUS_FAIL;
   }
   return SL_STATUS_OK;
@@ -427,114 +434,160 @@ sl_status_t zwave_command_class_schedule_entry_lock_write_attributes_callback(
       = endpoint_node.emplace_node(attribute_id);
     attribute_node.set_desired<>(value);
     sl_log_debug(LOG_TAG,
-                 "write callback set desired attribute %d",
-                 attribute_id);
+                 "write callback set desired attribute %u %u",
+                 attribute_id,
+                 attribute_node);
   }
 
   return SL_STATUS_OK;
 }
 
-sl_status_t zwave_command_class_publish_generated_week_day_report_command(dotdot_unid_t unid, dotdot_endpoint_id_t endpoint, attribute_store_node_t ep_node){
+sl_status_t zwave_command_class_publish_generated_week_day_report_command(
+  dotdot_unid_t unid,
+  dotdot_endpoint_id_t endpoint,
+  attribute_store_node_t ep_node)
+{
   attribute_store::attribute endpoint_node(ep_node);
 
-  uic_mqtt_dotdot_unify_schedule_entry_lock_command_week_day_report_fields_t fields;
-    attribute_store::attribute user_id_node
-      = endpoint_node.child_by_type(ATTRIBUTE(USER_IDENTIFIER));
-    attribute_store::attribute week_day_slot_id_node
-      = user_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_SLOT_ID));
-    attribute_store::attribute day_of_week_node
-      = week_day_slot_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_DAY_OF_WEEK));
-    attribute_store::attribute start_hour_node
-      = week_day_slot_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_START_HOUR));
-    attribute_store::attribute start_minute_node
-      = week_day_slot_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_START_MINUTE));
-    attribute_store::attribute stop_hour_node
-      = week_day_slot_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_STOP_HOUR));
-    attribute_store::attribute stop_minute_node
-      = week_day_slot_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_STOP_MINUTE));
-    fields.user_identifier = user_id_node.reported<uint8_t>();
-    fields.schedule_slotid = week_day_slot_id_node.reported<uint8_t>();
-    fields.day_of_week = day_of_week_node.reported<uint8_t>();
-    fields.start_hour = start_hour_node.reported<uint8_t>();
-    fields.start_minute = start_minute_node.reported<uint8_t>();
-    fields.stop_hour = stop_hour_node.reported<uint8_t>();
-    fields.stop_minute = stop_minute_node.reported<uint8_t>();
-    uic_mqtt_dotdot_unify_schedule_entry_lock_publish_generated_week_day_report_command(unid, endpoint, &fields);
-    return SL_STATUS_OK;
+  uic_mqtt_dotdot_unify_schedule_entry_lock_command_week_day_report_fields_t
+    fields;
+  attribute_store::attribute user_id_node
+    = endpoint_node.child_by_type(ATTRIBUTE(USER_IDENTIFIER));
+  attribute_store::attribute week_day_slot_id_node
+    = user_id_node.child_by_type(ATTRIBUTE(WEEK_DAY_SCHEDULE_SLOT_ID));
+  attribute_store::attribute day_of_week_node
+    = week_day_slot_id_node.child_by_type(
+      ATTRIBUTE(WEEK_DAY_SCHEDULE_DAY_OF_WEEK));
+  attribute_store::attribute start_hour_node
+    = week_day_slot_id_node.child_by_type(
+      ATTRIBUTE(WEEK_DAY_SCHEDULE_START_HOUR));
+  attribute_store::attribute start_minute_node
+    = week_day_slot_id_node.child_by_type(
+      ATTRIBUTE(WEEK_DAY_SCHEDULE_START_MINUTE));
+  attribute_store::attribute stop_hour_node
+    = week_day_slot_id_node.child_by_type(
+      ATTRIBUTE(WEEK_DAY_SCHEDULE_STOP_HOUR));
+  attribute_store::attribute stop_minute_node
+    = week_day_slot_id_node.child_by_type(
+      ATTRIBUTE(WEEK_DAY_SCHEDULE_STOP_MINUTE));
+  fields.user_identifier = user_id_node.reported<uint8_t>();
+  fields.schedule_slotid = week_day_slot_id_node.reported<uint8_t>();
+  fields.day_of_week     = day_of_week_node.reported<uint8_t>();
+  fields.start_hour      = start_hour_node.reported<uint8_t>();
+  fields.start_minute    = start_minute_node.reported<uint8_t>();
+  fields.stop_hour       = stop_hour_node.reported<uint8_t>();
+  fields.stop_minute     = stop_minute_node.reported<uint8_t>();
+  uic_mqtt_dotdot_unify_schedule_entry_lock_publish_generated_week_day_report_command(
+    unid,
+    endpoint,
+    &fields);
+  return SL_STATUS_OK;
 }
 
-sl_status_t zwave_command_class_publish_generated_year_day_report_command(dotdot_unid_t unid, dotdot_endpoint_id_t endpoint, attribute_store_node_t ep_node){
+sl_status_t zwave_command_class_publish_generated_year_day_report_command(
+  dotdot_unid_t unid,
+  dotdot_endpoint_id_t endpoint,
+  attribute_store_node_t ep_node)
+{
   attribute_store::attribute endpoint_node(ep_node);
 
-  uic_mqtt_dotdot_unify_schedule_entry_lock_command_year_day_report_fields_t fields;
-    attribute_store::attribute user_id_node
-      = endpoint_node.child_by_type(ATTRIBUTE(USER_IDENTIFIER));
-    attribute_store::attribute year_day_slot_id_node
-      = user_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_SLOT_ID));
-    attribute_store::attribute start_year_node
-      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_YEAR));
-    attribute_store::attribute start_month_node
-      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_MONTH));
-    attribute_store::attribute start_day_node
-      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_DAY));
-    attribute_store::attribute start_hour_node
-      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_HOUR));
-    attribute_store::attribute start_minute_node
-      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_START_MINUTE));
-    attribute_store::attribute stop_year_node
-      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_YEAR));
-    attribute_store::attribute stop_month_node
-      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_MONTH));
-    attribute_store::attribute stop_day_node
-      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_DAY));
-    attribute_store::attribute stop_hour_node
-      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_HOUR));
-    attribute_store::attribute stop_minute_node
-      = year_day_slot_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_MINUTE));
-    fields.user_identifier = user_id_node.reported<uint8_t>();
-    fields.schedule_slotid = year_day_slot_id_node.reported<uint8_t>();
-    fields.start_year = start_year_node.reported<uint8_t>();
-    fields.start_month = start_month_node.reported<uint8_t>();
-    fields.start_day= start_day_node.reported<uint8_t>();
-    fields.start_hour = start_hour_node.reported<uint8_t>();
-    fields.start_minute = start_minute_node.reported<uint8_t>();
-    fields.stop_year = stop_year_node.reported<uint8_t>();
-    fields.stop_month = stop_month_node.reported<uint8_t>();
-    fields.stop_day= stop_day_node.reported<uint8_t>();
-    fields.stop_hour = stop_hour_node.reported<uint8_t>();
-    fields.stop_minute = stop_minute_node.reported<uint8_t>();
+  uic_mqtt_dotdot_unify_schedule_entry_lock_command_year_day_report_fields_t
+    fields;
+  attribute_store::attribute user_id_node
+    = endpoint_node.child_by_type(ATTRIBUTE(USER_IDENTIFIER));
+  attribute_store::attribute year_day_slot_id_node
+    = user_id_node.child_by_type(ATTRIBUTE(YEAR_DAY_SCHEDULE_SLOT_ID));
+  attribute_store::attribute start_year_node
+    = year_day_slot_id_node.child_by_type(
+      ATTRIBUTE(YEAR_DAY_SCHEDULE_START_YEAR));
+  attribute_store::attribute start_month_node
+    = year_day_slot_id_node.child_by_type(
+      ATTRIBUTE(YEAR_DAY_SCHEDULE_START_MONTH));
+  attribute_store::attribute start_day_node
+    = year_day_slot_id_node.child_by_type(
+      ATTRIBUTE(YEAR_DAY_SCHEDULE_START_DAY));
+  attribute_store::attribute start_hour_node
+    = year_day_slot_id_node.child_by_type(
+      ATTRIBUTE(YEAR_DAY_SCHEDULE_START_HOUR));
+  attribute_store::attribute start_minute_node
+    = year_day_slot_id_node.child_by_type(
+      ATTRIBUTE(YEAR_DAY_SCHEDULE_START_MINUTE));
+  attribute_store::attribute stop_year_node
+    = year_day_slot_id_node.child_by_type(
+      ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_YEAR));
+  attribute_store::attribute stop_month_node
+    = year_day_slot_id_node.child_by_type(
+      ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_MONTH));
+  attribute_store::attribute stop_day_node
+    = year_day_slot_id_node.child_by_type(
+      ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_DAY));
+  attribute_store::attribute stop_hour_node
+    = year_day_slot_id_node.child_by_type(
+      ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_HOUR));
+  attribute_store::attribute stop_minute_node
+    = year_day_slot_id_node.child_by_type(
+      ATTRIBUTE(YEAR_DAY_SCHEDULE_STOP_MINUTE));
+  fields.user_identifier = user_id_node.reported<uint8_t>();
+  fields.schedule_slotid = year_day_slot_id_node.reported<uint8_t>();
+  fields.start_year      = start_year_node.reported<uint8_t>();
+  fields.start_month     = start_month_node.reported<uint8_t>();
+  fields.start_day       = start_day_node.reported<uint8_t>();
+  fields.start_hour      = start_hour_node.reported<uint8_t>();
+  fields.start_minute    = start_minute_node.reported<uint8_t>();
+  fields.stop_year       = stop_year_node.reported<uint8_t>();
+  fields.stop_month      = stop_month_node.reported<uint8_t>();
+  fields.stop_day        = stop_day_node.reported<uint8_t>();
+  fields.stop_hour       = stop_hour_node.reported<uint8_t>();
+  fields.stop_minute     = stop_minute_node.reported<uint8_t>();
 
-    uic_mqtt_dotdot_unify_schedule_entry_lock_publish_generated_year_day_report_command(unid, endpoint, &fields);
-    return SL_STATUS_OK;
+  uic_mqtt_dotdot_unify_schedule_entry_lock_publish_generated_year_day_report_command(
+    unid,
+    endpoint,
+    &fields);
+  return SL_STATUS_OK;
 }
 
-sl_status_t zwave_command_class_publish_generated_daily_repeating_report_command(dotdot_unid_t unid, dotdot_endpoint_id_t endpoint, attribute_store_node_t ep_node){
+sl_status_t
+  zwave_command_class_publish_generated_daily_repeating_report_command(
+    dotdot_unid_t unid,
+    dotdot_endpoint_id_t endpoint,
+    attribute_store_node_t ep_node)
+{
   attribute_store::attribute endpoint_node(ep_node);
 
-    uic_mqtt_dotdot_unify_schedule_entry_lock_command_daily_repeating_report_fields_t fields;
-    attribute_store::attribute user_id_node
-      = endpoint_node.child_by_type(ATTRIBUTE(USER_IDENTIFIER));
-    attribute_store::attribute daily_repeating_slot_id_node
-      = user_id_node.child_by_type(ATTRIBUTE(DAILY_REPEATING_SCHEDULE_SLOT_ID));
-    attribute_store::attribute week_day_node
-      = daily_repeating_slot_id_node.child_by_type(ATTRIBUTE(DAILY_REPEATING_WEEK_DAY));
-    attribute_store::attribute start_hour_node
-      = daily_repeating_slot_id_node.child_by_type(ATTRIBUTE(DAILY_REPEATING_START_HOUR));
-    attribute_store::attribute start_minute_node
-      = daily_repeating_slot_id_node.child_by_type(ATTRIBUTE(DAILY_REPEATING_START_MINUTE));
-    attribute_store::attribute duartion_hour_node
-      = daily_repeating_slot_id_node.child_by_type(ATTRIBUTE(DAILY_REPEATING_DURATION_HOUR));
-    attribute_store::attribute duration_minute_node
-      = daily_repeating_slot_id_node.child_by_type(ATTRIBUTE(DAILY_REPEATING_DURATION_MINUTE));
-    fields.user_identifier = user_id_node.reported<uint8_t>();
-    fields.schedule_slotid = daily_repeating_slot_id_node.reported<uint8_t>();
-    fields.week_day_bitmask = week_day_node.reported<uint8_t>();
-    fields.start_hour = start_hour_node.reported<uint8_t>();
-    fields.start_minute = start_minute_node.reported<uint8_t>();
-    fields.duration_hour= duartion_hour_node.reported<uint8_t>();
-    fields.duration_minute = duration_minute_node.reported<uint8_t>();
-    uic_mqtt_dotdot_unify_schedule_entry_lock_publish_generated_daily_repeating_report_command(unid, endpoint, &fields);
-    return SL_STATUS_OK;
+  uic_mqtt_dotdot_unify_schedule_entry_lock_command_daily_repeating_report_fields_t
+    fields;
+  attribute_store::attribute user_id_node
+    = endpoint_node.child_by_type(ATTRIBUTE(USER_IDENTIFIER));
+  attribute_store::attribute daily_repeating_slot_id_node
+    = user_id_node.child_by_type(ATTRIBUTE(DAILY_REPEATING_SCHEDULE_SLOT_ID));
+  attribute_store::attribute week_day_node
+    = daily_repeating_slot_id_node.child_by_type(
+      ATTRIBUTE(DAILY_REPEATING_WEEK_DAY));
+  attribute_store::attribute start_hour_node
+    = daily_repeating_slot_id_node.child_by_type(
+      ATTRIBUTE(DAILY_REPEATING_START_HOUR));
+  attribute_store::attribute start_minute_node
+    = daily_repeating_slot_id_node.child_by_type(
+      ATTRIBUTE(DAILY_REPEATING_START_MINUTE));
+  attribute_store::attribute duartion_hour_node
+    = daily_repeating_slot_id_node.child_by_type(
+      ATTRIBUTE(DAILY_REPEATING_DURATION_HOUR));
+  attribute_store::attribute duration_minute_node
+    = daily_repeating_slot_id_node.child_by_type(
+      ATTRIBUTE(DAILY_REPEATING_DURATION_MINUTE));
+  fields.user_identifier  = user_id_node.reported<uint8_t>();
+  fields.schedule_slotid  = daily_repeating_slot_id_node.reported<uint8_t>();
+  fields.week_day_bitmask = week_day_node.reported<uint8_t>();
+  fields.start_hour       = start_hour_node.reported<uint8_t>();
+  fields.start_minute     = start_minute_node.reported<uint8_t>();
+  fields.duration_hour    = duartion_hour_node.reported<uint8_t>();
+  fields.duration_minute  = duration_minute_node.reported<uint8_t>();
+  uic_mqtt_dotdot_unify_schedule_entry_lock_publish_generated_daily_repeating_report_command(
+    unid,
+    endpoint,
+    &fields);
+  return SL_STATUS_OK;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
