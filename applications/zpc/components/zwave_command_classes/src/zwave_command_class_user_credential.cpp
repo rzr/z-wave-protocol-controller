@@ -83,6 +83,101 @@ std::set<user_credential_slot_message_callback_t>
   user_credential_slot_message_callback;  //NOSONAR - false positive since it is warped in a namespace
 }  // namespace
 
+/**
+ * @brief Keep track of the interview state
+ * 
+ * User interview start with a get on User 0 to get the first user. 
+ * We keep this node to store all the credentials that are not assigned to a user.
+ * 
+ * So we need to set its reported in the first User Report otherwise the first GET will
+ * never be marked as resolved.
+ * 
+ * We also need to keep track of the next user to interview, so we can first get all the 
+ * credential for the current user before moving to the next one.
+ */
+namespace users_interview_state
+{
+// WARNING : Use functions instead of those variables
+// Next user ID to be interviewed
+user_credential_user_unique_id_t next_user_id = 0;
+// Special node for user 0
+// Used to resolve it in the report instead of in the get to prevent resolver issues
+attribute_store::attribute user_0_node = ATTRIBUTE_STORE_INVALID_NODE;
+
+/**
+ * @brief Mark an node as the user 0 node
+ * 
+ * @param node Node to mark as user 0
+ */
+void set_user_0_node(attribute_store::attribute node)
+{  
+  sl_log_debug(LOG_TAG, "Starting interview for all users on the device.");
+  user_0_node = node;
+}
+
+/**
+ * @brief Resolve user 0 if needed
+ */
+void resolve_user_0_node()
+{
+  if (user_0_node == ATTRIBUTE_STORE_INVALID_NODE) {
+    return;
+  }
+
+  try {
+    user_0_node.set_reported<user_credential_user_unique_id_t>(0);
+    user_0_node = ATTRIBUTE_STORE_INVALID_NODE;
+  } catch (const std::exception &e) {
+    sl_log_error(LOG_TAG, "Error while setting user 0 node : %s", e.what());
+  }
+}
+
+/**
+ * @brief Schedule the next user interview
+ * 
+ * @param user_id User ID to interview next
+ */
+void schedule_next_user_interview(user_credential_user_unique_id_t user_id)
+{
+  sl_log_debug(LOG_TAG, "Schedule a get for next User ID :%d", next_user_id);
+  next_user_id = user_id;
+}
+
+/**
+ * @brief Trigger a get for the next user
+ * 
+ * If there is not next user, we will trigger the all users checksum get
+ * (if supported)
+ * 
+ * @param endpoint_node Current endpoint node
+ */
+void trigger_get_for_next_user(attribute_store::attribute endpoint_node)
+{
+  // If we get here it means that we have finished the interview for users and
+  // their credentials
+  if (next_user_id == 0) {
+    sl_log_debug(LOG_TAG, "User interview finished");
+    // Check if we supports all users checksum to compute it
+    user_credential::user_capabilities capabilities(endpoint_node);
+    if (capabilities.is_all_users_checksum_supported()) {
+      // This will do nothing if the node already exists
+      // Otherwise it will trigger all_users_checksum_get
+      endpoint_node.emplace_node(ATTRIBUTE(ALL_USERS_CHECKSUM));
+    }
+    return;
+  }
+
+  sl_log_debug(LOG_TAG, "Trigger a get for next User ID :%d", next_user_id);
+
+  endpoint_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID),
+                             next_user_id,
+                             DESIRED_ATTRIBUTE);
+
+  // Reset state
+  next_user_id = 0;
+}
+}  // namespace users_interview_state
+
 /////////////////////////////////////////////////////////////////////////////
 // Callbacks
 /////////////////////////////////////////////////////////////////////////////
@@ -1036,6 +1131,8 @@ sl_status_t zwave_command_class_user_credential_credential_handle_report(
                              next_credential_slot);
     } else {
       sl_log_debug(LOG_TAG, "No more credential to get.");
+      // Trigger the next user interview if any
+      users_interview_state::trigger_get_for_next_user(endpoint_node);
     }
 
   } catch (const std::exception &e) {
@@ -1523,9 +1620,7 @@ static sl_status_t zwave_command_class_user_credential_user_get(
 
   // This special user ID will contains the unaffected credentials.
   if (user_id == 0) {
-    sl_log_debug(LOG_TAG, "Starting interview for all users on the device.");
-    user_unique_id_node.clear_desired();
-    user_unique_id_node.set_reported(user_id);
+    users_interview_state::set_user_0_node(user_unique_id_node);
   }
 
   return SL_STATUS_OK;
@@ -1552,6 +1647,10 @@ sl_status_t zwave_command_class_user_credential_user_handle_report(
 
   attribute_store::attribute endpoint_node(
     zwave_command_class_get_endpoint_node(connection_info));
+
+  // Resolve user 0 node if needed
+  // We need to do that here so that the attribute store mark this node as resolved
+  users_interview_state::resolve_user_0_node();
 
   const uint8_t expected_min_size = 16;
 
@@ -1699,23 +1798,16 @@ sl_status_t zwave_command_class_user_credential_user_handle_report(
     if (next_user_id != 0
         && user_report_type == user_report_type_t::RESPONSE_TO_GET) {
       if (!user_exists(endpoint_node, next_user_id)) {
-        sl_log_debug(LOG_TAG, "Trigger a get for next user (%d)", next_user_id);
-        endpoint_node.add_node(ATTRIBUTE(USER_UNIQUE_ID))
-          .set_desired(next_user_id);
+        users_interview_state::schedule_next_user_interview(next_user_id);
       } else {
         sl_log_error(LOG_TAG,
                      "User %d already exists. Not discovering more users.",
                      next_user_id);
       }
     } else {
-      sl_log_debug(LOG_TAG, "No more users to discover");
-      // Check if we supports all users checksum to compute it
-      user_credential::user_capabilities capabilities(endpoint_node);
-      if (capabilities.is_all_users_checksum_supported()) {
-        // This will do nothing if the node already exists
-        // Otherwise it will trigger all_users_checksum_get
-        endpoint_node.emplace_node(ATTRIBUTE(ALL_USERS_CHECKSUM));
-      }
+      sl_log_debug(LOG_TAG,
+                   "User %d is the last user to be discovered.",
+                   current_user_id);
     }
   } catch (const std::exception &e) {
     sl_log_error(LOG_TAG,
