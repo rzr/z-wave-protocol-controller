@@ -1001,19 +1001,42 @@ void test_user_credential_user_report_happy_case()
   // Test structure
   auto user_id_count
     = cpp_endpoint_id_node.children(ATTRIBUTE(USER_UNIQUE_ID)).size();
-  TEST_ASSERT_EQUAL_MESSAGE(
-    3,
-    user_id_count,
-    "User node count mismatch. Should be 3 by now. One with special id 0, the "
-    "reported one and the new desired one");
+  TEST_ASSERT_EQUAL_MESSAGE(2,
+                            user_id_count,
+                            "User node count mismatch. Should be 2 by now. One "
+                            "with special id 0 and the "
+                            "reported one");
 
+  // Simulate no credential for this User
+  helper_simulate_credential_report_frame(0x00,
+                                          user_id,
+                                          0,
+                                          0,
+                                          0,
+                                          std::vector<uint8_t>(),
+                                          0,
+                                          0,
+                                          0,
+                                          0);
   auto second_user_id_node
     = cpp_endpoint_id_node.child_by_type(ATTRIBUTE(USER_UNIQUE_ID), 2);
+  
+  TEST_ASSERT_TRUE_MESSAGE(
+    second_user_id_node.is_valid(),
+    "Second user node should be created & valid");
 
   TEST_ASSERT_FALSE_MESSAGE(
     cpp_endpoint_id_node.child_by_type(ATTRIBUTE(ALL_USERS_CHECKSUM))
       .is_valid(),
     "ALL_USERS_CHECKSUM node should not be created yet");
+
+  user_id_count
+    = cpp_endpoint_id_node.children(ATTRIBUTE(USER_UNIQUE_ID)).size();
+  TEST_ASSERT_EQUAL_MESSAGE(
+    3,
+    user_id_count,
+    "User node count mismatch. Should be 3 by now. One "
+    "with special id 0, the reported one & the next in queue");
 
   printf("Second and last user creation\n");
 
@@ -1074,6 +1097,17 @@ void test_user_credential_user_report_happy_case()
     second_user_id_node.reported<user_credential_user_unique_id_t>(),
     "Second user id mismatch");
 
+  // Still no credential, so we can create the all user checksum
+  helper_simulate_credential_report_frame(0x00,
+                                          user_id,
+                                          0,
+                                          0,
+                                          0,
+                                          std::vector<uint8_t>(),
+                                          0,
+                                          0,
+                                          0,
+                                          0);
   TEST_ASSERT_TRUE_MESSAGE(
     cpp_endpoint_id_node.child_by_type(ATTRIBUTE(ALL_USERS_CHECKSUM))
       .is_valid(),
