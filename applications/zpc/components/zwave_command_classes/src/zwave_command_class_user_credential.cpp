@@ -2292,7 +2292,12 @@ void zwave_network_status_changed(attribute_store_node_t node,
     auto node_id = node_id_node.reported<zwave_node_id_t>();
 
     // If we are updating the zpc node or if we trying to delete the attribute we don't want to do anything
-    if (change == ATTRIBUTE_DELETED || get_zpc_node_id_node() == node_id_node) {
+    if (change != ATTRIBUTE_UPDATED || get_zpc_node_id_node() == node_id_node) {
+      return;
+    }
+
+    // In case we are not ready yet and don't have a reported value
+    if (!network_status_node.reported_exists()) {
       return;
     }
 
