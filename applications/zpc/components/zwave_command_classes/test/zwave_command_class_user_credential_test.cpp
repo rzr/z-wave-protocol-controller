@@ -2544,7 +2544,7 @@ void test_user_credential_credential_add_capabilites_happy_case()
       user_id,
       ZCL_CRED_TYPE_HAND_BIOMETRIC,
       1,
-      "TURBO"),
+      "ABCD"),
     "Credential #1 should be valid");
 
   TEST_ASSERT_EQUAL_MESSAGE(
@@ -2577,7 +2577,7 @@ void test_user_credential_credential_modify_capabilites_failure_cases()
   std::vector<uint8_t> supported_cl                = {1};
   std::vector<uint16_t> supported_credential_slots = {1};
   std::vector<uint8_t> supported_cred_min_length   = {2};
-  std::vector<uint8_t> supported_cred_max_length   = {7};
+  std::vector<uint8_t> supported_cred_max_length   = {17};
   helper_simulate_credential_capabilites_report(supported_credential_checksum,
                                                 support_admin_code,
                                                 support_admin_code_deactivation,
@@ -2595,7 +2595,7 @@ void test_user_credential_credential_modify_capabilites_failure_cases()
       user_id,
       ZCL_CRED_TYPE_HAND_BIOMETRIC,
       1,
-      "VOITURE"),
+      "ABCDEF0123456789"),
     "Should be able to add credential");
 
   TEST_ASSERT_EQUAL_MESSAGE(
@@ -2605,7 +2605,7 @@ void test_user_credential_credential_modify_capabilites_failure_cases()
       user_id,
       ZCL_CRED_TYPE_HAND_BIOMETRIC,
       1,
-      "V"),
+      "A"),
     "Should not be able to modify credential data : it's too short");
 
   TEST_ASSERT_EQUAL_MESSAGE(
@@ -2615,8 +2615,27 @@ void test_user_credential_credential_modify_capabilites_failure_cases()
       user_id,
       ZCL_CRED_TYPE_HAND_BIOMETRIC,
       1,
-      "MAX SPEEEEEEEEEEEEED TURBO"),
+      "ABCDEF0123456789A"),
     "Should not be able to modify credential data : it's too long");
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_FAIL,
+    zwave_command_class_user_credential_modify_credential(
+      endpoint_id_node,
+      user_id,
+      ZCL_CRED_TYPE_HAND_BIOMETRIC,
+      1,
+      "TURBO"),
+    "Should not be able to modify credential data : it's not hexa");
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    SL_STATUS_FAIL,
+    zwave_command_class_user_credential_modify_credential(
+      endpoint_id_node,
+      user_id,
+      ZCL_CRED_TYPE_HAND_BIOMETRIC,
+      1,
+      "AAB"),
+    "Should not be able to modify credential data : odd size for hexa value");
 }
 
 void helper_test_credential_rejected_case(uint8_t report_type)

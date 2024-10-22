@@ -798,7 +798,8 @@ attribute_store_node_t
   helper_add_complete_credential(user_credential_user_unique_id_t user_id,
                                  user_credential_type_t credential_type,
                                  user_credential_slot_t credential_slot,
-                                 const char *credential_data)
+                                 const char *credential_data,
+                                 std::vector<uint8_t> expected_credential_data_vector = {})
 {
   attribute_store_node_t user_id_node = helper_add_user_id(user_id);
 
@@ -826,10 +827,12 @@ attribute_store_node_t
       credential_data_vector.push_back((uint8_t)(c >> 8));
       credential_data_vector.push_back((uint8_t)c);
     }
-  } else {
+  } else if (credential_type == ZCL_CRED_TYPE_PIN_CODE) {
     credential_data_vector
       = std::vector<uint8_t>(cpp_str_credential_data.begin(),
                              cpp_str_credential_data.end());
+  } else {
+    credential_data_vector = expected_credential_data_vector;
   }
 
   mock_expected_cred_mqtt_topic(
@@ -980,13 +983,15 @@ void helper_test_desired_user_attributes(
                             "Expiring Timeout mismatch");
 }
 
+// Need to specify credential_data_vector if credential_type is not ZCL_CRED_TYPE_PIN_CODE or ZCL_CRED_TYPE_PASSWORD
 void helper_test_desired_credential_attributes(
   user_credential_user_unique_id_t user_id_node,
   user_credential_type_t credential_type,
   user_credential_slot_t credential_slot,
   const char *credential_data,
   bool desired_credential_identifiers,
-  user_credential_operation_type_t credential_operation_type)
+  user_credential_operation_type_t credential_operation_type,
+  std::vector<uint8_t> credential_data_vector = {})
 {
   attribute_store_node_value_state_t credential_identifier_state
     = desired_credential_identifiers ? DESIRED_ATTRIBUTE : REPORTED_ATTRIBUTE;
@@ -1031,11 +1036,13 @@ void helper_test_desired_credential_attributes(
       expected_credential_data_vector.push_back((uint8_t)(c >> 8));
       expected_credential_data_vector.push_back((uint8_t)c);
     }
-  } else {
+  } else if (credential_type == ZCL_CRED_TYPE_PIN_CODE) { // Should be in ascii we can convert it
     expected_credential_data_vector
       = std::vector<uint8_t>(str_credential_data.begin(),
                              str_credential_data.end());
-  }
+  } else {
+    expected_credential_data_vector = credential_data_vector;
+  } 
 
   // Credential Data
   attribute_store::attribute credential_data_node
@@ -1486,7 +1493,7 @@ void test_user_credential_cluster_add_credential_others_happy_case()
   user_credential_user_unique_id_t user_unique_id = 12;
   CredType credential_type               = CredType::ZCL_CRED_TYPE_RFID_CODE;
   user_credential_slot_t credential_slot = 1;
-  const char *credential_data            = "hunter2";
+  const char *credential_data            = "abcdef123456";
 
   // Add simple user
   helper_add_user_id(user_unique_id);
@@ -1515,7 +1522,8 @@ void test_user_credential_cluster_add_credential_others_happy_case()
                                             credential_slot,
                                             credential_data,
                                             true,
-                                            USER_CREDENTIAL_OPERATION_TYPE_ADD);
+                                            USER_CREDENTIAL_OPERATION_TYPE_ADD,
+                                            {0xab, 0xcd, 0xef, 0x12, 0x34, 0x56});
 }
 
 ///////////////////////////////////////////////////
@@ -1661,14 +1669,15 @@ void test_user_credential_cluster_modify_credential_others_happy_case()
   user_credential_user_unique_id_t user_unique_id = 12;
   CredType credential_type                        = CredType::ZCL_CRED_TYPE_BLE;
   user_credential_slot_t credential_slot          = 2;
-  std::string credential_data = "FAST TURBO ENGINE DOG PRO MAX";
+  std::string credential_data = "cafe12";
 
   auto user_id_node = helper_add_complete_credential(user_unique_id,
                                                      credential_type,
                                                      credential_slot,
-                                                     credential_data.c_str());
-  // Test UTF-16 conversion for password
-  credential_data = "FAE124A54E5F9325874A23E3646B";
+                                                     credential_data.c_str(),
+                                                     {0xca, 0xfe, 0x12});
+  // New data
+  credential_data = "eF12Ca";
   TEST_ASSERT_EQUAL_MESSAGE(
     SL_STATUS_OK,
     modify_credential_command(supporting_node_unid,
@@ -1686,7 +1695,8 @@ void test_user_credential_cluster_modify_credential_others_happy_case()
     credential_slot,
     credential_data.c_str(),
     false,
-    USER_CREDENTIAL_OPERATION_TYPE_MODIFY);
+    USER_CREDENTIAL_OPERATION_TYPE_MODIFY,
+    {0xef, 0x12, 0xca});
 }
 
 ///////////////////////////////////////////////////
@@ -1829,7 +1839,7 @@ void test_user_credential_cluster_delete_all_credential_happy_case()
   user_credential_slot_t credential_slot          = 0;
 
   std::vector<user_credential_user_unique_id_t> user_ids = {12, 12, 12, 15, 19};
-  std::vector<user_credential_type_t> credential_types   = {1, 1, 2, 5, 1};
+  std::vector<user_credential_type_t> credential_types   = {1, 1, 2, 2, 1};
   std::vector<user_credential_slot_t> credential_slots   = {1, 2, 2, 1, 3};
 
   // WARNING : Make sure that all the vector above have the same size
@@ -1888,7 +1898,7 @@ void test_user_credential_cluster_delete_all_credential_for_user_happy_case()
 
   std::vector<user_credential_user_unique_id_t> user_ids
     = {user_unique_id, user_unique_id, user_unique_id, 15, 19};
-  std::vector<user_credential_type_t> credential_types = {1, 1, 2, 5, 1};
+  std::vector<user_credential_type_t> credential_types = {1, 1, 2, 2, 1};
   std::vector<user_credential_slot_t> credential_slots = {1, 2, 2, 1, 3};
 
   // WARNING : Make sure that all the vector above have the same size
@@ -1950,7 +1960,7 @@ void test_user_credential_cluster_delete_all_credential_for_user_by_type_happy_c
   std::vector<user_credential_user_unique_id_t> user_ids
     = {user_unique_id, user_unique_id, user_unique_id, 15, 19};
   std::vector<user_credential_type_t> credential_types
-    = {credential_type, credential_type, 2, 5, credential_type};
+    = {credential_type, credential_type, 2, 2, credential_type};
   std::vector<user_credential_slot_t> credential_slots = {1, 2, 2, 1, 3};
 
   // WARNING : Make sure that all the vector above have the same size
@@ -2012,7 +2022,7 @@ void test_user_credential_cluster_delete_all_credential_by_type_happy_case()
 
   std::vector<user_credential_user_unique_id_t> user_ids = {12, 12, 12, 15, 19};
   std::vector<user_credential_type_t> credential_types
-    = {credential_type, credential_type, 2, 5, credential_type};
+    = {credential_type, credential_type, 2, 2, credential_type};
   std::vector<user_credential_slot_t> credential_slots = {1, 2, 2, 1, 3};
 
   // WARNING : Make sure that all the vector above have the same size
