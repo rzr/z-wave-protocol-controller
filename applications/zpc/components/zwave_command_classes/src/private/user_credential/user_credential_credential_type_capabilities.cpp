@@ -20,6 +20,7 @@
 // Needed for credential data (password) per specification
 #include <locale>
 #include <codecvt>
+#include <regex> // std::regex_replace
 
 // Boost
 #include <boost/format.hpp>
@@ -183,8 +184,23 @@ std::vector<uint8_t>
       }
       break;
     default:
-      for (const auto &c: credential_data_str) {
-        credential_data_vector.push_back(c);
+      if (credential_data_str.size() % 2 != 0) {
+        throw std::runtime_error(
+          "Credential data size is not valid. Should be even since it expect raw hexa.");
+      }
+      if (!std::regex_match(credential_data_str, std::regex("[0-9a-fA-F]+"))) {
+        throw std::runtime_error(
+          "Credential data is not valid. It should be a raw hexa string (e.g. CAFE1234).");
+      }
+
+      std::stringstream ss;
+      int value;
+      for (size_t i = 0; i < credential_data_str.size(); i += 2) {
+        ss.clear();
+        auto sub_str = credential_data_str.substr(i, 2);
+        ss << std::hex << sub_str;
+        ss >> value;
+        credential_data_vector.push_back(value);
       }
   }
 

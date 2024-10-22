@@ -877,8 +877,7 @@ std::string mqtt_topic_add_attribute(const std::string &base_mqtt_topic,
  * @return The payload value.
  */
 std::string get_payload_value(attribute_store::attribute updated_node_cpp,
-                              mqtt_data data,
-                              bool need_utf8_conversion = false)
+                              std::function<std::string(uint32_t)> convert_function = nullptr)
 {
   std::string payload_str = "";
 
@@ -899,32 +898,15 @@ std::string get_payload_value(attribute_store::attribute updated_node_cpp,
       json_payload["value"] = updated_node_cpp.reported<std::string>();
       break;
     case BYTE_ARRAY_STORAGE_TYPE: {
-      // Convert the byte array to a string
-      // Credential data are encoded in different way that's why we store them as raw byte array and interpret their value
-
-      std::string output;
+      // Convert the byte array to a string that contains the hex representation
       auto raw_data = updated_node_cpp.reported<std::vector<uint8_t>>();
 
-      // Check if we need to convert the value to UTF-8
-      if (need_utf8_conversion) {
-        std::u16string utf16_str;
-        for (size_t i = 0; i < raw_data.size(); i += 2) {
-          char16_t char16 = (raw_data[i] << 8) | raw_data[i + 1];
-          utf16_str.push_back(char16);
-        }
-        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> cnv;
-        output = cnv.to_bytes(utf16_str);
-        if (cnv.converted() < utf16_str.size()) {
-          sl_log_error(LOG_TAG, "Error converting UTF-16 to UTF-8");
-        }
-      } else {
-        output.reserve(raw_data.size());
-        for (auto c: raw_data) {
-          output.push_back(static_cast<char>(c));
-        }
+      std::stringstream ss;
+      ss << std::hex << std::setfill('0');
+      for(auto c : raw_data) {
+        ss << std::setw(2) << static_cast<unsigned int>(c);
       }
-
-      json_payload["value"] = output;
+      json_payload["value"] = ss.str();
     } break;
 
     default:
@@ -934,20 +916,55 @@ std::string get_payload_value(attribute_store::attribute updated_node_cpp,
   }
 
   // Check if we need to convert the enum to a string
-  const auto &enum_name_conversion = data.convert_function;
-  if (enum_name_conversion) {
-    json_payload["value"] = enum_name_conversion(json_payload["value"]);
+  if (convert_function) {
+    json_payload["value"] = convert_function(json_payload["value"]);
   }
 
   // Create payload
   payload_str = json_payload.dump();
   // Handle booleans
-  if (enum_name_conversion) {
+  if (convert_function) {
     boost::replace_all(payload_str, "\"true\"", "true");
     boost::replace_all(payload_str, "\"false\"", "false");
   }
 
   return payload_str;
+}
+
+std::string
+  get_credential_data_value(attribute_store::attribute updated_node_cpp,
+                            user_credential_type_t type)
+{
+  std::string output;
+
+  auto raw_data = updated_node_cpp.reported<std::vector<uint8_t>>();
+  // Convert the byte array to a string
+  // Credential data are encoded in different way that's why we store them as raw byte array and interpret their value
+  switch (type) {
+    case ZCL_CRED_TYPE_PIN_CODE:
+      output.reserve(raw_data.size());
+      for (auto c: raw_data) {
+        output.push_back(static_cast<char>(c));
+      }
+      break;
+    case ZCL_CRED_TYPE_PASSWORD: {
+      std::u16string utf16_str;
+      for (size_t i = 0; i < raw_data.size(); i += 2) {
+        char16_t char16 = (raw_data[i] << 8) | raw_data[i + 1];
+        utf16_str.push_back(char16);
+      }
+      std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> cnv;
+      output = cnv.to_bytes(utf16_str);
+      if (cnv.converted() < utf16_str.size()) {
+        sl_log_error(LOG_TAG, "Error converting UTF-16 to UTF-8");
+      }
+    } break;
+    default:
+      return get_payload_value(updated_node_cpp);
+  }
+  nlohmann::json json_payload;
+  json_payload["value"] = output;
+  return json_payload.dump();
 }
 
 void publish_mqtt_topic(const std::string &base_topic,
@@ -966,11 +983,9 @@ void publish_mqtt_topic(const std::string &base_topic,
       user_credential_type_t type
         = updated_node_cpp.first_parent(ATTRIBUTE(CREDENTIAL_TYPE))
             .reported<user_credential_type_t>();
-      payload_str = get_payload_value(updated_node_cpp,
-                                      data,
-                                      (type == ZCL_CRED_TYPE_PASSWORD));
+      payload_str = get_credential_data_value(updated_node_cpp, type);
     } else {
-      payload_str = get_payload_value(updated_node_cpp, data);
+      payload_str = get_payload_value(updated_node_cpp, data.convert_function);
     }
     if (payload_str.empty()) {
       return;
