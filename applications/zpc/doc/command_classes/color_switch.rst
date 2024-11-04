@@ -23,7 +23,7 @@ Command Class Commands
 Color Switch Supported Get 
 ---------------------------
 
-Trigger on undefined **reported** value of ``SUPPORTED_COLOR_COMPONENT_MASK``
+Trigger on undefined **reported** value of ``SUPPORTED_COLOR_COMPONENT_MASK``.
 
 Color Switch Supported Report 
 ------------------------------
@@ -45,7 +45,7 @@ Mapping between Report command and attribute store :
 Color Switch Set
 -------------------------------
 
-Trigger on new **desired** value of ``VALUE``: 
+Trigger on new **desired** value of ``VALUE``. 
 
 Mapping between attribute store and Set command: 
 
@@ -70,7 +70,7 @@ Mapping between attribute store and Set command:
 Color Switch Get
 -------------------------------
 
-Trigger on undefined **reported** value of ``VALUE``:
+Trigger on undefined **reported** value of ``VALUE``.
 
 
 Color Switch Report
@@ -93,7 +93,7 @@ Mapping between Report command and attribute store :
 Color Switch Start Level Change 
 --------------------------
 
-Trigger on new **desired** value of ``START_CHANGE``: 
+Trigger on new **desired** value of ``START_CHANGE``.
 
 Mapping between attribute store and command: 
 
@@ -127,7 +127,7 @@ Mapping between attribute store and command:
 Color Switch Stop Level Change 
 --------------------------
 
-Trigger on new **desired** value of ``STOP_CHANGE``: 
+Trigger on new **desired** value of ``STOP_CHANGE``.
 
 Mapping between attribute store and command: 
 
