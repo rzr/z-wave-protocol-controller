@@ -14,6 +14,11 @@
 #include "workaround_for_test.hpp"
 #include "attribute.hpp"
 
+// Test helpers
+#include "zwave_command_class_test_helper.hpp"
+
+using namespace zwave_command_class_test_helper;
+
 extern "C" {
 
 #include "zwave_command_class_user_credential.h"
@@ -32,15 +37,11 @@ extern "C" {
 #include "attribute_store_type_registration.h"
 #include "zpc_attribute_store_type_registration.h"
 
-
 // Interface includes
 #include "attribute_store_defined_attribute_types.h"
 #include "ZW_classcmd.h"
 #include "zwave_utils.h"
 #include "zwave_controller_types.h"
-
-// Test helpers
-#include "zpc_attribute_store_test_helper.h"
 
 // Mock includes
 #include "attribute_resolver_mock.h"
@@ -55,14 +56,7 @@ extern "C" {
 
 #define ATTRIBUTE(type) ATTRIBUTE_COMMAND_CLASS_USER_CREDENTIAL_##type
 
-static zwave_command_handler_t handler = {};
-
-// This assumes that XXX_GET and XXX_SET id are > 0
-struct bound_functions {
-  uint8_t get_func_id;
-  uint8_t set_func_id;
-};
-static std::map<attribute_store_type_t, bound_functions> attributes_binding = {
+const resolver_function_map attributes_binding = {
   {ATTRIBUTE(NUMBER_OF_USERS), {USER_CAPABILITIES_GET, 0}},
   {ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM), {CREDENTIAL_CAPABILITIES_GET, 0}},
   {ATTRIBUTE(ALL_USERS_CHECKSUM), {ALL_USERS_CHECKSUM_GET, 0}},
@@ -78,125 +72,67 @@ static std::map<attribute_store_type_t, bound_functions> attributes_binding = {
   {ATTRIBUTE(CREDENTIAL_CHECKSUM), {CREDENTIAL_CHECKSUM_GET, 0}},
 };
 
-// Filed with resolver function for given ID in attribute_resolver_register_rule_stub based on
-// attributes_binding map.
-//
-// e.g : resolver_functions[USER_CAPABILITIES_GET] = user_capabilities_get_func()
-static std::map<uint8_t, attribute_resolver_function_t> resolver_functions;
+// Tested command class handler
+const zwave_struct_handler_args command_class_handler
+  = {.command_class_id  = COMMAND_CLASS_USER_CREDENTIAL,
+     .supported_version = USER_CREDENTIAL_VERSION,
+     .scheme            = ZWAVE_CONTROLLER_ENCAPSULATION_SECURITY_2_ACCESS};
 
 // Notification callback
 static notification_event_callback_t notification_callback;
 
-// Buffer for frame
-static uint8_t received_frame[255]  = {};
-static uint16_t received_frame_size = 0;
-
-const uint8_t MAX_CHAR_SIZE = 64;
-/////////////////////////////////////////////////////
-// C++ HELPERS
-/////////////////////////////////////////////////////
-}  // Extern C
-
-#ifdef __cplusplus
-template<class T> void helper_test_attribute_store_values(
-  std::map<attribute_store_type_t, T> attribute_map_values,
-  attribute_store_node_t parent = ATTRIBUTE_STORE_INVALID_NODE)
-{
-  if (parent == ATTRIBUTE_STORE_INVALID_NODE) {
-    parent = endpoint_id_node;
-  }
-
-  for (auto &attr: attribute_map_values) {
-    T value;
-    sl_status_t status = attribute_store_get_child_reported(parent,
-                                                            attr.first,
-                                                            &value,
-                                                            sizeof(value));
-
-    std::string message
-      = "Can't get reported value of "
-        + std::string(attribute_store_get_type_name(attr.first));
-
-    TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK, status, message.c_str());
-
-    message = "Mismatch value for attribute : "
-              + std::string(attribute_store_get_type_name(attr.first));
-    TEST_ASSERT_EQUAL_MESSAGE(attr.second, value, message.c_str());
-  }
-}
-#endif
-
-extern "C" {
 /////////////////////////////////////////////////////
 // HELPERS
 /////////////////////////////////////////////////////
-struct uint16_exploded {
-  uint8_t msb;  // Most Significant Bit
-  uint8_t lsb;  // Less Significant Bit
-};
-uint16_exploded explode_uint16(uint16_t value)
-{
-  uint8_t msb = (value & 0xFF00) >> 8;
-  uint8_t lsb = (value & 0x00FF);
-  return uint16_exploded {msb, lsb};
-}
-
 struct credential_structure_nodes {
-  attribute_store_node_t user_id_node;
-  attribute_store_node_t credential_type_node;
-  attribute_store_node_t credential_slot_node;
+  attribute_store::attribute user_id_node;
+  attribute_store::attribute credential_type_node;
+  attribute_store::attribute credential_slot_node;
+
+  void print()
+  {
+    printf("%s / %s / %s\n",
+           user_id_node.name_and_id().c_str(),
+           credential_type_node.name_and_id().c_str(),
+           credential_slot_node.name_and_id().c_str());
+  };
 };
 
-void helper_simulate_user_set_error_report(
-  uint8_t user_set_error_type,
-  user_credential_modifier_type_t user_modifier_type,
-  user_credential_modifier_node_id_t user_modifier_node_id,
+/**
+ * @brief Create credential structure and return associated nodes
+ * 
+ * @param user_id 
+ * @param credential_type 
+ * @param credential_slot 
+ * @param value_state If DESIRED_ATTRIBUTE : credential_type/credential_slot will have their desired value setup, reported otherwise
+ * @return credential_structure_nodes 
+ */
+credential_structure_nodes helper_create_credential_structure(
   user_credential_user_unique_id_t user_id,
-  user_credential_user_type_t user_type,
-  user_credential_user_active_state_t user_active_state,
-  user_credential_supported_credential_rules_t credential_rule,
-  user_credential_expiring_timeout_minutes_t expiring_timeout_minutes,
-  user_credential_user_name_encoding_t user_name_encoding,
-  std::string user_name)
+  user_credential_type_t credential_type,
+  user_credential_slot_t credential_slot,
+  attribute_store_node_value_state_t value_state = DESIRED_ATTRIBUTE)
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
+  credential_structure_nodes nodes;
 
-  std::vector<uint8_t> report_frame
-    = {COMMAND_CLASS_USER_CREDENTIAL, USER_SET_ERROR_REPORT};
+  nodes.user_id_node
+    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
-  report_frame.push_back(user_set_error_type);
-  report_frame.push_back(user_modifier_type);
+  nodes.credential_type_node
+    = nodes.user_id_node.emplace_node(ATTRIBUTE(CREDENTIAL_TYPE),
+                                      credential_type);
 
-  auto exploded_user_modifier_node_id = explode_uint16(user_modifier_node_id);
-  report_frame.push_back(exploded_user_modifier_node_id.msb);
-  report_frame.push_back(exploded_user_modifier_node_id.lsb);
+  nodes.credential_slot_node
+    = nodes.credential_type_node.emplace_node(ATTRIBUTE(CREDENTIAL_SLOT),
+                                              credential_slot,
+                                              value_state);
 
-  auto exploded_user_id = explode_uint16(user_id);
-  report_frame.push_back(exploded_user_id.msb);
-  report_frame.push_back(exploded_user_id.lsb);
-
-  report_frame.push_back(user_type);
-  report_frame.push_back(user_active_state);
-  report_frame.push_back(credential_rule);
-
-  auto exploded_expiring_timeout_minutes
-    = explode_uint16(expiring_timeout_minutes);
-  report_frame.push_back(exploded_expiring_timeout_minutes.msb);
-  report_frame.push_back(exploded_expiring_timeout_minutes.lsb);
-
-  report_frame.push_back((uint8_t)user_name.size());
-  for (const char &c: user_name) {
-    report_frame.push_back(c);
-  }
-
-  // Do the report
-  TEST_ASSERT_EQUAL(
-    SL_STATUS_OK,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()));
+  return nodes;
 }
+
+////////////////////////////////////////////////////
+// Report helpers
+////////////////////////////////////////////////////
 
 void helper_simulate_credential_set_error_report(
   uint8_t credential_set_error_type,
@@ -208,43 +144,18 @@ void helper_simulate_credential_set_error_report(
   user_credential_modifier_type_t modifier_type,
   user_credential_modifier_node_id_t modifier_node_id)
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
+  zwave_frame report_frame;
 
-  std::vector<uint8_t> report_frame
-    = {COMMAND_CLASS_USER_CREDENTIAL, CREDENTIAL_SET_ERROR_REPORT};
+  report_frame.add(credential_set_error_type);
+  report_frame.add(user_id);
+  report_frame.add(credential_type);
+  report_frame.add(credential_slot);
+  report_frame.add(crb);
+  report_frame.add(credential_data);
+  report_frame.add(modifier_type);
+  report_frame.add(modifier_node_id);
 
-  report_frame.push_back(credential_set_error_type);
-
-  auto exploded_user_id = explode_uint16(user_id);
-  report_frame.push_back(exploded_user_id.msb);
-  report_frame.push_back(exploded_user_id.lsb);
-
-  report_frame.push_back(credential_type);
-
-  auto exploded_credential_slot = explode_uint16(credential_slot);
-  report_frame.push_back(exploded_credential_slot.msb);
-  report_frame.push_back(exploded_credential_slot.lsb);
-
-  report_frame.push_back(crb << 7);
-
-  report_frame.push_back((uint8_t)credential_data.size());
-  for (const char &c: credential_data) {
-    report_frame.push_back(c);
-  }
-
-  report_frame.push_back(modifier_type);
-
-  auto exploded_modifier_node_id = explode_uint16(modifier_node_id);
-  report_frame.push_back(exploded_modifier_node_id.msb);
-  report_frame.push_back(exploded_modifier_node_id.lsb);
-
-  // Do the report
-  TEST_ASSERT_EQUAL(
-    SL_STATUS_OK,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()));
+  helper_test_report_frame(CREDENTIAL_SET_ERROR_REPORT, report_frame);
 }
 
 void helper_simulate_user_capabilites_report(
@@ -257,36 +168,20 @@ void helper_simulate_user_capabilites_report(
   uint8_t supported_user_types_bitmask_length,
   user_credential_supported_user_type_bitmask_t supported_user_types_bitmask)
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
+  zwave_frame report_frame;
 
-  std::vector<uint8_t> report_frame = {
-    COMMAND_CLASS_USER_CREDENTIAL,
-    USER_CAPABILITIES_REPORT,
-    (uint8_t)((number_of_users & 0xFF00) >> 8),  // MSB
-    (uint8_t)(number_of_users & 0x00FF),         // LSB
-    cred_rule_bitmask,
-    username_max_length,
-    (uint8_t)((support_user_schedule << 7) | (support_all_users_checksum << 6)
-              | (support_user_checksum << 5)),
-    supported_user_types_bitmask_length};
+  report_frame.add(number_of_users);
+  report_frame.add(cred_rule_bitmask);
+  report_frame.add(username_max_length);
+  uint8_t support_byte = (support_user_schedule << 7)
+                         | (support_all_users_checksum << 6)
+                         | (support_user_checksum << 5);
+  report_frame.add(support_byte);
+  report_frame.add_bitmask(supported_user_types_bitmask_length,
+                           supported_user_types_bitmask);
 
   // Add bitmask value
-  for (uint8_t i = 0; i < supported_user_types_bitmask_length; i++) {
-    uint8_t offset   = i;
-    uint8_t shift    = 8 * offset;
-    uint32_t bitmask = 0xFF << shift;
-
-    uint8_t value_8bit = (supported_user_types_bitmask & bitmask) >> shift;
-    report_frame.push_back(value_8bit);
-  }
-
-  // Do the report
-  TEST_ASSERT_EQUAL(
-    SL_STATUS_OK,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()));
+  helper_test_report_frame(USER_CAPABILITIES_REPORT, report_frame);
 }
 
 void helper_simulate_credential_capabilites_report(
@@ -311,53 +206,34 @@ void helper_simulate_credential_capabilites_report(
                       "should be the same.");
   }
 
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
+  zwave_frame report_frame;
 
-  std::vector<uint8_t> report_frame
-    = {COMMAND_CLASS_USER_CREDENTIAL,
-       CREDENTIAL_CAPABILITIES_REPORT,
-       (uint8_t)(credential_checksum_support << 7),
-       (uint8_t)credential_type.size()};
-
-  auto push_uint16 = [&](std::vector<uint16_t> vector) {
-    for (auto &v: vector) {
-      report_frame.push_back((uint8_t)((v & 0xFF00) >> 8));
-      report_frame.push_back((uint8_t)(v & 0x00FF));
-    }
-  };
+  report_frame.add(static_cast<uint8_t>(credential_checksum_support << 7));
+  report_frame.add(static_cast<uint8_t>(credential_type.size()));
 
   for (auto &c: credential_type) {
-    report_frame.push_back(c);
+    report_frame.add(c);
   }
-
   for (auto &cl: cl_support) {
-    report_frame.push_back((uint8_t)(cl << 7));
+    report_frame.add(static_cast<uint8_t>(cl << 7));
   }
-
-  push_uint16(supported_credential_slots);
-
+  for (auto &c: supported_credential_slots) {
+    report_frame.add(c);
+  }
   for (auto &c: min_length) {
-    report_frame.push_back(c);
+    report_frame.add(c);
   }
   for (auto &c: max_length) {
-    report_frame.push_back(c);
+    report_frame.add(c);
   }
-
   for (auto &c: cl_timeout) {
-    report_frame.push_back(c);
+    report_frame.add(c);
   }
-
   for (auto &c: cl_steps) {
-    report_frame.push_back(c);
+    report_frame.add(c);
   }
 
-  // Do the report
-  TEST_ASSERT_EQUAL(
-    SL_STATUS_OK,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()));
+  helper_test_report_frame(CREDENTIAL_CAPABILITIES_REPORT, report_frame);
 };
 
 void helper_simulate_user_checksum_report(
@@ -365,25 +241,11 @@ void helper_simulate_user_checksum_report(
   user_credential_checksum_t expected_checksum,
   sl_status_t expected_status = SL_STATUS_OK)
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
+  zwave_frame report_frame;
+  report_frame.add(user_id);
+  report_frame.add(expected_checksum);
 
-  std::vector<uint8_t> checksum_frame
-    = {COMMAND_CLASS_USER_CREDENTIAL, USER_CHECKSUM_REPORT};
-  auto exploded_user_id = explode_uint16(user_id);
-  checksum_frame.push_back(exploded_user_id.msb);
-  checksum_frame.push_back(exploded_user_id.lsb);
-  auto exploded_expected_checksum = explode_uint16(expected_checksum);
-  checksum_frame.push_back(exploded_expected_checksum.msb);
-  checksum_frame.push_back(exploded_expected_checksum.lsb);
-
-  // Do the report
-  TEST_ASSERT_EQUAL(expected_status,
-                    handler.control_handler(&info,
-                                            checksum_frame.data(),
-                                            checksum_frame.size()));
+  helper_test_report_frame(USER_CHECKSUM_REPORT, report_frame, expected_status);
 }
 
 void helper_simulate_credential_checksum_report(
@@ -391,61 +253,34 @@ void helper_simulate_credential_checksum_report(
   user_credential_checksum_t expected_checksum,
   sl_status_t expected_status = SL_STATUS_OK)
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
+  zwave_frame report_frame;
+  report_frame.add(credential_type);
+  report_frame.add(expected_checksum);
 
-  std::vector<uint8_t> checksum_frame
-    = {COMMAND_CLASS_USER_CREDENTIAL, CREDENTIAL_CHECKSUM_REPORT};
-  checksum_frame.push_back(credential_type);
-  auto exploded_expected_checksum = explode_uint16(expected_checksum);
-  checksum_frame.push_back(exploded_expected_checksum.msb);
-  checksum_frame.push_back(exploded_expected_checksum.lsb);
-
-  // Do the report
-  TEST_ASSERT_EQUAL(expected_status,
-                    handler.control_handler(&info,
-                                            checksum_frame.data(),
-                                            checksum_frame.size()));
+  helper_test_report_frame(CREDENTIAL_CHECKSUM_REPORT,
+                           report_frame,
+                           expected_status);
 }
 
-void helper_create_learn_status_report_frame(
+void helper_simulate_learn_status_report_frame(
   uint8_t credential_learn_status,
   user_credential_user_unique_id_t user_id,
   user_credential_type_t credential_type,
   user_credential_slot_t credential_slot,
   uint8_t learn_steps_remaining)
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
+  zwave_frame report_frame;
 
-  std::vector<uint8_t> report_frame
-    = {COMMAND_CLASS_USER_CREDENTIAL, CREDENTIAL_LEARN_REPORT};
+  report_frame.add(credential_learn_status);
+  report_frame.add(user_id);
+  report_frame.add(credential_type);
+  report_frame.add(credential_slot);
+  report_frame.add(learn_steps_remaining);
 
-  report_frame.push_back(credential_learn_status);
-
-  auto exploded_user_id = explode_uint16(user_id);
-  report_frame.push_back(exploded_user_id.msb);
-  report_frame.push_back(exploded_user_id.lsb);
-
-  report_frame.push_back(credential_type);
-
-  auto exploded_credential_slot = explode_uint16(credential_slot);
-  report_frame.push_back(exploded_credential_slot.msb);
-  report_frame.push_back(exploded_credential_slot.lsb);
-
-  report_frame.push_back(learn_steps_remaining);
-
-  // Do the report
-  TEST_ASSERT_EQUAL(
-    SL_STATUS_OK,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()));
+  helper_test_report_frame(CREDENTIAL_LEARN_REPORT, report_frame);
 }
 
-void helper_association_report_frame(
+void helper_simulate_association_report_frame(
   user_credential_user_unique_id_t source_user_id,
   user_credential_type_t source_credential_type,
   user_credential_slot_t source_credential_slot,
@@ -453,413 +288,134 @@ void helper_association_report_frame(
   user_credential_slot_t destination_credential_slot,
   uint8_t credential_association_status)
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
+  zwave_frame report_frame;
 
-  std::vector<uint8_t> report_frame
-    = {COMMAND_CLASS_USER_CREDENTIAL, USER_CREDENTIAL_ASSOCIATION_REPORT};
+  report_frame.add(source_user_id);
+  report_frame.add(source_credential_type);
+  report_frame.add(source_credential_slot);
+  report_frame.add(destination_user_id);
+  report_frame.add(destination_credential_slot);
+  report_frame.add(credential_association_status);
 
-  auto exploded_user_id = explode_uint16(source_user_id);
-  report_frame.push_back(exploded_user_id.msb);
-  report_frame.push_back(exploded_user_id.lsb);
-
-  report_frame.push_back(source_credential_type);
-
-  auto exploded_credential_slot = explode_uint16(source_credential_slot);
-  report_frame.push_back(exploded_credential_slot.msb);
-  report_frame.push_back(exploded_credential_slot.lsb);
-
-  exploded_user_id = explode_uint16(destination_user_id);
-  report_frame.push_back(exploded_user_id.msb);
-  report_frame.push_back(exploded_user_id.lsb);
-
-  exploded_credential_slot = explode_uint16(destination_credential_slot);
-  report_frame.push_back(exploded_credential_slot.msb);
-  report_frame.push_back(exploded_credential_slot.lsb);
-
-  report_frame.push_back(credential_association_status);
-
-  // Do the report
-  TEST_ASSERT_EQUAL(
-    SL_STATUS_OK,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()));
-}
-/**
- * @brief Create credential structure and return associated nodes
- * 
- * @param user_id 
- * @param credential_type 
- * @param credential_slot 
- * @param value_state If DESIRED_ATTRIBUTE : credential_type/credential_slot will have their desired value setup, reported otherwise
- * @return credential_structure_nodes 
- */
-credential_structure_nodes helper_create_credential_structure(
-  user_credential_user_unique_id_t user_id,
-  user_credential_type_t credential_type,
-  user_credential_slot_t credential_slot,
-  attribute_store_node_value_state_t value_state = DESIRED_ATTRIBUTE)
-{
-  credential_structure_nodes nodes;
-  nodes.user_id_node = attribute_store_emplace(endpoint_id_node,
-                                               ATTRIBUTE(USER_UNIQUE_ID),
-                                               &user_id,
-                                               sizeof(user_id));
-  // It should be always reported
-  nodes.credential_type_node
-    = attribute_store_emplace(nodes.user_id_node,
-                              ATTRIBUTE(CREDENTIAL_TYPE),
-                              &credential_type,
-                              sizeof(credential_type));
-
-  if (value_state == DESIRED_ATTRIBUTE) {
-    nodes.credential_slot_node
-      = attribute_store_emplace_desired(nodes.credential_type_node,
-                                        ATTRIBUTE(CREDENTIAL_SLOT),
-                                        &credential_slot,
-                                        sizeof(credential_slot));
-  } else {
-    nodes.credential_slot_node
-      = attribute_store_emplace(nodes.credential_type_node,
-                                ATTRIBUTE(CREDENTIAL_SLOT),
-                                &credential_slot,
-                                sizeof(credential_slot));
-  }
-
-  return nodes;
+  helper_test_report_frame(USER_CREDENTIAL_ASSOCIATION_REPORT, report_frame);
 }
 
-void helper_test_get_no_args_happy_case(uint8_t get_command_id)
-{
-  auto &get_func = resolver_functions[get_command_id];
-
-  // Ask for a Get Command, should always be the same
-  TEST_ASSERT_NOT_NULL_MESSAGE(
-    get_func,
-    "Couldn't find get function in resolver_functions.");
-  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
-                            get_func(0, received_frame, &received_frame_size),
-                            "Get function should have returned OK");
-
-  const uint8_t expected_frame[]
-    = {COMMAND_CLASS_USER_CREDENTIAL, get_command_id};
-  TEST_ASSERT_EQUAL_MESSAGE(sizeof(expected_frame),
-                            received_frame_size,
-                            "Get frame size is incorrect");
-  TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(expected_frame,
-                                        received_frame,
-                                        received_frame_size,
-                                        "Get frame contents mismatch");
-}
-
-/**
- * @brief Test given SET or GET function with args
- * 
- * > Can also test if SET or GET command return SL_STATUS_NOT_SUPPORTED if node == INVALID_STORAGE_TYPE
- * 
- * @param command_id  Command that should be in resolver_functions
- * @param base_node   Base node on which the GET function will be called. If INVALID_STORAGE_TYPE expect the SET or GET function to return SL_STATUS_NOT_SUPPORTED and return.
- * @param nodes       Node data that will be used to check and construct the SET or GET frame (order matter since the first one will be the first argument, etc..)
- * @param extra_bytes Extra bytes that will be added to the frame
- */
-void helper_test_set_get_with_args(
-  uint8_t command_id,
-  attribute_store_node_t base_node,
-  std::vector<
-    std::pair<attribute_store_node_t, attribute_store_node_value_state_t>> nodes
-  = {},
-  std::vector<uint8_t> extra_bytes = {})
-{
-  auto &command_func = resolver_functions[command_id];
-
-  // Ask for a Get Command, should always be the same
-  TEST_ASSERT_NOT_NULL_MESSAGE(
-    command_func,
-    "Couldn't find command function in resolver_functions.");
-
-  if (base_node == ATTRIBUTE_STORE_INVALID_NODE) {
-    TEST_ASSERT_EQUAL_MESSAGE(
-      SL_STATUS_NOT_SUPPORTED,
-      command_func(base_node, received_frame, &received_frame_size),
-      "Command function should have returned SL_STATUS_NOT_SUPPORTED since no "
-      "node "
-      "was provided");
-    return;
-  }
-
-  TEST_ASSERT_EQUAL_MESSAGE(
-    SL_STATUS_OK,
-    command_func(base_node, received_frame, &received_frame_size),
-    "Command function should have returned SL_STATUS_OK");
-
-  std::vector<uint8_t> expected_frame
-    = {COMMAND_CLASS_USER_CREDENTIAL, command_id};
-
-  for (auto &node_data: nodes) {
-    auto node             = node_data.first;
-    auto node_value_state = node_data.second;
-
-    auto node_type         = attribute_store_get_node_type(node);
-    auto node_storage_type = attribute_store_get_storage_type(node_type);
-
-    sl_status_t status;
-    switch (node_storage_type) {
-      case U8_STORAGE_TYPE: {
-        uint8_t uint8_value;
-        status = attribute_store_read_value(node,
-                                            node_value_state,
-                                            &uint8_value,
-                                            sizeof(uint8_value));
-        expected_frame.push_back(uint8_value);
-      } break;
-      case U16_STORAGE_TYPE: {
-        uint16_t uint16_value;
-        status               = attribute_store_read_value(node,
-                                            node_value_state,
-                                            &uint16_value,
-                                            sizeof(uint16_value));
-        auto exploded_uint16 = explode_uint16(uint16_value);
-        expected_frame.push_back(exploded_uint16.msb);
-        expected_frame.push_back(exploded_uint16.lsb);
-      } break;
-      // Variable length field
-      case BYTE_ARRAY_STORAGE_TYPE: {
-        uint8_t data_length
-          = attribute_store_get_node_value_size(node, node_value_state);
-
-        std::vector<uint8_t> data;
-        data.resize(data_length);
-        status = attribute_store_read_value(node,
-                                            node_value_state,
-                                            data.data(),
-                                            data_length);
-
-        expected_frame.push_back(data_length);
-        for (uint8_t i = 0; i < data_length; i++) {
-          expected_frame.push_back(data[i]);
-        }
-
-      } break;
-      case C_STRING_STORAGE_TYPE: {
-        char reported_c_str[MAX_CHAR_SIZE];
-
-        status                       = attribute_store_get_reported_string(node,
-                                                     reported_c_str,
-                                                     MAX_CHAR_SIZE);
-        std::string reported_cpp_str = reported_c_str;
-        if (reported_cpp_str.empty()) {
-          TEST_FAIL_MESSAGE("Can't get string value");
-        }
-
-        expected_frame.push_back(reported_cpp_str.length());
-        for (const char &c: reported_cpp_str) {
-          expected_frame.push_back(c);
-        }
-
-      } break;
-      default:
-        TEST_FAIL_MESSAGE(
-          "Unkown storage type in helper_test_set_get_with_args_happy_case");
-    }
-
-    std::string message
-      = "Should be able to get value of "
-        + std::string(attribute_store_type_get_node_type_name(node));
-    TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK, status, message.c_str());
-  }
-
-  for (auto &byte: extra_bytes) {
-    expected_frame.push_back(byte);
-  }
-
-  TEST_ASSERT_EQUAL_MESSAGE(expected_frame.size(),
-                            received_frame_size,
-                            "Command frame size is incorrect");
-  TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(expected_frame.data(),
-                                        received_frame,
-                                        received_frame_size,
-                                        "Command frame contents mismatch");
-}
-
-void helper_test_string_value(
-  std::map<attribute_store_type_t, std::string> attribute_map_values,
-  attribute_store_node_t parent = ATTRIBUTE_STORE_INVALID_NODE)
-{
-  if (parent == ATTRIBUTE_STORE_INVALID_NODE) {
-    parent = endpoint_id_node;
-  }
-
-  for (auto &attr: attribute_map_values) {
-    char reported_c_str[MAX_CHAR_SIZE];
-
-    auto str_node = attribute_store_get_first_child_by_type(parent, attr.first);
-    sl_status_t status = attribute_store_get_reported_string(str_node,
-                                                             reported_c_str,
-                                                             MAX_CHAR_SIZE);
-
-    std::string message
-      = "Can't get string reported value of "
-        + std::string(attribute_store_get_type_name(attr.first));
-
-    TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK, status, message.c_str());
-
-    message = "Mismatch value for attribute : "
-              + std::string(attribute_store_get_type_name(attr.first));
-    TEST_ASSERT_EQUAL_CHAR_ARRAY_MESSAGE(attr.second.c_str(),
-                                         reported_c_str,
-                                         attr.second.size() + 1,
-                                         message.c_str());
-  }
-}
 
 void helper_test_credential_learn_structure(
-  attribute_store_node_t user_id_node,
-  attribute_store_node_t credential_type_node,
-  attribute_store_node_t credential_slot_node,
+  attribute_store::attribute user_id_node,
+  attribute_store::attribute credential_type_node,
+  attribute_store::attribute credential_slot_node,
   user_credential_learn_timeout_t expected_cl_timeout,
   user_credential_operation_type_t expected_operation_type)
 {
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(user_id_node),
+  TEST_ASSERT_TRUE_MESSAGE(user_id_node.is_valid(),
                            "Credential type node should exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(credential_type_node),
+  TEST_ASSERT_TRUE_MESSAGE(credential_type_node.is_valid(),
                            "Credential type node should exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(credential_slot_node),
+  TEST_ASSERT_TRUE_MESSAGE(credential_slot_node.is_valid(),
                            "Credential type slot should exist");
 
-  uint8_t current_cl_timeout   = 0;
-  auto cred_learn_timeout_node = attribute_store_get_first_child_by_type(
-    credential_slot_node,
-    ATTRIBUTE(CREDENTIAL_LEARN_TIMEOUT));
-  attribute_store_get_reported(cred_learn_timeout_node,
-                               &current_cl_timeout,
-                               sizeof(current_cl_timeout));
+  helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_LEARN_TIMEOUT),
+                              expected_cl_timeout,
+                              credential_slot_node);
 
-  TEST_ASSERT_EQUAL_MESSAGE(expected_cl_timeout,
-                            current_cl_timeout,
-                            "Timeout value mismatch.");
-
-  user_credential_operation_type_t operation_type = 6;
-  auto operation_type_node = attribute_store_get_node_child_by_type(
-    credential_slot_node,
-    ATTRIBUTE(CREDENTIAL_LEARN_OPERATION_TYPE),
-    0);
-  attribute_store_get_desired(operation_type_node,
-                              &operation_type,
-                              sizeof(operation_type));
-
-  TEST_ASSERT_EQUAL_MESSAGE(expected_operation_type,
-                            operation_type,
-                            "Operation type should be learn add");
+  auto operation_type_node
+    = helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_LEARN_OPERATION_TYPE),
+                                  expected_operation_type,
+                                  credential_slot_node,
+                                  DESIRED_ATTRIBUTE);
 
   auto credential_type_state
     = expected_operation_type == USER_CREDENTIAL_OPERATION_TYPE_ADD
         ? DESIRED_ATTRIBUTE
         : REPORTED_ATTRIBUTE;
 
-  helper_test_set_get_with_args(
-    CREDENTIAL_LEARN_START,
-    operation_type_node,
-    {{user_id_node, REPORTED_ATTRIBUTE},
-     {credential_type_node, credential_type_state},
-     {credential_slot_node, REPORTED_ATTRIBUTE},
-     {operation_type_node, DESIRED_ATTRIBUTE},
-     {cred_learn_timeout_node, REPORTED_ATTRIBUTE}});
+  user_credential_user_unique_id_t user_id
+    = user_id_node.reported<user_credential_user_unique_id_t>();
+  user_credential_type_t credential_type
+    = credential_type_node.get<user_credential_type_t>(credential_type_state);
+  user_credential_slot_t credential_slot
+    = credential_slot_node.reported<user_credential_slot_t>();
 
-  user_credential_user_unique_id_t user_id;
-  user_credential_type_t credential_type;
-  user_credential_slot_t credential_slot;
+  zwave_frame learn_start_frame;
+  learn_start_frame.add(user_id);
+  learn_start_frame.add(credential_type);
+  learn_start_frame.add(credential_slot);
+  learn_start_frame.add(expected_operation_type);
+  learn_start_frame.add(expected_cl_timeout);
 
-  attribute_store_get_reported(user_id_node, &user_id, sizeof(user_id));
-  attribute_store_read_value(credential_type_node,
-                             credential_type_state,
-                             &credential_type,
-                             sizeof(credential_type));
-  attribute_store_get_reported(credential_slot_node,
-                               &credential_slot,
-                               sizeof(credential_slot));
+  helper_test_get_set_frame_happy_case(CREDENTIAL_LEARN_START,
+                                       operation_type_node,
+                                       learn_start_frame);
 
   uint8_t step_remaining                      = 2;
   user_credential_learn_status_t learn_status = CREDENTIAL_LEARN_REPORT_SUCCESS;
-  helper_create_learn_status_report_frame(learn_status,
-                                          user_id,
-                                          credential_type,
-                                          credential_slot,
-                                          step_remaining);
+  helper_simulate_learn_status_report_frame(learn_status,
+                                            user_id,
+                                            credential_type,
+                                            credential_slot,
+                                            step_remaining);
 
-  std::map<attribute_store_type_t, uint8_t> uint8_attribute_map = {
-    {ATTRIBUTE(CREDENTIAL_LEARN_STATUS), learn_status},
-    {ATTRIBUTE(CREDENTIAL_LEARN_STEPS_REMAINING), step_remaining},
-  };
-
-  helper_test_attribute_store_values(uint8_attribute_map, credential_slot_node);
+  helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_LEARN_STATUS),
+                              learn_status,
+                              credential_slot_node);
+  helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_LEARN_STEPS_REMAINING),
+                              step_remaining,
+                              credential_slot_node);
 };
 
 struct association_nodes_t {
-  attribute_store_node_t association_user_id_node;
-  attribute_store_node_t association_credential_slot_node;
+  attribute_store::attribute association_user_id_node;
+  attribute_store::attribute association_credential_slot_node;
 };
 association_nodes_t
-  helper_setup_association(attribute_store_node_t credential_slot_node,
+  helper_setup_association(attribute_store::attribute credential_slot_node,
                            user_credential_user_unique_id_t destination_user_id,
                            user_credential_slot_t destination_credential_slot)
 {
   association_nodes_t association_nodes;
 
-  association_nodes.association_user_id_node = attribute_store_emplace_desired(
-    credential_slot_node,
-    ATTRIBUTE(ASSOCIATION_DESTINATION_USER_ID),
-    &destination_user_id,
-    sizeof(destination_user_id));
+  association_nodes.association_user_id_node
+    = credential_slot_node.emplace_node(
+      ATTRIBUTE(ASSOCIATION_DESTINATION_USER_ID),
+      destination_user_id,
+      DESIRED_ATTRIBUTE);
+
   association_nodes.association_credential_slot_node
-    = attribute_store_emplace_desired(
-      credential_slot_node,
+    = credential_slot_node.emplace_node(
       ATTRIBUTE(ASSOCIATION_DESTINATION_CREDENTIAL_SLOT),
-      &destination_credential_slot,
-      sizeof(destination_credential_slot));
+      destination_credential_slot,
+      DESIRED_ATTRIBUTE);
 
   return association_nodes;
 }
 
-void helper_fill_credential_data(attribute_store_node_t credential_slot_node,
-                                 std::string credential_data,
-                                 user_credential_modifier_type_t modifier_type)
+void helper_fill_credential_data(
+  attribute_store::attribute credential_slot_node,
+  std::string credential_data,
+  user_credential_modifier_type_t modifier_type)
 {
-  attribute_store_emplace(credential_slot_node,
-                          ATTRIBUTE(CREDENTIAL_DATA),
-                          credential_data.data(),
-                          credential_data.size());
-
-  attribute_store_emplace(credential_slot_node,
-                          ATTRIBUTE(CREDENTIAL_MODIFIER_TYPE),
-                          &modifier_type,
-                          sizeof(modifier_type));
+  credential_slot_node.emplace_node(ATTRIBUTE(CREDENTIAL_DATA),
+                                    credential_data);
+  credential_slot_node.emplace_node(ATTRIBUTE(CREDENTIAL_MODIFIER_TYPE),
+                                    modifier_type);
 }
 
-void helper_test_credential_data(attribute_store::attribute credential_slot_node,
-                                 std::string credential_data,
-                                 user_credential_modifier_type_t modifier_type)
+void helper_test_credential_data(
+  attribute_store::attribute credential_slot_node,
+  std::string credential_data,
+  user_credential_modifier_type_t modifier_type)
 {
-  auto reported_credential_data
-    = credential_slot_node.child_by_type(ATTRIBUTE(CREDENTIAL_DATA))
-        .reported<std::vector<uint8_t>>();
+  helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_DATA),
+                              credential_data,
+                              credential_slot_node);
 
-  TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(credential_data.data(),
-                                        reported_credential_data.data(),
-                                        credential_data.size(),
-                                        "Credential data mismatch");
-
-  user_credential_modifier_type_t reported_modifier_type;
-  attribute_store_get_child_reported(credential_slot_node,
-                                     ATTRIBUTE(CREDENTIAL_MODIFIER_TYPE),
-                                     &reported_modifier_type,
-                                     sizeof(reported_modifier_type));
-  TEST_ASSERT_EQUAL_MESSAGE(modifier_type,
-                            reported_modifier_type,
-                            "Modifier type mismatch");
+  helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_MODIFIER_TYPE),
+                              modifier_type,
+                              credential_slot_node);
 }
 
-std::vector<uint8_t> helper_create_credential_report_frame(
+void helper_simulate_credential_report_frame(
   user_credential_user_unique_id_t user_id,
   user_credential_type_t credential_type,
   user_credential_slot_t credential_slot,
@@ -868,60 +424,35 @@ std::vector<uint8_t> helper_create_credential_report_frame(
   user_credential_modifier_type_t credential_modifier_type,
   user_credential_modifier_node_id_t credential_modifier_node_id,
   user_credential_type_t next_credential_type,
-  user_credential_slot_t next_credential_slot)
+  user_credential_slot_t next_credential_slot,
+  sl_status_t expected_status = SL_STATUS_OK)
 {
-  std::vector<uint8_t> report_frame
-    = {COMMAND_CLASS_USER_CREDENTIAL, CREDENTIAL_REPORT};
+  zwave_frame report_frame;
 
-  auto exploded_user_id = explode_uint16(user_id);
-  report_frame.push_back(exploded_user_id.msb);
-  report_frame.push_back(exploded_user_id.lsb);
+  report_frame.add(user_id);
+  report_frame.add(credential_type);
+  report_frame.add(credential_slot);
+  report_frame.add(static_cast<uint8_t>(crb << 7));
+  report_frame.add(credential_data);
+  report_frame.add(credential_modifier_type);
+  report_frame.add(credential_modifier_node_id);
+  report_frame.add(next_credential_type);
+  report_frame.add(next_credential_slot);
 
-  report_frame.push_back(credential_type);
-
-  auto exploded_credential_slot = explode_uint16(credential_slot);
-  report_frame.push_back(exploded_credential_slot.msb);
-  report_frame.push_back(exploded_credential_slot.lsb);
-
-  report_frame.push_back(crb << 7);
-  report_frame.push_back(credential_data.size());
-
-  for (uint8_t credential_value: credential_data) {
-    report_frame.push_back(credential_value);
-  }
-
-  report_frame.push_back(credential_modifier_type);
-  auto exploded_credential_modifier_node_id
-    = explode_uint16(credential_modifier_node_id);
-  report_frame.push_back(exploded_credential_modifier_node_id.msb);
-  report_frame.push_back(exploded_credential_modifier_node_id.lsb);
-
-  report_frame.push_back(next_credential_type);
-  auto exploded_next_credential_slot = explode_uint16(next_credential_slot);
-  report_frame.push_back(exploded_next_credential_slot.msb);
-  report_frame.push_back(exploded_next_credential_slot.lsb);
-
-  return report_frame;
+  helper_test_report_frame(CREDENTIAL_REPORT, report_frame, expected_status);
 };
 
 void helper_create_credential_checksum_structure()
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-
   // Since credential are attached to an user we simulate somes users
   std::vector<user_credential_user_unique_id_t> user_ids = {12, 15, 18};
-  std::map<user_credential_user_unique_id_t, attribute_store_node_t>
+  std::map<user_credential_user_unique_id_t, attribute_store::attribute>
     user_id_nodes = {};
 
   for (auto user_id: user_ids) {
-    user_id_nodes.insert({user_id,
-                          attribute_store_emplace(endpoint_id_node,
-                                                  ATTRIBUTE(USER_UNIQUE_ID),
-                                                  &user_id,
-                                                  sizeof(user_id))});
+    user_id_nodes.insert(
+      {user_id,
+       cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id)});
   }
 
   // Create simulated envrionment for credentials
@@ -968,102 +499,34 @@ void helper_create_credential_checksum_structure()
   for (size_t i = 0; i < credential_types.size(); i++) {
     // Simulate credential type and slot to get the credential report to work
     auto user_credential_type_node
-      = attribute_store_emplace(user_id_nodes[credential_user_ids[i]],
-                                ATTRIBUTE(CREDENTIAL_TYPE),
-                                &credential_types[i],
-                                sizeof(credential_types[i]));
-    attribute_store_emplace(user_credential_type_node,
-                            ATTRIBUTE(CREDENTIAL_SLOT),
-                            &credential_slots[i],
-                            sizeof(credential_slots[i]));
-    auto credential_frame
-      = helper_create_credential_report_frame(credential_user_ids[i],
-                                              credential_types[i],
-                                              credential_slots[i],
-                                              0,
-                                              credential_data[i],
-                                              0x02,  // Anything but 0
-                                              0,
-                                              0,
-                                              0);
+      = user_id_nodes[credential_user_ids[i]].emplace_node(
+        ATTRIBUTE(CREDENTIAL_TYPE),
+        credential_types[i]);
 
-    TEST_ASSERT_EQUAL_MESSAGE(
-      SL_STATUS_OK,
-      handler.control_handler(&info,
-                              credential_frame.data(),
-                              credential_frame.size()),
-      "Credential report should have returned SL_STATUS_OK");
+    user_credential_type_node.emplace_node(ATTRIBUTE(CREDENTIAL_SLOT),
+                                           credential_slots[i]);
+
+    helper_simulate_credential_report_frame(credential_user_ids[i],
+                                            credential_types[i],
+                                            credential_slots[i],
+                                            0,
+                                            credential_data[i],
+                                            0x02,  // Anything but 0
+                                            0,
+                                            0,
+                                            0);
   }
 }
 
 /////////////////////////////////////////////////////
 // Test case
 /////////////////////////////////////////////////////
-// Stub functions
-static sl_status_t
-  attribute_resolver_register_rule_stub(attribute_store_type_t node_type,
-                                        attribute_resolver_function_t set_func,
-                                        attribute_resolver_function_t get_func,
-                                        int cmock_num_calls)
-{
-  std::string message;
-  std::string node_name = attribute_store_get_type_name(node_type);
-
-  if (attributes_binding.find(node_type) != attributes_binding.end()) {
-    const auto func = attributes_binding[node_type];
-
-    if (func.get_func_id == 0) {
-      message
-        = "GET function should not be defined for " + node_name
-          + ". Did you forget to add it to the attributes_binding variable ?";
-      TEST_ASSERT_NULL_MESSAGE(get_func, message.c_str());
-    } else {
-      message = "SET function should be defined for " + node_name
-                + ". Did you forget to remove it to the attributes_binding "
-                  "variable ?";
-      TEST_ASSERT_NOT_NULL_MESSAGE(get_func, message.c_str());
-      resolver_functions[func.get_func_id] = get_func;
-    }
-
-    if (func.set_func_id == 0) {
-      message
-        = "SET function should not be defined for " + node_name
-          + ". Did you forget to add it to the attributes_binding variable ?";
-      TEST_ASSERT_NULL_MESSAGE(set_func, message.c_str());
-    } else {
-      message = "SET function should be defined for " + node_name
-                + ". Did you forget to remove it to the attributes_binding "
-                  "variable ?";
-      TEST_ASSERT_NOT_NULL_MESSAGE(set_func, message.c_str());
-      resolver_functions[func.set_func_id] = set_func;
-    }
-  }
-
-  return SL_STATUS_OK;
-}
-
 static void zwave_command_class_notification_register_event_callback_stub(
   attribute_store_node_t endpoint_node,
   notification_event_callback_t callback,
   int cmock_num_calls)
 {
   notification_callback = callback;
-}
-
-static sl_status_t zwave_command_handler_register_handler_stub(
-  zwave_command_handler_t new_command_class_handler, int cmock_num_calls)
-{
-  handler = new_command_class_handler;
-
-  TEST_ASSERT_EQUAL(ZWAVE_CONTROLLER_ENCAPSULATION_SECURITY_2_ACCESS,
-                    handler.minimal_scheme);
-  TEST_ASSERT_EQUAL(COMMAND_CLASS_USER_CREDENTIAL, handler.command_class);
-  TEST_ASSERT_EQUAL(1, handler.version);
-  TEST_ASSERT_NOT_NULL(handler.control_handler);
-  TEST_ASSERT_NULL(handler.support_handler);
-  TEST_ASSERT_FALSE(handler.manual_security_validation);
-
-  return SL_STATUS_OK;
 }
 
 /// Setup the test suite (called once before all test_xxx functions are called)
@@ -1087,31 +550,14 @@ void setUp()
 {
   zwave_network_management_get_node_id_IgnoreAndReturn(zpc_node_id);
   zwave_network_management_get_home_id_IgnoreAndReturn(home_id);
-  zpc_attribute_store_test_helper_create_network();
 
-  // Unset previous definition get/set functions
-  for (auto &r: resolver_functions) {
-    r.second = NULL;
-  }
+  zwave_setUp(command_class_handler,
+              &zwave_command_class_user_credential_init,
+              attributes_binding);
 
   notification_callback = NULL;
-
-  memset(received_frame, 0, sizeof(received_frame));
-  received_frame_size = 0;
-  // Unset previous definition of handler
-  memset(&handler, 0, sizeof(zwave_command_handler_t));
-
-  // Resolution functions
-  attribute_resolver_register_rule_Stub(&attribute_resolver_register_rule_stub);
-
-  // Handler registration
-  zwave_command_handler_register_handler_Stub(
-    &zwave_command_handler_register_handler_stub);
-
   zwave_command_class_notification_register_event_callback_Stub(
     &zwave_command_class_notification_register_event_callback_stub);
-  // Call init
-  TEST_ASSERT_EQUAL(SL_STATUS_OK, zwave_command_class_user_credential_init());
 }
 
 /// Called after each and every test
@@ -1122,7 +568,7 @@ void tearDown() {}
 ////////////////////////////////////////////////////////////////////////////
 void test_user_credential_user_capabilities_get_happy_case()
 {
-  helper_test_get_no_args_happy_case(USER_CAPABILITIES_GET);
+  helper_test_get_set_frame_happy_case(USER_CAPABILITIES_GET);
 }
 
 void test_user_credential_user_capabilities_report_happy_case()
@@ -1148,31 +594,23 @@ void test_user_credential_user_capabilities_report_happy_case()
                                             supported_user_types_bitmask_length,
                                             supported_user_types_bitmask);
 
-    // Define data structures
-    std::map<attribute_store_type_t, uint8_t> uint8_attribute_map = {
-      {ATTRIBUTE(SUPPORTED_CREDENTIAL_RULES), cred_rule_bitmask},
-      {ATTRIBUTE(MAX_USERNAME_LENGTH), username_max_length},
-      {ATTRIBUTE(SUPPORT_USER_SCHEDULE), support_user_schedule},
-      {ATTRIBUTE(SUPPORT_ALL_USERS_CHECKSUM), support_all_users_checksum},
-      {ATTRIBUTE(SUPPORT_USER_CHECKSUM), support_user_checksum},
-    };
-
-    std::map<attribute_store_type_t, uint16_t> uint16_attribute_map = {
-      {ATTRIBUTE(NUMBER_OF_USERS), number_of_users},
-    };
-    std::map<attribute_store_type_t, uint32_t> uint32_attribute_map = {
-      {ATTRIBUTE(SUPPORTED_USER_TYPES), supported_user_types_bitmask},
-    };
-
-    // Test values
-    helper_test_attribute_store_values(uint8_attribute_map);
-    helper_test_attribute_store_values(uint16_attribute_map);
-    helper_test_attribute_store_values(uint32_attribute_map);
+    helper_test_attribute_value(ATTRIBUTE(NUMBER_OF_USERS), number_of_users);
+    helper_test_attribute_value(ATTRIBUTE(SUPPORTED_CREDENTIAL_RULES),
+                                cred_rule_bitmask);
+    helper_test_attribute_value(ATTRIBUTE(MAX_USERNAME_LENGTH),
+                                username_max_length);
+    helper_test_attribute_value(ATTRIBUTE(SUPPORT_USER_SCHEDULE),
+                                support_user_schedule);
+    helper_test_attribute_value(ATTRIBUTE(SUPPORT_ALL_USERS_CHECKSUM),
+                                support_all_users_checksum);
+    helper_test_attribute_value(ATTRIBUTE(SUPPORT_USER_CHECKSUM),
+                                support_user_checksum);
+    helper_test_attribute_value(ATTRIBUTE(SUPPORTED_USER_TYPES),
+                                supported_user_types_bitmask);
 
     attribute_store_node_t all_user_checksum_node
-      = attribute_store_get_node_child_by_type(endpoint_id_node,
-                                               ATTRIBUTE(ALL_USERS_CHECKSUM),
-                                               0);
+      = cpp_endpoint_id_node.child_by_type(ATTRIBUTE(ALL_USERS_CHECKSUM));
+
     if (support_all_users_checksum) {
       TEST_ASSERT_NOT_EQUAL_MESSAGE(ATTRIBUTE_STORE_INVALID_NODE,
                                     all_user_checksum_node,
@@ -1219,7 +657,7 @@ void test_user_credential_user_capabilities_report_happy_case()
 ////////////////////////////////////////////////////////////////////////////
 void test_user_credential_credential_capabilities_get_happy_case()
 {
-  helper_test_get_no_args_happy_case(CREDENTIAL_CAPABILITIES_GET);
+  helper_test_get_set_frame_happy_case(CREDENTIAL_CAPABILITIES_GET);
 }
 
 void test_user_credential_credential_capabilities_report_happy_case()
@@ -1235,46 +673,44 @@ void test_user_credential_credential_capabilities_report_happy_case()
   uint16_t expected_credential_type_mask           = 0b11101;
 
   auto test_report_values = [&]() {
-    std::map<attribute_store_type_t, uint8_t> uint8_attribute_map
-      = {{ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM), credential_checksum_support}};
-    std::map<attribute_store_type_t, uint16_t> uint16_attribute_map
-      = {{DOTDOT_ATTRIBUTE_ID_USER_CREDENTIAL_SUPPORTED_CREDENTIAL_TYPES,
-          expected_credential_type_mask}};
-
-    helper_test_attribute_store_values(uint8_attribute_map, endpoint_id_node);
-    helper_test_attribute_store_values(uint16_attribute_map, endpoint_id_node);
+    helper_test_attribute_value(ATTRIBUTE(SUPPORT_CREDENTIAL_CHECKSUM),
+                                credential_checksum_support);
+    helper_test_attribute_value(
+      DOTDOT_ATTRIBUTE_ID_USER_CREDENTIAL_SUPPORTED_CREDENTIAL_TYPES,
+      expected_credential_type_mask);
 
     for (uint8_t i = 0; i < credential_type.size(); i++) {
       printf("Testing credential batch %d\n", i);
 
-      attribute_store_node_t type_node = attribute_store_get_node_child_by_type(
-        endpoint_id_node,
+      auto type_node = cpp_endpoint_id_node.child_by_type(
         ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE),
         i);
       TEST_ASSERT_NOT_EQUAL_MESSAGE(ATTRIBUTE_STORE_INVALID_NODE,
                                     type_node,
                                     "Credential type node should be defined");
-      user_credential_type_t reported_credential;
-
-      attribute_store_get_reported(type_node,
-                                   &reported_credential,
-                                   sizeof(reported_credential));
-
       TEST_ASSERT_EQUAL_MESSAGE(credential_type[i],
-                                reported_credential,
+                                type_node.reported<user_credential_type_t>(),
                                 "Incorrect credential type");
 
-      uint8_attribute_map = {
-        {ATTRIBUTE(CREDENTIAL_MIN_LENGTH), min_length[i]},
-        {ATTRIBUTE(CREDENTIAL_MAX_LENGTH), max_length[i]},
-        {ATTRIBUTE(CREDENTIAL_LEARN_SUPPORT), cl_support[i]},
-        {ATTRIBUTE(CREDENTIAL_LEARN_RECOMMENDED_TIMEOUT), cl_timeout[i]},
-        {ATTRIBUTE(CREDENTIAL_LEARN_NUMBER_OF_STEPS), cl_steps[i]},
-      };
-      uint16_attribute_map = {{ATTRIBUTE(CREDENTIAL_SUPPORTED_SLOT_COUNT),
-                               supported_credential_slots[i]}};
-      helper_test_attribute_store_values(uint8_attribute_map, type_node);
-      helper_test_attribute_store_values(uint16_attribute_map, type_node);
+      helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_MIN_LENGTH),
+                                  min_length[i],
+                                  type_node);
+      helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_MAX_LENGTH),
+                                  max_length[i],
+                                  type_node);
+      helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_LEARN_SUPPORT),
+                                  cl_support[i],
+                                  type_node);
+      helper_test_attribute_value(
+        ATTRIBUTE(CREDENTIAL_LEARN_RECOMMENDED_TIMEOUT),
+        cl_timeout[i],
+        type_node);
+      helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_LEARN_NUMBER_OF_STEPS),
+                                  cl_steps[i],
+                                  type_node);
+      helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_SUPPORTED_SLOT_COUNT),
+                                  supported_credential_slots[i],
+                                  type_node);
     }
   };
 
@@ -1318,40 +754,20 @@ void test_user_credential_credential_capabilities_report_happy_case()
 ////////////////////////////////////////////////////////////////////////////
 void test_user_credential_all_users_checksum_get_happy_case()
 {
-  helper_test_get_no_args_happy_case(ALL_USERS_CHECKSUM_GET);
+  helper_test_get_set_frame_happy_case(ALL_USERS_CHECKSUM_GET);
 }
 
 void test_user_credential_all_users_checksum_report_happy_case()
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-
-  auto create_report_frame
-    = [&](user_credential_all_users_checksum_t checksum) {
-        std::vector<uint8_t> report_frame
-          = {COMMAND_CLASS_USER_CREDENTIAL, ALL_USERS_CHECKSUM_REPORT};
-
-        auto exploded_checksum = explode_uint16(checksum);
-
-        report_frame.push_back(exploded_checksum.msb);
-        report_frame.push_back(exploded_checksum.lsb);
-
-        return report_frame;
-      };
-
   user_credential_all_users_checksum_t expected_checksum = 0xABCD;
 
-  auto report_frame = create_report_frame(expected_checksum);
+  // Report frame
+  zwave_frame report_frame;
+  report_frame.add(expected_checksum);
+  helper_test_report_frame(ALL_USERS_CHECKSUM_REPORT, report_frame);
 
-  TEST_ASSERT_EQUAL(
-    SL_STATUS_OK,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()));
-
-  std::map<attribute_store_type_t, uint16_t> uint16_attribute_map
-    = {{ATTRIBUTE(ALL_USERS_CHECKSUM), expected_checksum}};
-  helper_test_attribute_store_values(uint16_attribute_map);
+  // Attribute store test
+  helper_test_attribute_value(ATTRIBUTE(ALL_USERS_CHECKSUM), expected_checksum);
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -1368,124 +784,100 @@ void test_user_credential_user_set_add_or_modify_happy_case()
   user_credential_user_name_encoding_t user_name_encoding     = 0;
   std::string user_name                                       = "DoUzE";
 
-  auto user_id_node = attribute_store_emplace(endpoint_id_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID),
-                                              &user_id,
-                                              sizeof(user_id));
+  // Create structure
+  auto user_id_node
+    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   auto operation_type_node
-    = attribute_store_emplace_desired(user_id_node,
-                                      ATTRIBUTE(USER_OPERATION_TYPE),
-                                      &operation_type,
-                                      sizeof(operation_type));
-  auto user_type_node = attribute_store_emplace_desired(user_id_node,
-                                                        ATTRIBUTE(USER_TYPE),
-                                                        &user_type,
-                                                        sizeof(user_type));
-  auto user_active_state_node
-    = attribute_store_emplace(user_id_node,
-                              ATTRIBUTE(USER_ACTIVE_STATE),
-                              &user_active_state,
-                              sizeof(user_active_state));
-  auto credential_rule_node
-    = attribute_store_emplace_desired(user_id_node,
-                                      ATTRIBUTE(CREDENTIAL_RULE),
-                                      &credential_rule,
-                                      sizeof(credential_rule));
-  auto expiring_timeout_node
-    = attribute_store_emplace(user_id_node,
-                              ATTRIBUTE(USER_EXPIRING_TIMEOUT_MINUTES),
-                              &expiring_timeout,
-                              sizeof(expiring_timeout));
-  auto user_name_encoding_node
-    = attribute_store_emplace_desired(user_id_node,
-                                      ATTRIBUTE(USER_NAME_ENCODING),
-                                      &user_name_encoding,
-                                      sizeof(user_name_encoding));
-  auto user_name_node
-    = attribute_store_add_node(ATTRIBUTE(USER_NAME), user_id_node);
+    = user_id_node.emplace_node(ATTRIBUTE(USER_OPERATION_TYPE),
+                                operation_type,
+                                DESIRED_ATTRIBUTE);
+  user_id_node.emplace_node(ATTRIBUTE(USER_TYPE), user_type, DESIRED_ATTRIBUTE);
+  user_id_node.emplace_node(ATTRIBUTE(USER_ACTIVE_STATE), user_active_state);
+  user_id_node.emplace_node(ATTRIBUTE(CREDENTIAL_RULE),
+                            credential_rule,
+                            DESIRED_ATTRIBUTE);
+  user_id_node.emplace_node(ATTRIBUTE(USER_EXPIRING_TIMEOUT_MINUTES),
+                            expiring_timeout);
+  user_id_node.emplace_node(ATTRIBUTE(USER_NAME_ENCODING),
+                            user_name_encoding,
+                            DESIRED_ATTRIBUTE);
+  user_id_node.emplace_node(ATTRIBUTE(USER_NAME), user_name);
 
-  sl_status_t status
-    = attribute_store_set_reported_string(user_name_node, user_name.c_str());
-  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK, status, "Can't set username");
+  auto create_and_send_set_frame = [&]() {
+    zwave_frame set_frame;
+    set_frame.add(operation_type);
+    set_frame.add(user_id);
+    set_frame.add(user_type);
+    set_frame.add(user_active_state);
+    set_frame.add(credential_rule);
+    set_frame.add(expiring_timeout);
+    set_frame.add(user_name_encoding);
+    set_frame.add(user_name);
 
-  printf("Send with USER_SET_OPERATION_TYPE_MODIFY\n");
-  helper_test_set_get_with_args(USER_SET,
-                                operation_type_node,
-                                {{operation_type_node, DESIRED_ATTRIBUTE},
-                                 {user_id_node, REPORTED_ATTRIBUTE},
-                                 {user_type_node, DESIRED_ATTRIBUTE},
-                                 {user_active_state_node, REPORTED_ATTRIBUTE},
-                                 {credential_rule_node, DESIRED_ATTRIBUTE},
-                                 {expiring_timeout_node, REPORTED_ATTRIBUTE},
-                                 {user_name_encoding_node, DESIRED_ATTRIBUTE},
-                                 {user_name_node, REPORTED_ATTRIBUTE}});
+    helper_test_get_set_frame_happy_case(USER_SET,
+                                         operation_type_node,
+                                         set_frame);
+  };
+
+  // Test user set
+  printf("Send with USER_SET_OPERATION_TYPE_ADD\n");
+  create_and_send_set_frame();
 
   printf("Send with USER_SET_OPERATION_TYPE_MODIFY\n");
-
-  operation_type = USER_SET_OPERATION_TYPE_ADD;
-  attribute_store_set_desired(operation_type_node,
-                              &operation_type,
-                              sizeof(operation_type));
-  helper_test_set_get_with_args(USER_SET,
-                                operation_type_node,
-                                {{operation_type_node, DESIRED_ATTRIBUTE},
-                                 {user_id_node, REPORTED_ATTRIBUTE},
-                                 {user_type_node, DESIRED_ATTRIBUTE},
-                                 {user_active_state_node, REPORTED_ATTRIBUTE},
-                                 {credential_rule_node, DESIRED_ATTRIBUTE},
-                                 {expiring_timeout_node, REPORTED_ATTRIBUTE},
-                                 {user_name_encoding_node, DESIRED_ATTRIBUTE},
-                                 {user_name_node, REPORTED_ATTRIBUTE}});
+  operation_type = USER_SET_OPERATION_TYPE_MODIFY;
+  operation_type_node.set_desired(operation_type);
+  create_and_send_set_frame();
 }
 
-void test_user_credential_user_delete_remove_happy_case()
+void test_user_credential_user_delete_happy_case()
 {
   user_credential_user_unique_id_t user_id = 12121;
   user_credential_operation_type_t operation_type
     = USER_SET_OPERATION_TYPE_DELETE;
 
-  auto user_id_node = attribute_store_emplace(endpoint_id_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID),
-                                              &user_id,
-                                              sizeof(user_id));
+  auto user_id_node
+    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   auto operation_type_node
-    = attribute_store_emplace_desired(user_id_node,
-                                      ATTRIBUTE(USER_OPERATION_TYPE),
-                                      &operation_type,
-                                      sizeof(operation_type));
+    = user_id_node.emplace_node(ATTRIBUTE(USER_OPERATION_TYPE),
+                                operation_type,
+                                DESIRED_ATTRIBUTE);
 
-  helper_test_set_get_with_args(USER_SET,
-                                operation_type_node,
-                                {{operation_type_node, DESIRED_ATTRIBUTE},
-                                 {user_id_node, REPORTED_ATTRIBUTE}});
+  zwave_frame set_frame;
+  set_frame.add(operation_type);
+  set_frame.add(user_id);
+
+  helper_test_get_set_frame_happy_case(USER_SET,
+                                       operation_type_node,
+                                       set_frame);
 }
 
 void test_user_credential_user_set_invalid_node()
 {
-  helper_test_set_get_with_args(USER_SET, ATTRIBUTE_STORE_INVALID_NODE);
+  helper_test_get_set_fail_case(USER_GET, SL_STATUS_NOT_SUPPORTED);
 }
 
 void test_user_credential_user_get_happy_case()
 {
   user_credential_user_unique_id_t user_id = 12;
-  auto user_node = attribute_store_emplace_desired(endpoint_id_node,
-                                                   ATTRIBUTE(USER_UNIQUE_ID),
-                                                   &user_id,
-                                                   sizeof(user_id));
+  auto user_id_node
+    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID),
+                                        user_id,
+                                        DESIRED_ATTRIBUTE);
 
-  helper_test_set_get_with_args(USER_GET,
-                                user_node,
-                                {{user_node, DESIRED_ATTRIBUTE}});
+  zwave_frame get_frame;
+  get_frame.add(user_id);
+
+  helper_test_get_set_frame_happy_case(USER_GET, user_id_node, get_frame);
 }
 
 void test_user_credential_user_get_not_found()
 {
-  helper_test_set_get_with_args(USER_GET, ATTRIBUTE_STORE_INVALID_NODE);
+  helper_test_get_set_fail_case(USER_GET, SL_STATUS_NOT_SUPPORTED);
 }
 
-std::vector<uint8_t> helper_create_user_report_frame(
+void helper_simulate_user_report_frame(
   uint8_t user_report_type,
   user_credential_user_unique_id_t next_user_id,
   user_credential_modifier_type_t user_modifier_type,
@@ -1496,74 +888,25 @@ std::vector<uint8_t> helper_create_user_report_frame(
   user_credential_supported_credential_rules_t credential_rule,
   user_credential_expiring_timeout_minutes_t expiring_timeout_minutes,
   user_credential_user_name_encoding_t user_name_encoding,
-  std::string user_name)
+  const std::string &user_name,
+  sl_status_t expected_status = SL_STATUS_OK)
 {
-  std::vector<uint8_t> report_frame
-    = {COMMAND_CLASS_USER_CREDENTIAL, USER_REPORT};
+  zwave_frame report_frame;
+  report_frame.add(user_report_type);
+  report_frame.add(next_user_id);
+  report_frame.add(user_modifier_type);
+  report_frame.add(user_modifier_node_id);
+  report_frame.add(user_id);
+  report_frame.add(user_type);
+  report_frame.add(user_active_state);
+  report_frame.add(credential_rule);
+  report_frame.add(expiring_timeout_minutes);
+  report_frame.add(user_name_encoding);
+  report_frame.add(user_name);
 
-  report_frame.push_back(user_report_type);
-
-  auto exploded_next_user_id = explode_uint16(next_user_id);
-  report_frame.push_back(exploded_next_user_id.msb);
-  report_frame.push_back(exploded_next_user_id.lsb);
-
-  report_frame.push_back(user_modifier_type);
-
-  auto exploded_user_modifier_node_id = explode_uint16(user_modifier_node_id);
-  report_frame.push_back(exploded_user_modifier_node_id.msb);
-  report_frame.push_back(exploded_user_modifier_node_id.lsb);
-
-  auto exploded_user_id = explode_uint16(user_id);
-  report_frame.push_back(exploded_user_id.msb);
-  report_frame.push_back(exploded_user_id.lsb);
-
-  report_frame.push_back(user_type);
-  report_frame.push_back(user_active_state);
-  report_frame.push_back(credential_rule);
-
-  auto exploded_time = explode_uint16(expiring_timeout_minutes);
-  report_frame.push_back(exploded_time.msb);
-  report_frame.push_back(exploded_time.lsb);
-
-  report_frame.push_back(user_name_encoding);
-  report_frame.push_back(user_name.size());
-  for (char c: user_name) {
-    report_frame.push_back(c);
-  }
-  return report_frame;
-};
-
-std::vector<uint8_t> helper_create_user_notification_report(
-  user_credential_modifier_type_t user_modifier_type,
-  user_credential_modifier_node_id_t user_modifier_node_id,
-  user_credential_user_unique_id_t user_id,
-  user_credential_user_type_t user_type,
-  user_credential_user_active_state_t user_active_state,
-  user_credential_supported_credential_rules_t credential_rule,
-  user_credential_expiring_timeout_minutes_t expiring_timeout_minutes)
-{
-  std::vector<uint8_t> report_frame;
-
-  report_frame.push_back(user_modifier_type);
-
-  auto exploded_user_modifier_node_id = explode_uint16(user_modifier_node_id);
-  report_frame.push_back(exploded_user_modifier_node_id.msb);
-  report_frame.push_back(exploded_user_modifier_node_id.lsb);
-
-  auto exploded_user_id = explode_uint16(user_id);
-  report_frame.push_back(exploded_user_id.msb);
-  report_frame.push_back(exploded_user_id.lsb);
-
-  report_frame.push_back(user_type);
-  report_frame.push_back(user_active_state);
-  report_frame.push_back(credential_rule);
-
-  auto exploded_time = explode_uint16(expiring_timeout_minutes);
-  report_frame.push_back(exploded_time.msb);
-  report_frame.push_back(exploded_time.lsb);
-
-  return report_frame;
-};
+  // Use helper function to get the report frame
+  helper_test_report_frame(USER_REPORT, report_frame, expected_status);
+}
 
 // FIXME: Will be changed
 // https://github.com/Z-Wave-Alliance/AWG/issues/168
@@ -1576,44 +919,21 @@ std::vector<uint8_t> helper_create_credential_notification_report(
   user_credential_modifier_type_t modifier_type,
   user_credential_modifier_node_id_t modifier_node_id)
 {
-  std::vector<uint8_t> report_frame;
+  zwave_frame report_frame;
 
-  auto exploded_user_id = explode_uint16(user_id);
-  report_frame.push_back(exploded_user_id.msb);
-  report_frame.push_back(exploded_user_id.lsb);
-
-  report_frame.push_back(credential_type);
-
-  auto exploded_credential_slot = explode_uint16(credential_slot);
-  report_frame.push_back(exploded_credential_slot.msb);
-  report_frame.push_back(exploded_credential_slot.lsb);
-
-  report_frame.push_back(crb ? 1 : 0);
-  report_frame.push_back(credential_data.size());
-
-  for (auto &c: credential_data) {
-    report_frame.push_back(c);
-  }
-
-  report_frame.push_back(modifier_type);
-
-  auto exploded_modifier_node_id = explode_uint16(modifier_node_id);
-  report_frame.push_back(exploded_modifier_node_id.msb);
-  report_frame.push_back(exploded_modifier_node_id.lsb);
+  report_frame.add(user_id);
+  report_frame.add(credential_type);
+  report_frame.add(credential_slot);
+  report_frame.add(static_cast<uint8_t>(crb ? 1 : 0));
+  report_frame.add(credential_data);
+  report_frame.add(modifier_type);
+  report_frame.add(modifier_node_id);
 
   return report_frame;
 };
 
 void test_user_credential_user_report_happy_case()
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-
-  auto user_get = resolver_functions[USER_GET];
-  TEST_ASSERT_NOT_NULL_MESSAGE(user_get, "User get function should be defined");
-
   constexpr user_credential_user_unique_id_t EXPECTED_FIRST_USER_ID  = 12;
   constexpr user_credential_user_unique_id_t EXPECTED_SECOND_USER_ID = 1212;
 
@@ -1628,53 +948,42 @@ void test_user_credential_user_report_happy_case()
   user_credential_user_name_encoding_t user_name_encoding             = 0;
   std::string user_name                                               = "DoUzE";
 
-  auto test_user_values = [&](attribute_store_node_t user_node) {
-    // Check main node value
-    user_credential_user_unique_id_t reported_id;
-    attribute_store_get_reported(user_node, &reported_id, sizeof(reported_id));
-    TEST_ASSERT_EQUAL_MESSAGE(user_id,
-                              reported_id,
-                              "User Unique ID is incorrect");
-    // Then test values underneath
-    std::map<attribute_store_type_t, uint8_t> uint8_attribute_map
-      = {{ATTRIBUTE(USER_MODIFIER_TYPE), user_modifier_type},
-         {ATTRIBUTE(USER_TYPE), user_type},
-         {ATTRIBUTE(USER_ACTIVE_STATE), user_active_state},
-         {ATTRIBUTE(CREDENTIAL_RULE), credential_rule}};
-    helper_test_attribute_store_values(uint8_attribute_map, user_node);
+  auto test_user_values = [&](const attribute_store::attribute &user_node) {
+    TEST_ASSERT_EQUAL_MESSAGE(
+      user_id,
+      user_node.reported<user_credential_user_unique_id_t>(),
+      "User Unique ID is incorrect");
 
-    std::map<attribute_store_type_t, uint16_t> uint16_attribute_map
-      = {{ATTRIBUTE(USER_MODIFIER_NODE_ID), user_modifier_node_id},
-         {ATTRIBUTE(USER_EXPIRING_TIMEOUT_MINUTES), expiring_timeout_minutes}};
-    helper_test_attribute_store_values(uint16_attribute_map, user_node);
-
-    helper_test_string_value({{ATTRIBUTE(USER_NAME), user_name}}, user_node);
+    helper_test_attribute_value(ATTRIBUTE(USER_MODIFIER_TYPE),
+                                user_modifier_type,
+                                user_node);
+    helper_test_attribute_value(ATTRIBUTE(USER_TYPE), user_type, user_node);
+    helper_test_attribute_value(ATTRIBUTE(USER_ACTIVE_STATE),
+                                user_active_state,
+                                user_node);
+    helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_RULE),
+                                credential_rule,
+                                user_node);
+    helper_test_attribute_value(ATTRIBUTE(USER_EXPIRING_TIMEOUT_MINUTES),
+                                expiring_timeout_minutes,
+                                user_node);
+    helper_test_attribute_value(ATTRIBUTE(USER_NAME_ENCODING),
+                                user_name_encoding,
+                                user_node);
+    helper_test_attribute_value(ATTRIBUTE(USER_NAME), user_name, user_node);
+    helper_test_attribute_value(ATTRIBUTE(USER_MODIFIER_NODE_ID),
+                                user_modifier_node_id,
+                                user_node);
 
     // Check user credential desired values
-    user_credential_type_t credential_type = 1;
-    user_credential_slot_t credential_slot = 12;
     auto credential_type_node
-      = attribute_store_get_node_child_by_type(user_node,
-                                               ATTRIBUTE(CREDENTIAL_TYPE),
-                                               0);
-    attribute_store_get_reported(credential_type_node,
-                                 &credential_type,
-                                 sizeof(credential_type));
-    TEST_ASSERT_NOT_EQUAL_MESSAGE(ATTRIBUTE_STORE_INVALID_NODE,
-                                  credential_type_node,
-                                  "credential_type_node should exist");
+      = helper_test_and_get_node(ATTRIBUTE(CREDENTIAL_TYPE), user_node);
 
-    auto credential_slot_node
-      = attribute_store_get_node_child_by_type(credential_type_node,
-                                               ATTRIBUTE(CREDENTIAL_SLOT),
-                                               0);
-    attribute_store_get_desired(credential_slot_node,
-                                &credential_slot,
-                                sizeof(credential_slot));
-
-    TEST_ASSERT_NOT_EQUAL_MESSAGE(ATTRIBUTE_STORE_INVALID_NODE,
-                                  credential_slot_node,
-                                  "credential_slot_node should exist");
+    auto credential_type
+      = credential_type_node.reported<user_credential_type_t>();
+    auto credential_slot = helper_test_and_get_node(ATTRIBUTE(CREDENTIAL_SLOT),
+                                                    credential_type_node)
+                             .desired<user_credential_slot_t>();
 
     TEST_ASSERT_EQUAL_MESSAGE(
       0,
@@ -1686,53 +995,39 @@ void test_user_credential_user_report_happy_case()
       "Credential Slot should be at 0 and should exists");
   };  // end test_user_values lambda
 
-  // Todo : update this value with define from zw_cmdclass.h when updated
-  auto report_frame = helper_create_user_report_frame(0x04,
-                                                      next_user_id,
-                                                      user_modifier_type,
-                                                      user_modifier_node_id,
-                                                      user_id,
-                                                      user_type,
-                                                      user_active_state,
-                                                      credential_rule,
-                                                      expiring_timeout_minutes,
-                                                      user_name_encoding,
-                                                      user_name);
-
   printf("First user creation\n");
 
   // Create first user
   auto first_user_id_node
-    = attribute_store_add_node(ATTRIBUTE(USER_UNIQUE_ID), endpoint_id_node);
-  // First user should have ID 0 and then set in the report
-  user_credential_user_unique_id_t first_id = 0;
-  attribute_store_set_desired(first_user_id_node, &first_id, sizeof(first_id));
+    = cpp_endpoint_id_node.add_node(ATTRIBUTE(USER_UNIQUE_ID));
+  first_user_id_node.set_desired<user_credential_user_unique_id_t>(0);
 
-  // Simulate get on that user
-  sl_status_t user_get_status
-    = user_get(first_user_id_node, received_frame, &received_frame_size);
-
-  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
-                            user_get_status,
-                            "User get should have returned SL_STATUS_OK");
+  zwave_frame get_frame;
+  get_frame.add(static_cast<user_credential_user_unique_id_t>(0));
+  helper_test_get_set_frame_happy_case(USER_GET, first_user_id_node, get_frame);
 
   // Call report
-  TEST_ASSERT_EQUAL_MESSAGE(
-    SL_STATUS_OK,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()),
-    "User Report should have returned SL_STATUS_OK");
+  helper_simulate_user_report_frame(0x04,
+                                    next_user_id,
+                                    user_modifier_type,
+                                    user_modifier_node_id,
+                                    user_id,
+                                    user_type,
+                                    user_active_state,
+                                    credential_rule,
+                                    expiring_timeout_minutes,
+                                    user_name_encoding,
+                                    user_name);
+
   // Test values
-  // For the first 
+  // For the first
   first_user_id_node
-    = attribute_store_get_node_child_by_type(endpoint_id_node,
-                                             ATTRIBUTE(USER_UNIQUE_ID),
-                                             1);
+    = cpp_endpoint_id_node.child_by_type(ATTRIBUTE(USER_UNIQUE_ID), 1);
   test_user_values(first_user_id_node);
 
   // Test structure
   auto user_id_count
-    = attribute_store_get_node_child_count_by_type(endpoint_id_node,
-                                                   ATTRIBUTE(USER_UNIQUE_ID));
+    = cpp_endpoint_id_node.children(ATTRIBUTE(USER_UNIQUE_ID)).size();
   TEST_ASSERT_EQUAL_MESSAGE(
     3,
     user_id_count,
@@ -1740,30 +1035,22 @@ void test_user_credential_user_report_happy_case()
     "reported one and the new desired one");
 
   auto second_user_id_node
-    = attribute_store_get_node_child_by_type(endpoint_id_node,
-                                             ATTRIBUTE(USER_UNIQUE_ID),
-                                             2);
+    = cpp_endpoint_id_node.child_by_type(ATTRIBUTE(USER_UNIQUE_ID), 2);
 
   printf("Second and last user creation\n");
 
-  // Check second & not defined user id
-  user_credential_user_unique_id_t second_user_id;
-  attribute_store_get_desired(second_user_id_node,
-                              &second_user_id,
-                              sizeof(second_user_id));
   TEST_ASSERT_EQUAL_MESSAGE(
     next_user_id,
-    second_user_id,
+    second_user_id_node.desired<user_credential_user_unique_id_t>(),
     "Second user id should have it's desired value defined");
 
   // Simulate a GET on that user
   // Removes the desired state and sets to reported instead
-  user_get_status
-    = user_get(second_user_id_node, received_frame, &received_frame_size);
-
-  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
-                            user_get_status,
-                            "User get should have returned SL_STATUS_OK");
+  get_frame.clear();
+  get_frame.add(next_user_id);
+  helper_test_get_set_frame_happy_case(USER_GET,
+                                       second_user_id_node,
+                                       get_frame);
 
   // Second and last user
   next_user_id          = 0;
@@ -1776,68 +1063,49 @@ void test_user_credential_user_report_happy_case()
   user_name_encoding    = 1;
   user_name             = "NoDoUzE4YoU";
 
-  report_frame = helper_create_user_report_frame(0x04,
-                                                 next_user_id,
-                                                 user_modifier_type,
-                                                 user_modifier_node_id,
-                                                 user_id,
-                                                 user_type,
-                                                 user_active_state,
-                                                 credential_rule,
-                                                 expiring_timeout_minutes,
-                                                 user_name_encoding,
-                                                 user_name);
-  TEST_ASSERT_EQUAL_MESSAGE(
-    SL_STATUS_OK,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()),
-    "Second User Report should have returned SL_STATUS_OK");
+  helper_simulate_user_report_frame(0x04,
+                                    next_user_id,
+                                    user_modifier_type,
+                                    user_modifier_node_id,
+                                    user_id,
+                                    user_type,
+                                    user_active_state,
+                                    credential_rule,
+                                    expiring_timeout_minutes,
+                                    user_name_encoding,
+                                    user_name);
   // Test values
   test_user_values(second_user_id_node);
 
   // Test structure
   // The report function should not have created an other user unique id node (next_user_id = 0)
   user_id_count
-    = attribute_store_get_node_child_count_by_type(endpoint_id_node,
-                                                   ATTRIBUTE(USER_UNIQUE_ID));
-  TEST_ASSERT_EQUAL_MESSAGE(3,
-                            user_id_count,
-                            "User node count mismatch. Should only 2 users + 1 with id 0 created.");
+    = cpp_endpoint_id_node.children(ATTRIBUTE(USER_UNIQUE_ID)).size();
 
-  user_credential_user_unique_id_t reported_id;
-  attribute_store_get_reported(first_user_id_node,
-                               &reported_id,
-                               sizeof(reported_id));
-  TEST_ASSERT_EQUAL_MESSAGE(EXPECTED_FIRST_USER_ID,
-                            reported_id,
-                            "First user id mismatch");
-  attribute_store_get_reported(second_user_id_node,
-                               &reported_id,
-                               sizeof(reported_id));
-  TEST_ASSERT_EQUAL_MESSAGE(EXPECTED_SECOND_USER_ID,
-                            reported_id,
-                            "Second user id mismatch");
+  TEST_ASSERT_EQUAL_MESSAGE(
+    3,
+    user_id_count,
+    "User node count mismatch. Should only 2 users + 1 with id 0 created.");
+
+  TEST_ASSERT_EQUAL_MESSAGE(
+    EXPECTED_FIRST_USER_ID,
+    first_user_id_node.reported<user_credential_user_unique_id_t>(),
+    "First user id mismatch");
+  TEST_ASSERT_EQUAL_MESSAGE(
+    EXPECTED_SECOND_USER_ID,
+    second_user_id_node.reported<user_credential_user_unique_id_t>(),
+    "Second user id mismatch");
 }
-
 
 void test_user_credential_user_report_user_with_id0()
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-  auto report_frame
-    = helper_create_user_report_frame(0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, "DOUZE");
-
-  // Not found since we haven't created any user_unique_id
-  TEST_ASSERT_EQUAL_MESSAGE(
-    SL_STATUS_OK,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()),
-    "User Report should have returned SL_STATUS_OK and ignore the frame");
+  // User Report should have returned SL_STATUS_OK and ignore the frame
+  helper_simulate_user_report_frame(0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, "DOUZE");
 
   // Check that no user_unique_id node has been created (and the invalid node was deleted)
   auto user_id_count
-    = attribute_store_get_node_child_count_by_type(endpoint_id_node,
-                                                   ATTRIBUTE(USER_UNIQUE_ID));
+    = cpp_endpoint_id_node.children(ATTRIBUTE(USER_UNIQUE_ID)).size();
+
   TEST_ASSERT_EQUAL_MESSAGE(0,
                             user_id_count,
                             "No user_unique_id node should be created");
@@ -1845,337 +1113,203 @@ void test_user_credential_user_report_user_with_id0()
 
 void test_user_credential_user_report_user_deleted()
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-
   // Create user id with reported ID of 0 to simulate user get of id 0
   user_credential_user_unique_id_t user_id = 12;
-  auto user_id_node = attribute_store_emplace_desired(endpoint_id_node,
-                                                      ATTRIBUTE(USER_UNIQUE_ID),
-                                                      &user_id,
-                                                      sizeof(user_id));
-
-  TEST_ASSERT_NOT_EQUAL_MESSAGE(ATTRIBUTE_STORE_INVALID_NODE,
-                                user_id_node,
-                                "User ID node should be created");
+  cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID),
+                                    user_id,
+                                    DESIRED_ATTRIBUTE);
 
   auto user_id_count
-    = attribute_store_get_node_child_count_by_type(endpoint_id_node,
-                                                   ATTRIBUTE(USER_UNIQUE_ID));
+    = cpp_endpoint_id_node.children(ATTRIBUTE(USER_UNIQUE_ID)).size();
   TEST_ASSERT_EQUAL_MESSAGE(1, user_id_count, "Should have one user by now");
 
-  auto report_frame = helper_create_user_report_frame(0x04,
-                                                      user_id,
-                                                      USER_REPORT_DNE,
-                                                      0,
-                                                      0,
-                                                      0,
-                                                      0,
-                                                      0,
-                                                      0,
-                                                      0,
-                                                      "????");
-
   // Should delete this user
-  TEST_ASSERT_EQUAL_MESSAGE(
-    SL_STATUS_OK,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()),
-    "User Report should have returned SL_STATUS_NOT_SUPPORTED");
+  helper_simulate_user_report_frame(0x04,
+                                    user_id,
+                                    USER_REPORT_DNE,
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    "????");
 
   user_id_count
-    = attribute_store_get_node_child_count_by_type(endpoint_id_node,
-                                                   ATTRIBUTE(USER_UNIQUE_ID));
+    = cpp_endpoint_id_node.children(ATTRIBUTE(USER_UNIQUE_ID)).size();
   TEST_ASSERT_EQUAL_MESSAGE(1,
                             user_id_count,
                             "Should not have any user by now");
-}
-
-
-void test_user_credential_user_added_happy_case() {
-
 }
 
 ////////////////////////////////////////////////////////////////////////////
 // Credential Set/Get/Report
 ////////////////////////////////////////////////////////////////////////////
 
-//>> Set
-void test_user_credential_credential_set_1byte_happy_case()
+void helper_test_credential_set(
+  user_credential_operation_type_t operation_type,
+  std::vector<uint8_t> credential_data,
+  attribute_store_node_value_state_t credential_data_state)
 {
-  user_credential_type_t credential_type = 2;
-  user_credential_slot_t credential_slot = 1212;
-  user_credential_operation_type_t operation_type
-    = USER_CREDENTIAL_OPERATION_TYPE_ADD;
-  std::vector<uint8_t> credential_data = {12};
+  user_credential_user_unique_id_t user_id = 12;
+  user_credential_type_t credential_type   = 2;
+  user_credential_slot_t credential_slot   = 1212;
 
   // Create the node with reported attribute
-  auto nodes                = helper_create_credential_structure(12,
+  auto nodes                = helper_create_credential_structure(user_id,
                                                   credential_type,
                                                   credential_slot,
                                                   REPORTED_ATTRIBUTE);
-  auto user_node            = nodes.user_id_node;
-  auto credential_type_node = nodes.credential_type_node;
   auto credential_slot_node = nodes.credential_slot_node;
 
   // Operation type
   auto operation_type_node
-    = attribute_store_emplace_desired(credential_slot_node,
-                                      ATTRIBUTE(CREDENTIAL_OPERATION_TYPE),
-                                      &operation_type,
-                                      sizeof(operation_type));
+    = credential_slot_node.emplace_node(ATTRIBUTE(CREDENTIAL_OPERATION_TYPE),
+                                        operation_type,
+                                        DESIRED_ATTRIBUTE);
   // CREDENTIAL_DATA
-  auto credential_data_node
-    = attribute_store_emplace_desired(credential_slot_node,
-                                      ATTRIBUTE(CREDENTIAL_DATA),
-                                      credential_data.data(),
-                                      credential_data.size());
+  credential_slot_node.emplace_node(ATTRIBUTE(CREDENTIAL_DATA),
+                                    credential_data,
+                                    credential_data_state);
 
-  helper_test_set_get_with_args(CREDENTIAL_SET,
-                                operation_type_node,
-                                {
-                                  {user_node, REPORTED_ATTRIBUTE},
-                                  {credential_type_node, REPORTED_ATTRIBUTE},
-                                  {credential_slot_node, REPORTED_ATTRIBUTE},
-                                  {operation_type_node, DESIRED_ATTRIBUTE},
-                                  {credential_data_node, DESIRED_ATTRIBUTE},
-                                });
+  zwave_frame set_frame;
+  set_frame.add(user_id);
+  set_frame.add(credential_type);
+  set_frame.add(credential_slot);
+  set_frame.add(operation_type);
+  if (credential_data.size() > 0) {
+    set_frame.add(credential_data);
+  } else {
+    set_frame.add(static_cast<uint8_t>(0x00));
+  }
+
+  helper_test_get_set_frame_happy_case(CREDENTIAL_SET,
+                                       operation_type_node,
+                                       set_frame);
+}
+
+//>> Set
+void test_user_credential_credential_set_1byte_happy_case()
+{
+  helper_test_credential_set(USER_CREDENTIAL_OPERATION_TYPE_ADD,
+                             {12},
+                             REPORTED_ATTRIBUTE);
 }
 
 void test_user_credential_credential_set_12byte_happy_case()
 {
-  user_credential_type_t credential_type = 2;
-  user_credential_slot_t credential_slot = 1212;
-  user_credential_operation_type_t operation_type
-    = USER_CREDENTIAL_OPERATION_TYPE_MODIFY;
-  std::vector<uint8_t> credential_data
-    = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
-
-  // Create the node with reported attribute
-  auto nodes                = helper_create_credential_structure(12,
-                                                  credential_type,
-                                                  credential_slot,
-                                                  REPORTED_ATTRIBUTE);
-  auto user_node            = nodes.user_id_node;
-  auto credential_type_node = nodes.credential_type_node;
-  auto credential_slot_node = nodes.credential_slot_node;
-
-  // Operation type
-  auto operation_type_node
-    = attribute_store_emplace_desired(credential_slot_node,
-                                      ATTRIBUTE(CREDENTIAL_OPERATION_TYPE),
-                                      &operation_type,
-                                      sizeof(operation_type));
-  // CREDENTIAL_DATA
-  auto credential_data_node
-    = attribute_store_emplace(credential_slot_node,
-                              ATTRIBUTE(CREDENTIAL_DATA),
-                              credential_data.data(),
-                              credential_data.size());
-
-  helper_test_set_get_with_args(CREDENTIAL_SET,
-                                operation_type_node,
-                                {
-                                  {user_node, REPORTED_ATTRIBUTE},
-                                  {credential_type_node, REPORTED_ATTRIBUTE},
-                                  {credential_slot_node, REPORTED_ATTRIBUTE},
-                                  {operation_type_node, DESIRED_ATTRIBUTE},
-                                  {credential_data_node, REPORTED_ATTRIBUTE},
-                                });
+  helper_test_credential_set(USER_CREDENTIAL_OPERATION_TYPE_ADD,
+                             {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
+                             DESIRED_ATTRIBUTE);
 }
 
 void test_user_credential_credential_set_invalid_node()
 {
-  helper_test_set_get_with_args(CREDENTIAL_SET, ATTRIBUTE_STORE_INVALID_NODE);
+  helper_test_get_set_fail_case(CREDENTIAL_SET);
 }
 
 void test_user_credential_credential_set_delete_happy_case()
 {
-  user_credential_type_t credential_type = 2;
-  user_credential_slot_t credential_slot = 1212;
-  user_credential_operation_type_t operation_type
-    = USER_CREDENTIAL_OPERATION_TYPE_DELETE;
-
-  // Create the node with reported attribute
-  auto nodes                = helper_create_credential_structure(12,
-                                                  credential_type,
-                                                  credential_slot,
-                                                  REPORTED_ATTRIBUTE);
-  auto user_node            = nodes.user_id_node;
-  auto credential_type_node = nodes.credential_type_node;
-  auto credential_slot_node = nodes.credential_slot_node;
-
-  // Operation type
-  auto operation_type_node
-    = attribute_store_emplace_desired(credential_slot_node,
-                                      ATTRIBUTE(CREDENTIAL_OPERATION_TYPE),
-                                      &operation_type,
-                                      sizeof(operation_type));
-
-  helper_test_set_get_with_args(CREDENTIAL_SET,
-                                operation_type_node,
-                                {
-                                  {user_node, REPORTED_ATTRIBUTE},
-                                  {credential_type_node, REPORTED_ATTRIBUTE},
-                                  {credential_slot_node, REPORTED_ATTRIBUTE},
-                                  {operation_type_node, DESIRED_ATTRIBUTE},
-                                },
-                                {0x00}  // Credential data length
+  helper_test_credential_set(USER_CREDENTIAL_OPERATION_TYPE_DELETE,
+                             {},                // Empty credential data
+                             DESIRED_ATTRIBUTE  // doesn't matter here
   );
 }
 
 //>> Get
-
 void test_user_credential_credential_get_happy_case()
 {
-  user_credential_type_t credential_type = 2;
-  user_credential_slot_t credential_slot = 1212;
+  user_credential_user_unique_id_t user_id = 12;
+  user_credential_type_t credential_type   = 2;
+  user_credential_slot_t credential_slot   = 1212;
 
-  auto nodes
-    = helper_create_credential_structure(12, credential_type, credential_slot);
-  auto user_node            = nodes.user_id_node;
-  auto credential_type_node = nodes.credential_type_node;
-  auto credential_slot_node = nodes.credential_slot_node;
+  auto nodes = helper_create_credential_structure(user_id,
+                                                  credential_type,
+                                                  credential_slot);
 
-  // Get should make both credential_type_node and credential_slot_node reported value as the desired values
-  helper_test_set_get_with_args(CREDENTIAL_GET,
-                                credential_slot_node,
-                                {
-                                  {user_node, REPORTED_ATTRIBUTE},
-                                  {credential_type_node, REPORTED_ATTRIBUTE},
-                                  {credential_slot_node, DESIRED_ATTRIBUTE},
-                                });
+  zwave_frame get_frame;
+  get_frame.add(user_id);
+  get_frame.add(credential_type);
+  get_frame.add(credential_slot);
+
+  helper_test_get_set_frame_happy_case(CREDENTIAL_GET,
+                                       nodes.credential_slot_node,
+                                       get_frame);
 }
 
 void test_user_credential_credential_get_no_credential_type()
 {
-  helper_test_set_get_with_args(CREDENTIAL_GET, ATTRIBUTE_STORE_INVALID_NODE);
+  helper_test_get_set_fail_case(CREDENTIAL_GET, SL_STATUS_NOT_SUPPORTED);
 }
 
 void test_user_credential_credential_report_no_credential()
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-
   user_credential_user_unique_id_t user_id = 12;
-  auto user_id_node = attribute_store_emplace(endpoint_id_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID),
-                                              &user_id,
-                                              sizeof(user_id));
-  TEST_ASSERT_NOT_EQUAL_MESSAGE(ATTRIBUTE_STORE_INVALID_NODE,
-                                user_id_node,
-                                "User ID node should be defined");
+  cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
-  auto report_frame
-    = helper_create_credential_report_frame(user_id, 0, 0, 0, {}, 0, 0, 0, 0);
-
-  // SHould return ok since credential_type and credential node is 0
-  TEST_ASSERT_EQUAL_MESSAGE(
-    SL_STATUS_OK,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()),
-    "Credential Report should have returned SL_STATUS_NOT_SUPPORTED");
+  // Should return ok since credential_type and credential node is 0
+  helper_simulate_credential_report_frame(user_id, 0, 0, 0, {}, 0, 0, 0, 0);
 }
 
 void test_user_credential_credential_report_missing_user()
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-
-  auto report_frame
-    = helper_create_credential_report_frame(12, 1, 1, 0, {}, 0, 0, 0, 0);
-
   // Not found since we haven't created any user_unique_id
-  TEST_ASSERT_EQUAL_MESSAGE(
-    SL_STATUS_NOT_SUPPORTED,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()),
-    "Credential Report should have returned SL_STATUS_NOT_SUPPORTED");
+  helper_simulate_credential_report_frame(12,
+                                          1,
+                                          1,
+                                          0,
+                                          {},
+                                          0,
+                                          0,
+                                          0,
+                                          0,
+                                          SL_STATUS_NOT_SUPPORTED);
 }
 
 void test_user_credential_credential_report_missing_credential_type()
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-
   user_credential_user_unique_id_t user_id = 12;
-  auto user_id_node = attribute_store_emplace(endpoint_id_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID),
-                                              &user_id,
-                                              sizeof(user_id));
-
-  TEST_ASSERT_NOT_EQUAL_MESSAGE(ATTRIBUTE_STORE_INVALID_NODE,
-                                user_id_node,
-                                "User ID node should be defined");
-
-  auto report_frame
-    = helper_create_credential_report_frame(user_id, 1, 5, 0, {}, 0, 0, 0, 0);
+  cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Not found since we haven't created any credential_type
-  TEST_ASSERT_EQUAL_MESSAGE(
-    SL_STATUS_NOT_SUPPORTED,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()),
-    "Credential Report should have returned SL_STATUS_NOT_SUPPORTED");
+  helper_simulate_credential_report_frame(user_id,
+                                          1,
+                                          5,
+                                          0,
+                                          {},
+                                          0,
+                                          0,
+                                          0,
+                                          0,
+                                          SL_STATUS_NOT_SUPPORTED);
 }
 
 void test_user_credential_credential_report_missing_credential_slot()
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-
   user_credential_user_unique_id_t user_id = 12;
-  auto user_id_node = attribute_store_emplace(endpoint_id_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID),
-                                              &user_id,
-                                              sizeof(user_id));
-  TEST_ASSERT_NOT_EQUAL_MESSAGE(ATTRIBUTE_STORE_INVALID_NODE,
-                                user_id_node,
-                                "User ID node should be defined");
-  user_credential_type_t credential_type = 121;
-  auto credential_type_node
-    = attribute_store_emplace(user_id_node,
-                              ATTRIBUTE(CREDENTIAL_TYPE),
-                              &credential_type,
-                              sizeof(credential_type));
-  TEST_ASSERT_NOT_EQUAL_MESSAGE(ATTRIBUTE_STORE_INVALID_NODE,
-                                credential_type_node,
-                                "Credential type node should be defined");
+  user_credential_type_t credential_type   = 121;
 
-  auto report_frame = helper_create_credential_report_frame(user_id,
-                                                            credential_type,
-                                                            1212,
-                                                            0,
-                                                            {},
-                                                            0,
-                                                            0,
-                                                            0,
-                                                            0);
+  auto user_id_node
+    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
+
+  user_id_node.emplace_node(ATTRIBUTE(CREDENTIAL_TYPE), credential_type);
 
   // Not found since we haven't created any credential_slot
-  TEST_ASSERT_EQUAL_MESSAGE(
-    SL_STATUS_NOT_SUPPORTED,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()),
-    "Credential Report should have returned SL_STATUS_NOT_SUPPORTED");
+  helper_simulate_credential_report_frame(user_id,
+                                          credential_type,
+                                          1212,
+                                          0,
+                                          {},
+                                          0,
+                                          0,
+                                          0,
+                                          0,
+                                          SL_STATUS_NOT_SUPPORTED);
 }
 
 void test_user_credential_credential_report_happy_case()
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-
-  auto credential_get = resolver_functions[CREDENTIAL_GET];
-  TEST_ASSERT_NOT_NULL_MESSAGE(credential_get,
-                               "Credential get function should be defined");
-
   user_credential_user_unique_id_t user_id = 122;
   user_credential_type_t credential_type   = 12;
   user_credential_slot_t credential_slot   = 1212;
@@ -2186,125 +1320,77 @@ void test_user_credential_credential_report_happy_case()
   user_credential_type_t next_credential_type                    = 12;
   user_credential_slot_t next_credential_slot                    = 1;
 
-  auto test_user_values = [&](attribute_store_node_t credential_type_node,
-                              attribute_store_node_t credential_slot_node) {
-    // Check main node value
-    user_credential_type_t reported_cred_type;
-    attribute_store_get_reported(credential_type_node,
-                                 &reported_cred_type,
-                                 sizeof(reported_cred_type));
-    TEST_ASSERT_EQUAL_MESSAGE(credential_type,
-                              reported_cred_type,
-                              "Credential type value mismatch");
+  auto test_credential_values
+    = [&](const attribute_store::attribute &credential_type_node,
+          const attribute_store::attribute &credential_slot_node) {
+        // Check main node value
+        TEST_ASSERT_EQUAL_MESSAGE(
+          credential_type,
+          credential_type_node.reported<user_credential_type_t>(),
+          "Credential type value mismatch");
+        TEST_ASSERT_EQUAL_MESSAGE(
+          credential_slot,
+          credential_slot_node.reported<user_credential_slot_t>(),
+          "Credential slot value mismatch");
 
-    user_credential_slot_t reported_cred_slot;
-    attribute_store_get_reported(credential_slot_node,
-                                 &reported_cred_slot,
-                                 sizeof(reported_cred_slot));
-    TEST_ASSERT_EQUAL_MESSAGE(credential_slot,
-                              reported_cred_slot,
-                              "Credential slot value mismatch");
+        helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_READ_BACK),
+                                    crb,
+                                    credential_slot_node);
+        helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_MODIFIER_TYPE),
+                                    credential_modifier_type,
+                                    credential_slot_node);
+        helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_MODIFIER_NODE_ID),
+                                    credential_modifier_node_id,
+                                    credential_slot_node);
+        helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_DATA),
+                                    credential_data,
+                                    credential_slot_node);
+      };  // end test_credential_values lambda
 
-    // Then test values underneath
-    std::map<attribute_store_type_t, uint8_t> uint8_attribute_map
-      = {{ATTRIBUTE(CREDENTIAL_MODIFIER_TYPE), credential_modifier_type},
-         {ATTRIBUTE(CREDENTIAL_READ_BACK), crb}};
-    helper_test_attribute_store_values(uint8_attribute_map,
-                                       credential_slot_node);
+  auto check_credentials_node_count
+    = [](const attribute_store::attribute &user_id_node,
+         size_t expected_credential_type_count,
+         size_t expected_credential_slot_count) {
+        auto count_credential_type
+          = user_id_node.children(ATTRIBUTE(CREDENTIAL_TYPE)).size();
+        TEST_ASSERT_EQUAL_MESSAGE(expected_credential_type_count,
+                                  count_credential_type,
+                                  "Incorrect credential type count");
 
-    std::map<attribute_store_type_t, uint16_t> uint16_attribute_map
-      = {{ATTRIBUTE(CREDENTIAL_MODIFIER_NODE_ID), credential_modifier_node_id}};
-    helper_test_attribute_store_values(uint16_attribute_map,
-                                       credential_slot_node);
+        size_t count_credential_slot = 0;
+        for (size_t i = 0; i < count_credential_type; i++) {
+          auto credential_type_node
+            = user_id_node.child_by_type(ATTRIBUTE(CREDENTIAL_TYPE), i);
+          count_credential_slot
+            += credential_type_node.children(ATTRIBUTE(CREDENTIAL_SLOT)).size();
+        }
 
-   
-    size_t reported_credential_length = credential_data.size();
-    std::vector<uint8_t> reported_credential_data;
-    reported_credential_data.resize(reported_credential_length);
-
-    attribute_store_get_child_reported(credential_slot_node,
-                                       ATTRIBUTE(CREDENTIAL_DATA),
-                                       reported_credential_data.data(),
-                                       reported_credential_length);
-
-    TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(credential_data.data(),
-                                          reported_credential_data.data(),
-                                          credential_data.size(),
-                                          "Credential data mismatch");
-  };  // end test_user_values lambda
-
-  auto check_credentials_node_count =
-    [](attribute_store_node_t user_id_node,
-       size_t expected_credential_type_count,
-       size_t expected_credential_slot_count) {
-      auto count_credential_type = attribute_store_get_node_child_count_by_type(
-        user_id_node,
-        ATTRIBUTE(CREDENTIAL_TYPE));
-      TEST_ASSERT_EQUAL_MESSAGE(expected_credential_type_count,
-                                count_credential_type,
-                                "Incorrect credential type count");
-
-      size_t count_credential_slot = 0;
-      for (size_t i = 0; i < count_credential_type; i++) {
-        auto credential_type_node
-          = attribute_store_get_node_child_by_type(user_id_node,
-                                                   ATTRIBUTE(CREDENTIAL_TYPE),
-                                                   i);
-        count_credential_slot += attribute_store_get_node_child_count_by_type(
-          credential_type_node,
-          ATTRIBUTE(CREDENTIAL_SLOT));
-      }
-
-      TEST_ASSERT_EQUAL_MESSAGE(expected_credential_slot_count,
-                                count_credential_slot,
-                                "Incorrect credential slot count");
-    };
+        TEST_ASSERT_EQUAL_MESSAGE(expected_credential_slot_count,
+                                  count_credential_slot,
+                                  "Incorrect credential slot count");
+      };
 
   auto check_next_credential_node_value
-    = [&](attribute_store_node_t next_credential_type_node,
-          attribute_store_node_t next_credential_slot_node) {
+    = [&](const attribute_store::attribute &next_credential_type_node,
+          const attribute_store::attribute &next_credential_slot_node) {
         // First check node existence
-        TEST_ASSERT_NOT_EQUAL_MESSAGE(ATTRIBUTE_STORE_INVALID_NODE,
-                                      next_credential_type_node,
-                                      "next_credential_type_node should exist");
-        TEST_ASSERT_NOT_EQUAL_MESSAGE(ATTRIBUTE_STORE_INVALID_NODE,
-                                      next_credential_slot_node,
-                                      "next_credential_slot_node should exist");
+        TEST_ASSERT_TRUE_MESSAGE(next_credential_type_node.is_valid(),
+                                 "next_credential_type_node should exist");
+        TEST_ASSERT_TRUE_MESSAGE(next_credential_slot_node.is_valid(),
+                                 "next_credential_slot_node should exist");
 
-        user_credential_type_t reported_next_credential_type = 0;
-        user_credential_slot_t reported_next_credential_slot = 0;
-
-        attribute_store_read_value(next_credential_type_node,
-                                   REPORTED_ATTRIBUTE,
-                                   &reported_next_credential_type,
-                                   sizeof(reported_next_credential_type));
-
-        attribute_store_read_value(next_credential_slot_node,
-                                   DESIRED_ATTRIBUTE,
-                                   &reported_next_credential_slot,
-                                   sizeof(reported_next_credential_slot));
-
-        TEST_ASSERT_EQUAL_MESSAGE(next_credential_type,
-                                  reported_next_credential_type,
-                                  "Next Credential Type value mismatch");
-        TEST_ASSERT_EQUAL_MESSAGE(next_credential_slot,
-                                  reported_next_credential_slot,
-                                  "Next Credential Slot value mismatch");
+        TEST_ASSERT_EQUAL_MESSAGE(
+          next_credential_type,
+          next_credential_type_node.reported<user_credential_type_t>(),
+          "Next Credential Type value mismatch");
+        TEST_ASSERT_EQUAL_MESSAGE(
+          next_credential_slot,
+          next_credential_slot_node.desired<user_credential_slot_t>(),
+          "Next Credential Slot value mismatch");
       };
 
   //>>>> First credential
   printf("First credential creation\n");
-
-  auto report_frame
-    = helper_create_credential_report_frame(user_id,
-                                            credential_type,
-                                            credential_slot,
-                                            crb,
-                                            credential_data,
-                                            credential_modifier_type,
-                                            credential_modifier_node_id,
-                                            next_credential_type,
-                                            next_credential_slot);
 
   // Create first credential
   auto nodes
@@ -2316,31 +1402,36 @@ void test_user_credential_credential_report_happy_case()
 
   attribute_store_log();
 
-  // Simulate get on that credential
-  sl_status_t credential_get_status = credential_get(first_credential_slot_node,
-                                                     received_frame,
-                                                     &received_frame_size);
+  zwave_frame get_frame;
+  get_frame.add(user_id);
+  get_frame.add(static_cast<user_credential_type_t>(0));
+  get_frame.add(static_cast<user_credential_slot_t>(0));
 
-  TEST_ASSERT_EQUAL_MESSAGE(
-    SL_STATUS_OK,
-    credential_get_status,
-    "First Credential get should have returned SL_STATUS_OK");
+  // Simulate get on that credential
+  helper_test_get_set_frame_happy_case(CREDENTIAL_GET,
+                                       first_credential_slot_node,
+                                       get_frame);
 
   // Call report
-  TEST_ASSERT_EQUAL_MESSAGE(
-    SL_STATUS_OK,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()),
-    "First Credential Report should have returned SL_STATUS_OK");
+  helper_simulate_credential_report_frame(user_id,
+                                          credential_type,
+                                          credential_slot,
+                                          crb,
+                                          credential_data,
+                                          credential_modifier_type,
+                                          credential_modifier_node_id,
+                                          next_credential_type,
+                                          next_credential_slot);
+
   // Test values
-  test_user_values(first_credential_type_node, first_credential_slot_node);
+  test_credential_values(first_credential_type_node,
+                         first_credential_slot_node);
   // We should have 1 credential type and 2 credential slot
   check_credentials_node_count(user_id_node, 1, 2);
 
   // Test if next credentials are well defined
   auto second_credential_slot_node
-    = attribute_store_get_node_child_by_type(first_credential_type_node,
-                                             ATTRIBUTE(CREDENTIAL_SLOT),
-                                             1);
+    = first_credential_type_node.child_by_type(ATTRIBUTE(CREDENTIAL_SLOT), 1);
   check_next_credential_node_value(first_credential_type_node,
                                    second_credential_slot_node);
 
@@ -2356,44 +1447,36 @@ void test_user_credential_credential_report_happy_case()
   next_credential_type        = 121;
   next_credential_slot        = 3;
 
-  report_frame
-    = helper_create_credential_report_frame(user_id,
-                                            credential_type,
-                                            credential_slot,
-                                            crb,
-                                            credential_data,
-                                            credential_modifier_type,
-                                            credential_modifier_node_id,
-                                            next_credential_type,
-                                            next_credential_slot);
-
   // Simulate get on that credential
-  credential_get_status = credential_get(second_credential_slot_node,
-                                         received_frame,
-                                         &received_frame_size);
-
-  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
-                            credential_get_status,
-                            "Credential get should have returned SL_STATUS_OK");
+  get_frame.clear();
+  get_frame.add(user_id);
+  get_frame.add(credential_type);
+  get_frame.add(credential_slot);
+  helper_test_get_set_frame_happy_case(CREDENTIAL_GET,
+                                       second_credential_slot_node,
+                                       get_frame);
 
   // Call report
-  TEST_ASSERT_EQUAL_MESSAGE(
-    SL_STATUS_OK,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()),
-    "Second Credential Report should have returned SL_STATUS_OK");
+  helper_simulate_credential_report_frame(user_id,
+                                          credential_type,
+                                          credential_slot,
+                                          crb,
+                                          credential_data,
+                                          credential_modifier_type,
+                                          credential_modifier_node_id,
+                                          next_credential_type,
+                                          next_credential_slot);
+
   // Test values
-  test_user_values(first_credential_type_node, second_credential_slot_node);
+  test_credential_values(first_credential_type_node,
+                         second_credential_slot_node);
   // We should have 2 credential type and 2 credential slot
   check_credentials_node_count(user_id_node, 2, 3);
 
   auto second_credential_type_node
-    = attribute_store_get_node_child_by_type(user_id_node,
-                                             ATTRIBUTE(CREDENTIAL_TYPE),
-                                             1);
+    = user_id_node.child_by_type(ATTRIBUTE(CREDENTIAL_TYPE), 1);
   auto third_credential_slot_node
-    = attribute_store_get_node_child_by_type(second_credential_type_node,
-                                             ATTRIBUTE(CREDENTIAL_SLOT),
-                                             0);
+    = second_credential_type_node.child_by_type(ATTRIBUTE(CREDENTIAL_SLOT), 0);
 
   // New nodes so we check their desired values
   check_next_credential_node_value(second_credential_type_node,
@@ -2410,33 +1493,29 @@ void test_user_credential_credential_report_happy_case()
   next_credential_type        = 0;
   next_credential_slot        = 0;
 
-  report_frame
-    = helper_create_credential_report_frame(user_id,
-                                            credential_type,
-                                            credential_slot,
-                                            crb,
-                                            credential_data,
-                                            credential_modifier_type,
-                                            credential_modifier_node_id,
-                                            next_credential_type,
-                                            next_credential_slot);
-
   // Simulate get on that credential
-  credential_get_status = credential_get(third_credential_slot_node,
-                                         received_frame,
-                                         &received_frame_size);
-
-  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
-                            credential_get_status,
-                            "Credential get should have returned SL_STATUS_OK");
+  get_frame.clear();
+  get_frame.add(user_id);
+  get_frame.add(credential_type);
+  get_frame.add(credential_slot);
+  helper_test_get_set_frame_happy_case(CREDENTIAL_GET,
+                                       third_credential_slot_node,
+                                       get_frame);
 
   // Call report
-  TEST_ASSERT_EQUAL_MESSAGE(
-    SL_STATUS_OK,
-    handler.control_handler(&info, report_frame.data(), report_frame.size()),
-    "Second Credential Report should have returned SL_STATUS_OK");
+  helper_simulate_credential_report_frame(user_id,
+                                          credential_type,
+                                          credential_slot,
+                                          crb,
+                                          credential_data,
+                                          credential_modifier_type,
+                                          credential_modifier_node_id,
+                                          next_credential_type,
+                                          next_credential_slot);
+
   // Test values
-  test_user_values(second_credential_type_node, third_credential_slot_node);
+  test_credential_values(second_credential_type_node,
+                         third_credential_slot_node);
   // We should still have 2 credential type and 3 credential slots since it was the last credential
   check_credentials_node_count(user_id_node, 2, 3);
 }
@@ -2446,11 +1525,7 @@ void test_user_credential_credential_report_happy_case()
 ////////////////////////////////////////////////////////////////////////////
 void test_attribute_creation_happy_case()
 {
-  zwave_cc_version_t version = 1;
-  attribute_store_emplace(endpoint_id_node,
-                          ATTRIBUTE(VERSION),
-                          &version,
-                          sizeof(version));
+  helper_set_version(1);
 
   std::vector<attribute_store_type_t> created_types = {
     ATTRIBUTE(NUMBER_OF_USERS),
@@ -2471,11 +1546,7 @@ void test_attribute_creation_happy_case()
 
 void test_attribute_creation_no_version()
 {
-  zwave_cc_version_t version = 0;
-  attribute_store_emplace(endpoint_id_node,
-                          ATTRIBUTE(VERSION),
-                          &version,
-                          sizeof(version));
+  helper_set_version(0);
 
   std::vector<attribute_store_type_t> created_types = {
     ATTRIBUTE(NUMBER_OF_USERS),
@@ -2499,107 +1570,74 @@ void test_post_interview_discovery()
   // Lambdas
   auto count_user_node = [](size_t expected_value) {
     auto user_id_node_count
-      = attribute_store_get_node_child_count_by_type(endpoint_id_node,
-                                                     ATTRIBUTE(USER_UNIQUE_ID));
+      = cpp_endpoint_id_node.children(ATTRIBUTE(USER_UNIQUE_ID)).size();
     TEST_ASSERT_EQUAL_MESSAGE(expected_value,
                               user_id_node_count,
                               "User ID node count mismatch");
   };
 
   // Test logic
+  attribute_store::attribute cpp_node_id_node(node_id_node);
 
   NodeStateNetworkStatus network_status = ZCL_NODE_STATE_NETWORK_STATUS_OFFLINE;
   auto network_status_node
-    = attribute_store_emplace(node_id_node,
-                              DOTDOT_ATTRIBUTE_ID_STATE_NETWORK_STATUS,
-                              &network_status,
-                              sizeof(network_status));
+    = cpp_node_id_node.emplace_node(DOTDOT_ATTRIBUTE_ID_STATE_NETWORK_STATUS,
+                                    network_status);
 
   count_user_node(0);
 
   // Interview state
   network_status = ZCL_NODE_STATE_NETWORK_STATUS_ONLINE_INTERVIEWING;
-  attribute_store_set_reported(network_status_node,
-                               &network_status,
-                               sizeof(network_status));
-
+  network_status_node.set_reported(network_status);
   count_user_node(0);
 
   // Simulate one more endpoint and only add nif to one of them
 
   // Add NIF to our endpoint to tell that we support User Credential
   std::vector<uint8_t> nif_value = {COMMAND_CLASS_USER_CREDENTIAL};
-  attribute_store_emplace(endpoint_id_node,
-                          ATTRIBUTE_ZWAVE_SECURE_NIF,
-                          nif_value.data(),
-                          nif_value.size());
+  cpp_endpoint_id_node.emplace_node(ATTRIBUTE_ZWAVE_SECURE_NIF, nif_value);
 
   // Add another endpoint without User Credential support
   zwave_endpoint_id_t endpoint_id_2 = endpoint_id + 12;
-  attribute_store_emplace(node_id_node,
-                          ATTRIBUTE_ENDPOINT_ID,
-                          &endpoint_id_2,
-                          sizeof(endpoint_id_2));
+  cpp_node_id_node.emplace_node(ATTRIBUTE_ENDPOINT_ID, endpoint_id_2);
 
   // Display current store log for debug purpose
   attribute_store_log();
 
   // Set the network status to online
   network_status = ZCL_NODE_STATE_NETWORK_STATUS_ONLINE_FUNCTIONAL;
-  attribute_store_set_reported(network_status_node,
-                               &network_status,
-                               sizeof(network_status));
+  network_status_node.set_reported(network_status);
 
   // Now we check attribute store
-  auto user_id_node
-    = attribute_store_get_first_child_by_type(endpoint_id_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID));
-  user_credential_user_unique_id_t user_id = 0;
-  attribute_store_get_desired(user_id_node, &user_id, sizeof(user_id));
-  TEST_ASSERT_NOT_EQUAL_MESSAGE(ATTRIBUTE_STORE_INVALID_NODE,
-                                user_id_node,
-                                "User id node should exists");
-  TEST_ASSERT_EQUAL_MESSAGE(0, user_id, "User ID desired value should be 0");
+  auto user_id_node = helper_test_attribute_value(
+    ATTRIBUTE(USER_UNIQUE_ID),
+    static_cast<user_credential_user_unique_id_t>(0),
+    cpp_endpoint_id_node,
+    DESIRED_ATTRIBUTE);
   count_user_node(1);
 
   // Simulate user found
-  user_id = 12;
-  attribute_store_set_reported(user_id_node, &user_id, sizeof(user_id));
+  user_credential_user_unique_id_t user_id = 12;
+  user_id_node.set_reported<user_credential_user_unique_id_t>(user_id);
 
   // Go back to Interview state
   network_status = ZCL_NODE_STATE_NETWORK_STATUS_ONLINE_INTERVIEWING;
-  attribute_store_set_reported(network_status_node,
-                               &network_status,
-                               sizeof(network_status));
+  network_status_node.set_reported(network_status);
 
   // Then back in Online Functional
   network_status = ZCL_NODE_STATE_NETWORK_STATUS_ONLINE_FUNCTIONAL;
-  attribute_store_set_reported(network_status_node,
-                               &network_status,
-                               sizeof(network_status));
+  network_status_node.set_reported(network_status);
+
   // User should still be there
   count_user_node(1);
   // With right value
-  user_credential_user_unique_id_t reported_user_id = 0;
-  user_id_node
-    = attribute_store_get_first_child_by_type(endpoint_id_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID));
-  attribute_store_get_reported(user_id_node,
-                               &reported_user_id,
-                               sizeof(reported_user_id));
-  TEST_ASSERT_EQUAL_MESSAGE(user_id,
-                            reported_user_id,
-                            "User ID reported value should be 12.");
+  helper_test_attribute_value(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 }
 
 void test_user_credential_notification_empty_parameters()
 {
   // Initialize the notification callback
-  const zwave_cc_version_t version = 1;
-  attribute_store_set_child_reported(endpoint_id_node,
-                                     ATTRIBUTE(VERSION),
-                                     &version,
-                                     sizeof(version));
+  helper_set_version(1);
 
   TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
                                "Notification callback should be defined");
@@ -2635,11 +1673,7 @@ void test_user_credential_notification_empty_parameters()
 void test_user_credential_add_credential_already_defined_cred_type_and_slot()
 {
   // Initialize the notification callback
-  const zwave_cc_version_t version = 1;
-  attribute_store_set_child_reported(endpoint_id_node,
-                                     ATTRIBUTE(VERSION),
-                                     &version,
-                                     sizeof(version));
+  helper_set_version(1);
 
   TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
                                "Notification callback should be defined");
@@ -2787,11 +1821,6 @@ void test_user_credential_add_credential_invalid_slot()
 
 void test_user_credential_user_add_modify_delete_happy_case()
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-
   // Those functions are exposed and checks user values, so we need to setup the capabilities
   uint16_t number_of_users                                       = 12;
   user_credential_supported_credential_rules_t cred_rule_bitmask = 0x0F;
@@ -2846,41 +1875,38 @@ void test_user_credential_user_add_modify_delete_happy_case()
   user_credential_modifier_type_t user_modifier_type       = 2;
   user_credential_modifier_node_id_t user_modifier_node_id = 1212;
 
-  auto user_report_frame
-    = helper_create_user_report_frame(0x00,  // user added
-                                      0,     // Next user id
-                                      user_modifier_type,
-                                      user_modifier_node_id,
-                                      user_id,
-                                      user_type,
-                                      user_active_state,
-                                      credential_rule,
-                                      expiring_timeout,
-                                      user_name_encoding,
-                                      user_name);
-
-  // Endpoint send User Add notification
-  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
-                            handler.control_handler(&info,
-                                                    user_report_frame.data(),
-                                                    user_report_frame.size()),
-                            "Should have managed to create user");
+  helper_simulate_user_report_frame(0x00,  // user added
+                                    0,     // Next user id
+                                    user_modifier_type,
+                                    user_modifier_node_id,
+                                    user_id,
+                                    user_type,
+                                    user_active_state,
+                                    credential_rule,
+                                    expiring_timeout,
+                                    user_name_encoding,
+                                    user_name);
 
   // Check values
   auto test_attribute_store_values = [&]() {
-    std::map<attribute_store_type_t, uint8_t> uint8_attribute_map
-      = {{ATTRIBUTE(USER_MODIFIER_TYPE), user_modifier_type},
-         {ATTRIBUTE(USER_TYPE), user_type},
-         {ATTRIBUTE(USER_ACTIVE_STATE), user_active_state},
-         {ATTRIBUTE(CREDENTIAL_RULE), credential_rule}};
-    helper_test_attribute_store_values(uint8_attribute_map, user_node);
+    helper_test_attribute_value(ATTRIBUTE(USER_MODIFIER_TYPE),
+                                user_modifier_type,
+                                user_node);
+    helper_test_attribute_value(ATTRIBUTE(USER_TYPE), user_type, user_node);
+    helper_test_attribute_value(ATTRIBUTE(USER_ACTIVE_STATE),
+                                user_active_state,
+                                user_node);
+    helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_RULE),
+                                credential_rule,
+                                user_node);
+    helper_test_attribute_value(ATTRIBUTE(USER_MODIFIER_NODE_ID),
+                                user_modifier_node_id,
+                                user_node);
+    helper_test_attribute_value(ATTRIBUTE(USER_EXPIRING_TIMEOUT_MINUTES),
+                                expiring_timeout,
+                                user_node);
 
-    std::map<attribute_store_type_t, uint16_t> uint16_attribute_map
-      = {{ATTRIBUTE(USER_MODIFIER_NODE_ID), user_modifier_node_id},
-         {ATTRIBUTE(USER_EXPIRING_TIMEOUT_MINUTES), expiring_timeout}};
-    helper_test_attribute_store_values(uint16_attribute_map, user_node);
-
-    helper_test_string_value({{ATTRIBUTE(USER_NAME), user_name}}, user_node);
+    helper_test_attribute_value(ATTRIBUTE(USER_NAME), user_name, user_node);
   };
   test_attribute_store_values();
 
@@ -2892,46 +1918,34 @@ void test_user_credential_user_add_modify_delete_happy_case()
   user_name_encoding = 2;
   user_name          = "JACKIE CAMION TURBO PLUS";
 
-  user_report_frame = helper_create_user_report_frame(0x01,  // modify user
-                                                      0,     // Next user id
-                                                      user_modifier_type,
-                                                      user_modifier_node_id,
-                                                      user_id,
-                                                      user_type,
-                                                      user_active_state,
-                                                      credential_rule,
-                                                      expiring_timeout,
-                                                      user_name_encoding,
-                                                      user_name);
-
-  // Endpoint send User Add notification
-  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
-                            handler.control_handler(&info,
-                                                    user_report_frame.data(),
-                                                    user_report_frame.size()),
-                            "Should have managed to modify user");
+  helper_simulate_user_report_frame(0x01,  // modify user
+                                    0,     // Next user id
+                                    user_modifier_type,
+                                    user_modifier_node_id,
+                                    user_id,
+                                    user_type,
+                                    user_active_state,
+                                    credential_rule,
+                                    expiring_timeout,
+                                    user_name_encoding,
+                                    user_name);
 
   // Create notification report frame
   user_modifier_type    = 5;
   user_modifier_node_id = 12122;
 
-  user_report_frame = helper_create_user_report_frame(0x01,  //  modify user
-                                                      0,     // Next user id
-                                                      user_modifier_type,
-                                                      user_modifier_node_id,
-                                                      user_id,
-                                                      user_type,
-                                                      user_active_state,
-                                                      credential_rule,
-                                                      expiring_timeout,
-                                                      user_name_encoding,
-                                                      user_name);
+  helper_simulate_user_report_frame(0x01,  //  modify user
+                                    0,     // Next user id
+                                    user_modifier_type,
+                                    user_modifier_node_id,
+                                    user_id,
+                                    user_type,
+                                    user_active_state,
+                                    credential_rule,
+                                    expiring_timeout,
+                                    user_name_encoding,
+                                    user_name);
 
-  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
-                            handler.control_handler(&info,
-                                                    user_report_frame.data(),
-                                                    user_report_frame.size()),
-                            "Should have managed to modify user");
   // Check values
   test_attribute_store_values();
 
@@ -2942,22 +1956,17 @@ void test_user_credential_user_add_modify_delete_happy_case()
                             status,
                             "User delete should have returned SL_STATUS_OK");
 
-  user_report_frame = helper_create_user_report_frame(0x02,  //  modify user
-                                                      0,     // Next user id
-                                                      user_modifier_type,
-                                                      user_modifier_node_id,
-                                                      user_id,
-                                                      user_type,
-                                                      user_active_state,
-                                                      credential_rule,
-                                                      expiring_timeout,
-                                                      user_name_encoding,
-                                                      user_name);
-  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
-                            handler.control_handler(&info,
-                                                    user_report_frame.data(),
-                                                    user_report_frame.size()),
-                            "Should have managed to delete user");
+  helper_simulate_user_report_frame(0x02,  //  modify user
+                                    0,     // Next user id
+                                    user_modifier_type,
+                                    user_modifier_node_id,
+                                    user_id,
+                                    user_type,
+                                    user_active_state,
+                                    credential_rule,
+                                    expiring_timeout,
+                                    user_name_encoding,
+                                    user_name);
 }
 
 void test_user_credential_credential_notification_add_modify_delete_happy_case()
@@ -3050,24 +2059,18 @@ void test_user_credential_credential_notification_add_modify_delete_happy_case()
 
   // Check values
   auto test_attribute_store_values = [&]() {
-    std::map<attribute_store_type_t, uint8_t> uint8_attribute_map
-      = {{ATTRIBUTE(CREDENTIAL_TYPE), credential_type}};
-    helper_test_attribute_store_values(uint8_attribute_map, user_id_node);
-
-    std::map<attribute_store_type_t, uint16_t> uint16_attribute_map
-      = {{ATTRIBUTE(CREDENTIAL_SLOT), credential_slot}};
-    helper_test_attribute_store_values(uint16_attribute_map,
-                                       credential_type_node);
-
-    uint8_attribute_map
-      = {{ATTRIBUTE(CREDENTIAL_MODIFIER_TYPE), credential_modifier_type}};
-    helper_test_attribute_store_values(uint8_attribute_map,
-                                       credential_slot_node);
-
-    uint16_attribute_map
-      = {{ATTRIBUTE(CREDENTIAL_MODIFIER_NODE_ID), credential_modifier_node_id}};
-    helper_test_attribute_store_values(uint16_attribute_map,
-                                       credential_slot_node);
+    helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_TYPE),
+                                credential_type,
+                                user_id_node);
+    helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_SLOT),
+                                credential_slot,
+                                credential_type_node);
+    helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_MODIFIER_TYPE),
+                                credential_modifier_type,
+                                credential_slot_node);
+    helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_MODIFIER_NODE_ID),
+                                credential_modifier_node_id,
+                                credential_slot_node);
   };
   test_attribute_store_values();
 
@@ -3112,11 +2115,7 @@ void test_user_credential_credential_notification_add_modify_delete_happy_case()
 void test_user_credential_user_add_capabilites_failure_cases()
 {
   // Initialize the notification callback
-  const zwave_cc_version_t version = 1;
-  attribute_store_set_child_reported(endpoint_id_node,
-                                     ATTRIBUTE(VERSION),
-                                     &version,
-                                     sizeof(version));
+  helper_set_version(1);
 
   TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
                                "Notification callback should be defined");
@@ -3195,12 +2194,7 @@ void test_user_credential_user_add_capabilites_failure_cases()
 
 void test_user_credential_user_add_capabilites_happy_cred_rule_cases()
 {
-  // Initialize the notification callback
-  const zwave_cc_version_t version = 1;
-  attribute_store_set_child_reported(endpoint_id_node,
-                                     ATTRIBUTE(VERSION),
-                                     &version,
-                                     sizeof(version));
+  helper_set_version(1);
 
   uint16_t number_of_users                    = 1;
   uint8_t username_max_length                 = 1;
@@ -3252,12 +2246,7 @@ void test_user_credential_user_add_capabilites_happy_cred_rule_cases()
 
 void test_user_credential_user_add_capabilites_happy_user_type_rule_cases()
 {
-  // Initialize the notification callback
-  const zwave_cc_version_t version = 1;
-  attribute_store_set_child_reported(endpoint_id_node,
-                                     ATTRIBUTE(VERSION),
-                                     &version,
-                                     sizeof(version));
+  helper_set_version(1);
 
   uint16_t number_of_users                               = 1;
   uint8_t username_max_length                            = 1;
@@ -3310,11 +2299,7 @@ void test_user_credential_user_add_capabilites_happy_user_type_rule_cases()
 void test_user_credential_user_modify_capabilites_failure_cases()
 {
   // Initialize the notification callback
-  const zwave_cc_version_t version = 1;
-  attribute_store_set_child_reported(endpoint_id_node,
-                                     ATTRIBUTE(VERSION),
-                                     &version,
-                                     sizeof(version));
+  helper_set_version(1);
 
   TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
                                "Notification callback should be defined");
@@ -3394,11 +2379,7 @@ void test_user_credential_user_modify_capabilites_failure_cases()
 void test_user_credential_credential_add_capabilites_failure_cases()
 {
   // Initialize the notification callback
-  const zwave_cc_version_t version = 1;
-  attribute_store_set_child_reported(endpoint_id_node,
-                                     ATTRIBUTE(VERSION),
-                                     &version,
-                                     sizeof(version));
+  helper_set_version(1);
 
   TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
                                "Notification callback should be defined");
@@ -3474,11 +2455,7 @@ void test_user_credential_credential_add_capabilites_failure_cases()
 void test_user_credential_credential_add_capabilites_happy_case()
 {
   // Initialize the notification callback
-  const zwave_cc_version_t version = 1;
-  attribute_store_set_child_reported(endpoint_id_node,
-                                     ATTRIBUTE(VERSION),
-                                     &version,
-                                     sizeof(version));
+  helper_set_version(1);
 
   TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
                                "Notification callback should be defined");
@@ -3532,11 +2509,7 @@ void test_user_credential_credential_add_capabilites_happy_case()
 void test_user_credential_credential_modify_capabilites_failure_cases()
 {
   // Initialize the notification callback
-  const zwave_cc_version_t version = 1;
-  attribute_store_set_child_reported(endpoint_id_node,
-                                     ATTRIBUTE(VERSION),
-                                     &version,
-                                     sizeof(version));
+  helper_set_version(1);
 
   TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
                                "Notification callback should be defined");
@@ -3596,91 +2569,7 @@ void test_user_credential_credential_modify_capabilites_failure_cases()
     "Should not be able to modify credential data : it's too long");
 }
 
-void test_user_credential_user_set_error_report_user_add_happy_case()
-{
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-
-  user_credential_user_unique_id_t user_id = 12;
-
-  // Simulate invalid user
-  auto invalid_user_node
-    = attribute_store_emplace_desired(endpoint_id_node,
-                                      ATTRIBUTE(USER_UNIQUE_ID),
-                                      &user_id,
-                                      sizeof(user_id));
-
-  auto valid_user_node = attribute_store_emplace(endpoint_id_node,
-                                                 ATTRIBUTE(USER_UNIQUE_ID),
-                                                 &user_id,
-                                                 sizeof(user_id));
-
-  auto user_report_frame = helper_create_user_report_frame(
-    0x05,  //  USER_ADD_REJECTED_LOCATION_OCCUPIED
-    0,     // Next user id
-    1,
-    2,
-    user_id,
-    1,
-    0,
-    1,
-    0,
-    0,
-    "TAJINE AUX EPICES");
-  TEST_ASSERT_EQUAL_MESSAGE(
-    SL_STATUS_OK,
-    handler.control_handler(&info,
-                            user_report_frame.data(),
-                            user_report_frame.size()),
-    "Should have managed to handle USER_ADD_REJECTED_LOCATION_OCCUPIED");
-
-  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(invalid_user_node),
-                            "Invalid User node should not exist");
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(valid_user_node),
-                           "Valid User node should exist");
-}
-
-void test_user_credential_user_set_error_report_user_modify_happy_case()
-{
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-  
-  user_credential_user_unique_id_t user_id = 12;
-
-  // Simulate invalid user (desired)
-  auto invalid_user_node
-    = attribute_store_emplace_desired(endpoint_id_node,
-                                      ATTRIBUTE(USER_UNIQUE_ID),
-                                      &user_id,
-                                      sizeof(user_id));
-
-  auto user_report_frame = helper_create_user_report_frame(
-    0x06,  //  USER_MODIFY_REJECTED_LOCATION_EMPTY
-    0,     // Next user id
-    1,
-    2,
-    user_id,
-    1,
-    0,
-    1,
-    0,
-    0,
-    "SAUCISSE FUMEE");
-  TEST_ASSERT_EQUAL_MESSAGE(
-    SL_STATUS_OK,
-    handler.control_handler(&info,
-                            user_report_frame.data(),
-                            user_report_frame.size()),
-    "Should have managed to handle USER_MODIFY_REJECTED_LOCATION_EMPTY");
-
-  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(invalid_user_node),
-                            "Invalid User node should not exist");
-}
-
+// TODO : to be refactored
 void test_user_credential_credential_set_error_report_cred_add_happy_case()
 {
   user_credential_user_unique_id_t user_id = 12;
@@ -3721,6 +2610,7 @@ void test_user_credential_credential_set_error_report_cred_add_happy_case()
                            "Valid Credential type node should exist");
 }
 
+// TODO : to be refactored
 void test_user_credential_credential_set_error_report_cred_modify_happy_case()
 {
   user_credential_user_unique_id_t user_id = 12;
@@ -3782,6 +2672,7 @@ void test_user_credential_credential_set_error_report_cred_modify_happy_case()
                            "Valid Credential type node should exist");
 }
 
+// TODO : to be refactored
 void test_user_credential_credential_set_error_report_cred_duplicate_happy_case()
 {
   user_credential_user_unique_id_t user_id = 12;
@@ -3823,26 +2714,17 @@ void test_user_credential_credential_set_error_report_cred_duplicate_happy_case(
 
   // Now actually send the report
   std::vector<uint8_t> cred_data = {1, 2, 3, 4};
-  auto credential_report_frame
-    = helper_create_credential_report_frame(user_id,
-                                            credential_type,
-                                            credential_slot,
-                                            1,
-                                            cred_data,
-                                            CREDENTIAL_REPORT_DNE,
-                                            2,
-                                            0,
-                                            0);
 
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
   // Do the report
-  TEST_ASSERT_EQUAL(SL_STATUS_OK,
-                    handler.control_handler(&info,
-                                            credential_report_frame.data(),
-                                            credential_report_frame.size()));
+  helper_simulate_credential_report_frame(user_id,
+                                          credential_type,
+                                          credential_slot,
+                                          1,
+                                          cred_data,
+                                          CREDENTIAL_REPORT_DNE,
+                                          2,
+                                          0,
+                                          0);
 
   // Now it should not exists
   TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(invalid_cred_slot_node),
@@ -3853,6 +2735,7 @@ void test_user_credential_credential_set_error_report_cred_duplicate_happy_case(
                            "Valid Credential type node should exist");
 }
 
+// TODO : to be refactored
 // Note : same as test_user_credential_credential_set_error_report_cred_duplicate_happy_case
 // but with CREDENTIAL_SET_ERROR_REPORT_MANUFACTURERSECURITYRULES in the report
 void test_user_credential_credential_set_error_report_cred_security_rule_happy_case()
@@ -3896,26 +2779,15 @@ void test_user_credential_credential_set_error_report_cred_security_rule_happy_c
 
   // Now actually send the report
   std::vector<uint8_t> cred_data = {1, 2, 3, 4};
-  auto credential_report_frame
-    = helper_create_credential_report_frame(user_id,
-                                            credential_type,
-                                            credential_slot,
-                                            1,
-                                            cred_data,
-                                            CREDENTIAL_REPORT_DNE,
-                                            2,
-                                            0,
-                                            0);
-
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-  // Do the report
-  TEST_ASSERT_EQUAL(SL_STATUS_OK,
-                    handler.control_handler(&info,
-                                            credential_report_frame.data(),
-                                            credential_report_frame.size()));
+  helper_simulate_credential_report_frame(user_id,
+                                          credential_type,
+                                          credential_slot,
+                                          1,
+                                          cred_data,
+                                          CREDENTIAL_REPORT_DNE,
+                                          2,
+                                          0,
+                                          0);
 
   // Now it should not exists
   TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(invalid_cred_slot_node),
@@ -3928,21 +2800,11 @@ void test_user_credential_credential_set_error_report_cred_security_rule_happy_c
 
 void test_user_credential_remove_all_users_happy_case()
 {
-  const zwave_cc_version_t version = 1;
-  attribute_store_set_child_reported(endpoint_id_node,
-                                     ATTRIBUTE(VERSION),
-                                     &version,
-                                     sizeof(version));
+  helper_set_version(1);
 
-  TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
-                               "Notification callback should be defined");
-
-  std::vector<user_credential_user_unique_id_t> user_ids = {12, 15, 19};
+  std::vector<user_credential_user_unique_id_t> user_ids = {0, 12, 15, 19};
   for (auto user_id: user_ids) {
-    attribute_store_emplace(endpoint_id_node,
-                            ATTRIBUTE(USER_UNIQUE_ID),
-                            &user_id,
-                            user_id);
+    cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
   }
 
   auto status
@@ -3954,47 +2816,36 @@ void test_user_credential_remove_all_users_happy_case()
     "Remove all users should have returned SL_STATUS_OK");
 
   TEST_ASSERT_EQUAL_MESSAGE(
-    user_ids.size()
-      + 1,  // +1 because the remove all users will add an extra user to invoke the user SET command
-    attribute_store_get_node_child_count_by_type(endpoint_id_node,
-                                                 ATTRIBUTE(USER_UNIQUE_ID)),
+    user_ids.size(),
+    cpp_endpoint_id_node.children(ATTRIBUTE(USER_UNIQUE_ID)).size(),
     "All users should have NOT have been removed yet");
 
-  // This will handle the deletion
-  notification_callback(endpoint_id_node,
-                        NOTIFICATION_ACCESS_CONTROL,
-                        0x25,  // All User deleted
-                        // No need to have arguments here
-                        std::vector<uint8_t>().data(),
-                        0);
+  // This should remove all users
+  helper_simulate_user_report_frame(0x02,  //  Delete user
+                                    0,     // Next user id
+                                    0,     // User Type
+                                    0,     // User Node ID
+                                    0,     // User ID
+                                    0,     // User Type
+                                    0,     // User Active State
+                                    0,     // Credential Rule
+                                    0,     // Expiring Timeout
+                                    0,     // User Name Encoding
+                                    "");   // User Name
 
   TEST_ASSERT_EQUAL_MESSAGE(
-    1,  // Should be one user left here with desired value of 0
-    attribute_store_get_node_child_count_by_type(endpoint_id_node,
-                                                 ATTRIBUTE(USER_UNIQUE_ID)),
-    "All users should have been removed yet");
+    1,  // User with ID 0 that might contains credentials
+    cpp_endpoint_id_node.children(ATTRIBUTE(USER_UNIQUE_ID)).size(),
+    "Only user 0 should be left");
 
-  user_credential_user_unique_id_t user_id = 0;
-  auto user_node
-    = attribute_store_get_node_child_by_value(endpoint_id_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID),
-                                              DESIRED_ATTRIBUTE,
-                                              (uint8_t *)&user_id,
-                                              sizeof(user_id),
-                                              0);
-
-  TEST_ASSERT_TRUE_MESSAGE(attribute_store_node_exists(user_node),
-                           "Should be one user node with desired value of 0 to "
-                           "perform user interview");
+  helper_test_attribute_value(ATTRIBUTE(USER_UNIQUE_ID),
+                              static_cast<user_credential_user_unique_id_t>(0));
 }
 
+// TODO : to be refactored
 void test_user_credential_remove_all_credentials_happy_case()
 {
-  const zwave_cc_version_t version = 1;
-  attribute_store_set_child_reported(endpoint_id_node,
-                                     ATTRIBUTE(VERSION),
-                                     &version,
-                                     sizeof(version));
+  helper_set_version(1);
 
   TEST_ASSERT_NOT_NULL_MESSAGE(notification_callback,
                                "Notification callback should be defined");
@@ -4053,6 +2904,7 @@ void test_user_credential_remove_all_credentials_happy_case()
                             "User 0 should not exists");
 }
 
+// TODO : to be refactored
 void test_user_credential_remove_all_credentials_of_user()
 {
   const zwave_cc_version_t version = 1;
@@ -4092,9 +2944,12 @@ void test_user_credential_remove_all_credentials_of_user()
     status,
     "Remove all credentials for user should have returned SL_STATUS_OK");
 
-  auto exploded_user_to_delete = explode_uint16(user_to_delete);
-  std::vector<uint8_t> notification_parameters
-    = {exploded_user_to_delete.msb, exploded_user_to_delete.lsb, 0, 0, 0};
+  zwave_frame notification_parameters;
+  notification_parameters.add(user_to_delete);
+  for (size_t i = 0; i < 3; i++) {
+    notification_parameters.add(static_cast<uint8_t>(0));
+  }
+
   // This will handle the deletion
   notification_callback(endpoint_id_node,
                         NOTIFICATION_ACCESS_CONTROL,
@@ -4110,10 +2965,7 @@ void test_user_credential_remove_all_credentials_of_user()
     attribute_store_get_reported(node.user_id_node,
                                  &reported_user_id,
                                  sizeof(reported_user_id));
-    printf("User node %d / Credential Type Node %d / Credential Slot Node %d\n",
-           node.user_id_node,
-           node.credential_type_node,
-           node.credential_slot_node);
+    node.print();
 
     if (reported_user_id == user_to_delete) {
       TEST_ASSERT_FALSE_MESSAGE(
@@ -4145,6 +2997,7 @@ void test_user_credential_remove_all_credentials_of_user()
                             "User 0 should not exists");
 }
 
+// TODO : to be refactored
 void test_user_credential_remove_all_credentials_of_user_by_type()
 {
   const zwave_cc_version_t version = 1;
@@ -4193,12 +3046,12 @@ void test_user_credential_remove_all_credentials_of_user_by_type()
     status,
     "Remove all credentials for user should have returned SL_STATUS_OK");
 
-  auto exploded_user_to_delete                 = explode_uint16(user_to_delete);
-  std::vector<uint8_t> notification_parameters = {exploded_user_to_delete.msb,
-                                                  exploded_user_to_delete.lsb,
-                                                  credential_type_to_delete,
-                                                  0,
-                                                  0};
+  zwave_frame notification_parameters;
+  notification_parameters.add(user_to_delete);
+  notification_parameters.add(credential_type_to_delete);
+  for (size_t i = 0; i < 2; i++) {
+    notification_parameters.add(static_cast<uint8_t>(0));
+  }
 
   // This will handle the deletion
   notification_callback(endpoint_id_node,
@@ -4213,10 +3066,8 @@ void test_user_credential_remove_all_credentials_of_user_by_type()
   for (auto &node_data: expected_nodes_data) {
     auto nodes            = node_data.nodes;
     auto should_not_exist = node_data.should_not_exist;
-    printf("User node %d / Credential Type Node %d / Credential Slot Node %d\n",
-           nodes.user_id_node,
-           nodes.credential_type_node,
-           nodes.credential_slot_node);
+
+    nodes.print();
 
     if (should_not_exist) {
       TEST_ASSERT_FALSE_MESSAGE(
@@ -4248,6 +3099,7 @@ void test_user_credential_remove_all_credentials_of_user_by_type()
                             "User 0 should not exists");
 }
 
+// TODO : to be refactored
 void test_user_credential_remove_all_credentials_by_type()
 {
   const zwave_cc_version_t version = 1;
@@ -4312,10 +3164,8 @@ void test_user_credential_remove_all_credentials_by_type()
   for (auto &node_data: expected_nodes_data) {
     auto nodes            = node_data.nodes;
     auto should_not_exist = node_data.should_not_exist;
-    printf("User node %d / Credential Type Node %d / Credential Slot Node %d\n",
-           nodes.user_id_node,
-           nodes.credential_type_node,
-           nodes.credential_slot_node);
+
+    nodes.print();
 
     if (should_not_exist) {
       TEST_ASSERT_FALSE_MESSAGE(
@@ -4354,10 +3204,8 @@ void test_user_credential_credential_learn_start_add_happy_case()
   user_credential_slot_t credential_slot     = 1;
   user_credential_learn_timeout_t cl_timeout = 0;
   // Simulate user
-  auto user_id_node = attribute_store_emplace(endpoint_id_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID),
-                                              &user_id,
-                                              sizeof(user_id));
+  auto user_id_node
+    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Set capabilities
   uint8_t supported_credential_checksum = 1;
@@ -4391,23 +3239,17 @@ void test_user_credential_credential_learn_start_add_happy_case()
                             status,
                             "Should be able to start learning");
 
-  attribute_store_node_t credential_type_node;
-  attribute_store_node_t credential_slot_node;
+  attribute_store::attribute credential_type_node;
+  attribute_store::attribute credential_slot_node;
   auto update_credential_nodes = [&]() {
     credential_type_node
-      = attribute_store_get_node_child_by_value(user_id_node,
-                                                ATTRIBUTE(CREDENTIAL_TYPE),
-                                                DESIRED_ATTRIBUTE,
-                                                (uint8_t *)&credential_type,
-                                                sizeof(credential_type),
-                                                0);
+      = user_id_node.child_by_type_and_value(ATTRIBUTE(CREDENTIAL_TYPE),
+                                             credential_type,
+                                             DESIRED_ATTRIBUTE);
+
     credential_slot_node
-      = attribute_store_get_node_child_by_value(credential_type_node,
-                                                ATTRIBUTE(CREDENTIAL_SLOT),
-                                                REPORTED_ATTRIBUTE,
-                                                (uint8_t *)&credential_slot,
-                                                sizeof(credential_slot),
-                                                0);
+      = credential_type_node.child_by_type_and_value(ATTRIBUTE(CREDENTIAL_SLOT),
+                                                     credential_slot);
   };
 
   update_credential_nodes();
@@ -4447,10 +3289,7 @@ void test_user_credential_credential_learn_start_add_cl_not_supported()
   user_credential_slot_t credential_slot     = 1;
   user_credential_learn_timeout_t cl_timeout = 0;
   // Simulate user
-  attribute_store_emplace(endpoint_id_node,
-                          ATTRIBUTE(USER_UNIQUE_ID),
-                          &user_id,
-                          sizeof(user_id));
+  cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Set capabilities
   uint8_t supported_credential_checksum = 1;
@@ -4490,10 +3329,7 @@ void test_user_credential_credential_learn_start_add_slot_not_supported()
   user_credential_slot_t credential_slot     = 6;
   user_credential_learn_timeout_t cl_timeout = 0;
   // Simulate user
-  attribute_store_emplace(endpoint_id_node,
-                          ATTRIBUTE(USER_UNIQUE_ID),
-                          &user_id,
-                          sizeof(user_id));
+  cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Set capabilities
   uint8_t supported_credential_checksum = 1;
@@ -4533,10 +3369,7 @@ void test_user_credential_credential_learn_start_add_type_not_supported()
   user_credential_slot_t credential_slot     = 1;
   user_credential_learn_timeout_t cl_timeout = 0;
   // Simulate user
-  attribute_store_emplace(endpoint_id_node,
-                          ATTRIBUTE(USER_UNIQUE_ID),
-                          &user_id,
-                          sizeof(user_id));
+  cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Set capabilities
   uint8_t supported_credential_checksum = 1;
@@ -4576,24 +3409,15 @@ void test_user_credential_credential_learn_start_add_credential_already_exists()
   user_credential_slot_t credential_slot     = 1;
   user_credential_learn_timeout_t cl_timeout = 0;
   // Simulate user
-  attribute_store_emplace(endpoint_id_node,
-                          ATTRIBUTE(USER_UNIQUE_ID),
-                          &user_id,
-                          sizeof(user_id));
-  user_id           = 15;
-  auto user_id_node = attribute_store_emplace(endpoint_id_node,
-                                              ATTRIBUTE(USER_UNIQUE_ID),
-                                              &user_id,
-                                              sizeof(user_id));
-  auto credential_type_node
-    = attribute_store_emplace(user_id_node,
-                              ATTRIBUTE(CREDENTIAL_TYPE),
-                              &credential_type,
-                              sizeof(credential_type));
-  attribute_store_emplace(credential_type_node,
-                          ATTRIBUTE(CREDENTIAL_SLOT),
-                          &credential_slot,
-                          sizeof(credential_slot));
+  cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
+
+  // Simulate already existing credential
+  user_id = 15;
+  helper_create_credential_structure(user_id,
+                                     credential_type,
+                                     credential_slot,
+                                     REPORTED_ATTRIBUTE);
+
   // Set capabilities
   uint8_t supported_credential_checksum = 1;
   std::vector<user_credential_type_t> supported_credential_type
@@ -4753,10 +3577,7 @@ void test_user_credential_credential_learn_start_modify_credential_not_existing(
   user_credential_learn_timeout_t cl_timeout = 0;
 
   // Simulate user
-  attribute_store_emplace(endpoint_id_node,
-                          ATTRIBUTE(USER_UNIQUE_ID),
-                          &user_id,
-                          sizeof(user_id));
+  cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID), user_id);
 
   // Set capabilities
   uint8_t supported_credential_checksum = 1;
@@ -4793,25 +3614,14 @@ void test_user_credential_credential_learn_cancel_happy_case()
 {
   uint8_t stop_flag = 0;
   auto stop_node
-    = attribute_store_emplace_desired(endpoint_id_node,
-                                      ATTRIBUTE(CREDENTIAL_LEARN_STOP),
-                                      &stop_flag,
-                                      sizeof(stop_flag));
+    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(CREDENTIAL_LEARN_STOP),
+                                        stop_flag,
+                                        DESIRED_ATTRIBUTE);
 
-  auto &get_func = resolver_functions[CREDENTIAL_LEARN_CANCEL];
+  helper_test_get_set_frame_happy_case(CREDENTIAL_LEARN_CANCEL, stop_node);
 
-  // Ask for a Get Command, should always be the same
-  TEST_ASSERT_NOT_NULL_MESSAGE(
-    get_func,
-    "Couldn't find get function in resolver_functions.");
-  TEST_ASSERT_EQUAL_MESSAGE(
-    SL_STATUS_OK,
-    get_func(stop_node, received_frame, &received_frame_size),
-    "Get function should have returned OK");
-
-  attribute_store_get_reported(stop_node, &stop_flag, sizeof(stop_flag));
   TEST_ASSERT_EQUAL_MESSAGE(1,
-                            stop_flag,
+                            stop_node.reported<uint8_t>(),
                             "Stop flag should have been set to 1");
 }
 
@@ -4853,10 +3663,8 @@ void test_user_credential_uuic_association_same_slot_different_user()
                                                          REPORTED_ATTRIBUTE);
 
   auto destination_user_id_node
-    = attribute_store_emplace(endpoint_id_node,
-                              ATTRIBUTE(USER_UNIQUE_ID),
-                              &destination_user_id,
-                              sizeof(destination_user_id));
+    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID),
+                                        destination_user_id);
 
   helper_fill_credential_data(source_nodes.credential_slot_node,
                               credential_data,
@@ -4866,78 +3674,63 @@ void test_user_credential_uuic_association_same_slot_different_user()
                                destination_user_id,
                                destination_credential_slot);
   // Simulate Set
-  helper_test_set_get_with_args(
+  zwave_frame set_frame;
+  set_frame.add(source_user_id);
+  set_frame.add(credential_type);
+  set_frame.add(source_credential_slot);
+  set_frame.add(destination_user_id);
+  set_frame.add(destination_credential_slot);
+
+  helper_test_get_set_frame_happy_case(
     USER_CREDENTIAL_ASSOCIATION_SET,
     association_nodes.association_credential_slot_node,
-    {{source_nodes.user_id_node, REPORTED_ATTRIBUTE},
-     {source_nodes.credential_type_node, REPORTED_ATTRIBUTE},
-     {source_nodes.credential_slot_node, REPORTED_ATTRIBUTE},
-     {association_nodes.association_user_id_node, DESIRED_ATTRIBUTE},
-     {association_nodes.association_credential_slot_node, DESIRED_ATTRIBUTE}});
+    set_frame);
 
   // Then simulate report
-  helper_association_report_frame(source_user_id,
-                                  credential_type,
-                                  source_credential_slot,
-                                  destination_user_id,
-                                  destination_credential_slot,
-                                  association_status);
+  helper_simulate_association_report_frame(source_user_id,
+                                           credential_type,
+                                           source_credential_slot,
+                                           destination_user_id,
+                                           destination_credential_slot,
+                                           association_status);
 
   // Test data structure
-  TEST_ASSERT_TRUE_MESSAGE(
-    attribute_store_node_exists(source_nodes.credential_type_node),
-    "Old credential type node should still exist");
+  TEST_ASSERT_TRUE_MESSAGE(source_nodes.credential_type_node.is_valid(),
+                           "Old credential type node should still exist");
   TEST_ASSERT_FALSE_MESSAGE(
-    attribute_store_node_exists(source_nodes.credential_slot_node),
+    source_nodes.credential_slot_node.is_valid(),
     "Old credential slot node should have been removed");
   // Association nodes doesn't have any reported value so they shouldn't exists anymore
   TEST_ASSERT_FALSE_MESSAGE(
-    attribute_store_node_exists(association_nodes.association_user_id_node),
+    association_nodes.association_user_id_node.is_valid(),
     "Association user id node should have been removed");
   TEST_ASSERT_FALSE_MESSAGE(
-    attribute_store_node_exists(
-      association_nodes.association_credential_slot_node),
+    association_nodes.association_credential_slot_node.is_valid(),
     "Association credential slot node should have been removed");
 
   TEST_ASSERT_EQUAL_MESSAGE(
     0,
-    attribute_store_get_node_child_count(source_nodes.credential_type_node),
+    source_nodes.credential_type_node.child_count(),
     "Source Credential type node should have no children");
 
   // Check destination structure
   auto destination_credential_type_node
-    = attribute_store_get_first_child_by_type(destination_user_id_node,
-                                              ATTRIBUTE(CREDENTIAL_TYPE));
-  user_credential_type_t reported_credential_type;
-  attribute_store_get_reported(destination_credential_type_node,
-                               &reported_credential_type,
-                               sizeof(reported_credential_type));
-  TEST_ASSERT_EQUAL_MESSAGE(credential_type,
-                            reported_credential_type,
-                            "Credential type mismatch");
+    = helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_TYPE),
+                                  credential_type,
+                                  destination_user_id_node);
 
   auto destination_credential_slot_node
-    = attribute_store_get_first_child_by_type(destination_credential_type_node,
-                                              ATTRIBUTE(CREDENTIAL_SLOT));
-  user_credential_slot_t reported_credential_slot;
-  attribute_store_get_reported(destination_credential_slot_node,
-                               &reported_credential_slot,
-                               sizeof(reported_credential_slot));
-  TEST_ASSERT_EQUAL_MESSAGE(destination_credential_slot,
-                            reported_credential_slot,
-                            "Credential slot mismatch");
+    = helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_SLOT),
+                                  destination_credential_slot,
+                                  destination_credential_type_node);
 
   helper_test_credential_data(destination_credential_slot_node,
                               credential_data,
                               modifier_type);
-  uint8_t reported_status;
-  attribute_store_get_child_reported(destination_credential_slot_node,
-                                     ATTRIBUTE(ASSOCIATION_STATUS),
-                                     &reported_status,
-                                     sizeof(reported_status));
-  TEST_ASSERT_EQUAL_MESSAGE(association_status,
-                            reported_status,
-                            "Association status mismatch");
+
+  helper_test_attribute_value(ATTRIBUTE(ASSOCIATION_STATUS),
+                              association_status,
+                              destination_credential_slot_node);
 }
 
 void test_user_credential_uuic_association_different_slot_different_user_with_existing_type()
@@ -4978,15 +3771,11 @@ void test_user_credential_uuic_association_different_slot_different_user_with_ex
                                                          REPORTED_ATTRIBUTE);
 
   auto destination_user_id_node
-    = attribute_store_emplace(endpoint_id_node,
-                              ATTRIBUTE(USER_UNIQUE_ID),
-                              &destination_user_id,
-                              sizeof(destination_user_id));
+    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID),
+                                        destination_user_id);
   // Already present type
-  attribute_store_emplace(destination_user_id_node,
-                          ATTRIBUTE(CREDENTIAL_TYPE),
-                          &credential_type,
-                          sizeof(credential_type));
+  destination_user_id_node.emplace_node(ATTRIBUTE(CREDENTIAL_TYPE),
+                                        credential_type);
 
   helper_fill_credential_data(source_nodes.credential_slot_node,
                               credential_data,
@@ -4995,79 +3784,65 @@ void test_user_credential_uuic_association_different_slot_different_user_with_ex
     = helper_setup_association(source_nodes.credential_slot_node,
                                destination_user_id,
                                destination_credential_slot);
+
   // Simulate Set
-  helper_test_set_get_with_args(
+  zwave_frame set_frame;
+  set_frame.add(source_user_id);
+  set_frame.add(credential_type);
+  set_frame.add(source_credential_slot);
+  set_frame.add(destination_user_id);
+  set_frame.add(destination_credential_slot);
+
+  helper_test_get_set_frame_happy_case(
     USER_CREDENTIAL_ASSOCIATION_SET,
     association_nodes.association_credential_slot_node,
-    {{source_nodes.user_id_node, REPORTED_ATTRIBUTE},
-     {source_nodes.credential_type_node, REPORTED_ATTRIBUTE},
-     {source_nodes.credential_slot_node, REPORTED_ATTRIBUTE},
-     {association_nodes.association_user_id_node, DESIRED_ATTRIBUTE},
-     {association_nodes.association_credential_slot_node, DESIRED_ATTRIBUTE}});
+    set_frame);
 
   // Then simulate report
-  helper_association_report_frame(source_user_id,
-                                  credential_type,
-                                  source_credential_slot,
-                                  destination_user_id,
-                                  destination_credential_slot,
-                                  association_status);
+  helper_simulate_association_report_frame(source_user_id,
+                                           credential_type,
+                                           source_credential_slot,
+                                           destination_user_id,
+                                           destination_credential_slot,
+                                           association_status);
 
   // Test data structure
-  TEST_ASSERT_TRUE_MESSAGE(
-    attribute_store_node_exists(source_nodes.credential_type_node),
-    "Old credential type node should still exist");
+  TEST_ASSERT_TRUE_MESSAGE(source_nodes.credential_type_node.is_valid(),
+                           "Old credential type node should still exist");
   TEST_ASSERT_FALSE_MESSAGE(
-    attribute_store_node_exists(source_nodes.credential_slot_node),
+    source_nodes.credential_slot_node.is_valid(),
     "Old credential slot node should have been removed");
   // Association nodes doesn't have any reported value so they shouldn't exists anymore
   TEST_ASSERT_FALSE_MESSAGE(
-    attribute_store_node_exists(association_nodes.association_user_id_node),
+    association_nodes.association_user_id_node.is_valid(),
     "Association user id node should have been removed");
   TEST_ASSERT_FALSE_MESSAGE(
-    attribute_store_node_exists(
-      association_nodes.association_credential_slot_node),
+    association_nodes.association_credential_slot_node.is_valid(),
     "Association credential slot node should have been removed");
 
   TEST_ASSERT_EQUAL_MESSAGE(
     0,
-    attribute_store_get_node_child_count(source_nodes.credential_type_node),
+    source_nodes.credential_type_node.child_count(),
     "Source Credential type node should have no children");
 
   // Check destination structure
   auto destination_credential_type_node
-    = attribute_store_get_first_child_by_type(destination_user_id_node,
-                                              ATTRIBUTE(CREDENTIAL_TYPE));
-  user_credential_type_t reported_credential_type;
-  attribute_store_get_reported(destination_credential_type_node,
-                               &reported_credential_type,
-                               sizeof(reported_credential_type));
-  TEST_ASSERT_EQUAL_MESSAGE(credential_type,
-                            reported_credential_type,
-                            "Credential type mismatch");
+    = helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_TYPE),
+                                  credential_type,
+                                  destination_user_id_node);
 
   auto destination_credential_slot_node
-    = attribute_store_get_first_child_by_type(destination_credential_type_node,
-                                              ATTRIBUTE(CREDENTIAL_SLOT));
-  user_credential_slot_t reported_credential_slot;
-  attribute_store_get_reported(destination_credential_slot_node,
-                               &reported_credential_slot,
-                               sizeof(reported_credential_slot));
-  TEST_ASSERT_EQUAL_MESSAGE(destination_credential_slot,
-                            reported_credential_slot,
-                            "Credential slot mismatch");
+    = helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_SLOT),
+                                  destination_credential_slot,
+                                  destination_credential_type_node);
 
   helper_test_credential_data(destination_credential_slot_node,
                               credential_data,
                               modifier_type);
-  uint8_t reported_status;
-  attribute_store_get_child_reported(destination_credential_slot_node,
-                                     ATTRIBUTE(ASSOCIATION_STATUS),
-                                     &reported_status,
-                                     sizeof(reported_status));
-  TEST_ASSERT_EQUAL_MESSAGE(association_status,
-                            reported_status,
-                            "Association status mismatch");
+
+  helper_test_attribute_value(ATTRIBUTE(ASSOCIATION_STATUS),
+                              association_status,
+                              destination_credential_slot_node);
 }
 
 void test_user_credential_uuic_association_different_slot_same_user()
@@ -5115,22 +3890,25 @@ void test_user_credential_uuic_association_different_slot_same_user()
                                destination_user_id,
                                destination_credential_slot);
   // Simulate Set
-  helper_test_set_get_with_args(
+  zwave_frame set_frame;
+  set_frame.add(source_user_id);
+  set_frame.add(credential_type);
+  set_frame.add(source_credential_slot);
+  set_frame.add(destination_user_id);
+  set_frame.add(destination_credential_slot);
+
+  helper_test_get_set_frame_happy_case(
     USER_CREDENTIAL_ASSOCIATION_SET,
     association_nodes.association_credential_slot_node,
-    {{source_nodes.user_id_node, REPORTED_ATTRIBUTE},
-     {source_nodes.credential_type_node, REPORTED_ATTRIBUTE},
-     {source_nodes.credential_slot_node, REPORTED_ATTRIBUTE},
-     {association_nodes.association_user_id_node, DESIRED_ATTRIBUTE},
-     {association_nodes.association_credential_slot_node, DESIRED_ATTRIBUTE}});
+    set_frame);
 
   // Then simulate report
-  helper_association_report_frame(source_user_id,
-                                  credential_type,
-                                  source_credential_slot,
-                                  destination_user_id,
-                                  destination_credential_slot,
-                                  association_status);
+  helper_simulate_association_report_frame(source_user_id,
+                                           credential_type,
+                                           source_credential_slot,
+                                           destination_user_id,
+                                           destination_credential_slot,
+                                           association_status);
 
   // Test data structure
   TEST_ASSERT_TRUE_MESSAGE(
@@ -5154,37 +3932,23 @@ void test_user_credential_uuic_association_different_slot_same_user()
     "Source Credential type node should have one children");
 
   // Check destination structure
-  auto destination_credential_type_node = source_nodes.credential_type_node;
-  user_credential_type_t reported_credential_type;
-  attribute_store_get_reported(destination_credential_type_node,
-                               &reported_credential_type,
-                               sizeof(reported_credential_type));
-  TEST_ASSERT_EQUAL_MESSAGE(credential_type,
-                            reported_credential_type,
-                            "Credential type mismatch");
+  auto destination_credential_type_node
+    = helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_TYPE),
+                                  credential_type,
+                                  source_nodes.user_id_node);
 
   auto destination_credential_slot_node
-    = attribute_store_get_first_child_by_type(destination_credential_type_node,
-                                              ATTRIBUTE(CREDENTIAL_SLOT));
-  user_credential_slot_t reported_credential_slot;
-  attribute_store_get_reported(destination_credential_slot_node,
-                               &reported_credential_slot,
-                               sizeof(reported_credential_slot));
-  TEST_ASSERT_EQUAL_MESSAGE(destination_credential_slot,
-                            reported_credential_slot,
-                            "Credential slot mismatch");
+    = helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_SLOT),
+                                  destination_credential_slot,
+                                  destination_credential_type_node);
 
   helper_test_credential_data(destination_credential_slot_node,
                               credential_data,
                               modifier_type);
-  uint8_t reported_status;
-  attribute_store_get_child_reported(destination_credential_slot_node,
-                                     ATTRIBUTE(ASSOCIATION_STATUS),
-                                     &reported_status,
-                                     sizeof(reported_status));
-  TEST_ASSERT_EQUAL_MESSAGE(association_status,
-                            reported_status,
-                            "Association status mismatch");
+
+  helper_test_attribute_value(ATTRIBUTE(ASSOCIATION_STATUS),
+                              association_status,
+                              destination_credential_slot_node);
 }
 
 void test_user_credential_uuic_association_error_code()
@@ -5226,10 +3990,8 @@ void test_user_credential_uuic_association_error_code()
                                                          REPORTED_ATTRIBUTE);
 
   auto destination_user_id_node
-    = attribute_store_emplace(endpoint_id_node,
-                              ATTRIBUTE(USER_UNIQUE_ID),
-                              &destination_user_id,
-                              sizeof(destination_user_id));
+    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID),
+                                        destination_user_id);
 
   helper_fill_credential_data(source_nodes.credential_slot_node,
                               credential_data,
@@ -5239,22 +4001,25 @@ void test_user_credential_uuic_association_error_code()
                                destination_user_id,
                                destination_credential_slot);
   // Simulate Set
-  helper_test_set_get_with_args(
+  zwave_frame set_frame;
+  set_frame.add(source_user_id);
+  set_frame.add(credential_type);
+  set_frame.add(source_credential_slot);
+  set_frame.add(destination_user_id);
+  set_frame.add(destination_credential_slot);
+
+  helper_test_get_set_frame_happy_case(
     USER_CREDENTIAL_ASSOCIATION_SET,
     association_nodes.association_credential_slot_node,
-    {{source_nodes.user_id_node, REPORTED_ATTRIBUTE},
-     {source_nodes.credential_type_node, REPORTED_ATTRIBUTE},
-     {source_nodes.credential_slot_node, REPORTED_ATTRIBUTE},
-     {association_nodes.association_user_id_node, DESIRED_ATTRIBUTE},
-     {association_nodes.association_credential_slot_node, DESIRED_ATTRIBUTE}});
+    set_frame);
 
   // Then simulate report
-  helper_association_report_frame(source_user_id,
-                                  credential_type,
-                                  source_credential_slot,
-                                  destination_user_id,
-                                  destination_credential_slot,
-                                  association_status);
+  helper_simulate_association_report_frame(source_user_id,
+                                           credential_type,
+                                           source_credential_slot,
+                                           destination_user_id,
+                                           destination_credential_slot,
+                                           association_status);
 
   // Test data structure
   TEST_ASSERT_TRUE_MESSAGE(
@@ -5285,34 +4050,21 @@ void test_user_credential_uuic_association_error_code()
 
   // Test source credential slot node
   auto destination_credential_slot_node = source_nodes.credential_slot_node;
-  user_credential_slot_t reported_credential_slot;
-  attribute_store_get_reported(destination_credential_slot_node,
-                               &reported_credential_slot,
-                               sizeof(reported_credential_slot));
-  TEST_ASSERT_EQUAL_MESSAGE(destination_credential_slot,
-                            reported_credential_slot,
-                            "Credential slot mismatch");
+  helper_test_attribute_value(ATTRIBUTE(CREDENTIAL_SLOT),
+                              destination_credential_slot,
+                              source_nodes.credential_type_node);
 
   helper_test_credential_data(destination_credential_slot_node,
                               credential_data,
                               modifier_type);
-  uint8_t reported_status;
-  attribute_store_get_child_reported(destination_credential_slot_node,
-                                     ATTRIBUTE(ASSOCIATION_STATUS),
-                                     &reported_status,
-                                     sizeof(reported_status));
-  TEST_ASSERT_EQUAL_MESSAGE(association_status,
-                            reported_status,
-                            "Association status mismatch");
+
+  helper_test_attribute_value(ATTRIBUTE(ASSOCIATION_STATUS),
+                              association_status,
+                              destination_credential_slot_node);
 }
 
 void test_get_user_checksum_with_credentials_happy_case()
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-
   user_credential_user_unique_id_t user_id                      = 12;
   user_credential_user_type_t user_type                         = 0x04;
   user_credential_user_active_state_t user_active_state         = 0x01;
@@ -5321,31 +4073,27 @@ void test_get_user_checksum_with_credentials_happy_case()
   std::string user_name                                         = "Matt";
 
   // Creating user
-  auto user_id_node = attribute_store_emplace_desired(endpoint_id_node,
-                                                      ATTRIBUTE(USER_UNIQUE_ID),
-                                                      &user_id,
-                                                      sizeof(user_id));
-  // Simulate get on user
-  helper_test_set_get_with_args(USER_GET,
-                                user_id_node,
-                                {{user_id_node, DESIRED_ATTRIBUTE}});
+  auto user_id_node
+    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID),
+                                        user_id,
+                                        DESIRED_ATTRIBUTE);
 
-  auto user_report_frame = helper_create_user_report_frame(0x04,
-                                                           0,
-                                                           0x02,  // Z-Wave
-                                                           0,
-                                                           user_id,
-                                                           user_type,
-                                                           user_active_state,
-                                                           credential_rules,
-                                                           0,
-                                                           user_name_encoding,
-                                                           user_name);
-  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
-                            handler.control_handler(&info,
-                                                    user_report_frame.data(),
-                                                    user_report_frame.size()),
-                            "Should have managed to create user");
+  // Simulate get/report on user
+  zwave_frame user_get_frame;
+  user_get_frame.add(user_id);
+  helper_test_get_set_frame_happy_case(USER_GET, user_id_node, user_get_frame);
+
+  helper_simulate_user_report_frame(0x04,
+                                    0,
+                                    0x02,  // Z-Wave
+                                    0,
+                                    user_id,
+                                    user_type,
+                                    user_active_state,
+                                    credential_rules,
+                                    0,
+                                    user_name_encoding,
+                                    user_name);
 
   // Credentials
   std::vector<user_credential_type_t> credential_types
@@ -5374,7 +4122,7 @@ void test_get_user_checksum_with_credentials_happy_case()
   }
 
   for (size_t i = 0; i < credential_types.size(); i++) {
-    auto credential_frame = helper_create_credential_report_frame(
+    helper_simulate_credential_report_frame(
       user_id,
       credential_types[i],
       credential_slots[i],
@@ -5384,43 +4132,30 @@ void test_get_user_checksum_with_credentials_happy_case()
       0,
       (i + 1) == credential_types.size() ? 0 : credential_types[i + 1],
       (i + 1) == credential_types.size() ? 0 : credential_slots[i + 1]);
-
-    TEST_ASSERT_EQUAL_MESSAGE(
-      SL_STATUS_OK,
-      handler.control_handler(&info,
-                              credential_frame.data(),
-                              credential_frame.size()),
-      "Credential report should have returned SL_STATUS_OK");
   }
 
   // Get checksum
-  auto checksum_node
-    = attribute_store_add_node(ATTRIBUTE(USER_CHECKSUM), user_id_node);
+  auto checksum_node = user_id_node.add_node(ATTRIBUTE(USER_CHECKSUM));
 
-  helper_test_set_get_with_args(USER_CHECKSUM_GET,
-                                checksum_node,
-                                {{user_id_node, REPORTED_ATTRIBUTE}});
+  zwave_frame checksum_get_frame;
+  checksum_get_frame.add(user_id);
+
+  helper_test_get_set_frame_happy_case(USER_CHECKSUM_GET,
+                                       checksum_node,
+                                       checksum_get_frame);
 
   user_credential_checksum_t expected_checksum = 0x9024;
   helper_simulate_user_checksum_report(user_id, expected_checksum);
 
   // Check if checksum is correct
-  user_credential_checksum_t reported_checksum;
-  attribute_store_get_reported(checksum_node,
-                               &reported_checksum,
-                               sizeof(reported_checksum));
-  TEST_ASSERT_EQUAL_MESSAGE(expected_checksum,
-                            reported_checksum,
-                            "Checksum mismatch");
+  TEST_ASSERT_EQUAL_MESSAGE(
+    expected_checksum,
+    checksum_node.reported<user_credential_checksum_t>(),
+    "Checksum mismatch");
 }
 
 void test_get_user_checksum_without_credentials_happy_case()
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-
   user_credential_user_unique_id_t user_id                      = 12;
   user_credential_user_type_t user_type                         = 0x04;
   user_credential_user_active_state_t user_active_state         = 0x01;
@@ -5429,60 +4164,50 @@ void test_get_user_checksum_without_credentials_happy_case()
   std::string user_name                                         = "Lillie";
 
   // Creating user
-  auto user_id_node = attribute_store_emplace_desired(endpoint_id_node,
-                                                      ATTRIBUTE(USER_UNIQUE_ID),
-                                                      &user_id,
-                                                      sizeof(user_id));
-  // Simulate get on user
-  helper_test_set_get_with_args(USER_GET,
-                                user_id_node,
-                                {{user_id_node, DESIRED_ATTRIBUTE}});
+  auto user_id_node
+    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID),
+                                        user_id,
+                                        DESIRED_ATTRIBUTE);
 
-  auto user_report_frame = helper_create_user_report_frame(0x04,
-                                                           0,
-                                                           0x02,  // Z-Wave
-                                                           0,
-                                                           user_id,
-                                                           user_type,
-                                                           user_active_state,
-                                                           credential_rules,
-                                                           0,
-                                                           user_name_encoding,
-                                                           user_name);
-  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
-                            handler.control_handler(&info,
-                                                    user_report_frame.data(),
-                                                    user_report_frame.size()),
-                            "Should have managed to create user");
+  // Simulate get/report on user
+  zwave_frame user_get_frame;
+  user_get_frame.add(user_id);
+  helper_test_get_set_frame_happy_case(USER_GET, user_id_node, user_get_frame);
+
+  helper_simulate_user_report_frame(0x04,
+                                    0,
+                                    0x02,  // Z-Wave
+                                    0,
+                                    user_id,
+                                    user_type,
+                                    user_active_state,
+                                    credential_rules,
+                                    0,
+                                    user_name_encoding,
+                                    user_name);
 
   // Get checksum
-  auto checksum_node
-    = attribute_store_add_node(ATTRIBUTE(USER_CHECKSUM), user_id_node);
+  auto checksum_node = user_id_node.add_node(ATTRIBUTE(USER_CHECKSUM));
 
-  helper_test_set_get_with_args(USER_CHECKSUM_GET,
-                                checksum_node,
-                                {{user_id_node, REPORTED_ATTRIBUTE}});
+  zwave_frame checksum_get_frame;
+  checksum_get_frame.add(user_id);
+
+  helper_test_get_set_frame_happy_case(USER_CHECKSUM_GET,
+                                       checksum_node,
+                                       checksum_get_frame);
 
   user_credential_checksum_t expected_checksum = 0xF900;
   helper_simulate_user_checksum_report(user_id, expected_checksum);
 
   // Check if checksum is correct
-  user_credential_checksum_t reported_checksum;
-  attribute_store_get_reported(checksum_node,
-                               &reported_checksum,
-                               sizeof(reported_checksum));
-  TEST_ASSERT_EQUAL_MESSAGE(expected_checksum,
-                            reported_checksum,
-                            "Checksum mismatch");
+  TEST_ASSERT_EQUAL_MESSAGE(
+    expected_checksum,
+    checksum_node.reported<user_credential_checksum_t>(),
+    "Checksum mismatch");
 }
 
 void test_get_user_checksum_without_credentials_mismatch_checksum()
 {
-  zwave_controller_connection_info_t info = {};
-  info.remote.node_id                     = node_id;
-  info.remote.endpoint_id                 = endpoint_id;
-  info.local.is_multicast                 = false;
-
   user_credential_user_unique_id_t user_id                      = 12;
   user_credential_user_type_t user_type                         = 0x04;
   user_credential_user_active_state_t user_active_state         = 0x01;
@@ -5491,39 +4216,37 @@ void test_get_user_checksum_without_credentials_mismatch_checksum()
   std::string user_name                                         = "Lillie";
 
   // Creating user
-  auto user_id_node = attribute_store_emplace_desired(endpoint_id_node,
-                                                      ATTRIBUTE(USER_UNIQUE_ID),
-                                                      &user_id,
-                                                      sizeof(user_id));
-  // Simulate get on user
-  helper_test_set_get_with_args(USER_GET,
-                                user_id_node,
-                                {{user_id_node, DESIRED_ATTRIBUTE}});
+  auto user_id_node
+    = cpp_endpoint_id_node.emplace_node(ATTRIBUTE(USER_UNIQUE_ID),
+                                        user_id,
+                                        DESIRED_ATTRIBUTE);
 
-  auto user_report_frame = helper_create_user_report_frame(0x04,
-                                                           0,
-                                                           0x02,  // Z-Wave
-                                                           0,
-                                                           user_id,
-                                                           user_type,
-                                                           user_active_state,
-                                                           credential_rules,
-                                                           0,
-                                                           user_name_encoding,
-                                                           user_name);
-  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK,
-                            handler.control_handler(&info,
-                                                    user_report_frame.data(),
-                                                    user_report_frame.size()),
-                            "Should have managed to create user");
+  // Simulate get/report on user
+  zwave_frame user_get_frame;
+  user_get_frame.add(user_id);
+  helper_test_get_set_frame_happy_case(USER_GET, user_id_node, user_get_frame);
 
+
+  helper_simulate_user_report_frame(0x04,
+                                    0,
+                                    0x02,  // Z-Wave
+                                    0,
+                                    user_id,
+                                    user_type,
+                                    user_active_state,
+                                    credential_rules,
+                                    0,
+                                    user_name_encoding,
+                                    user_name);
   // Get checksum
-  auto checksum_node
-    = attribute_store_add_node(ATTRIBUTE(USER_CHECKSUM), user_id_node);
+  auto checksum_node = user_id_node.add_node(ATTRIBUTE(USER_CHECKSUM));
 
-  helper_test_set_get_with_args(USER_CHECKSUM_GET,
-                                checksum_node,
-                                {{user_id_node, REPORTED_ATTRIBUTE}});
+  zwave_frame checksum_get_frame;
+  checksum_get_frame.add(user_id);
+
+  helper_test_get_set_frame_happy_case(USER_CHECKSUM_GET,
+                                       checksum_node,
+                                       checksum_get_frame);
 
   // Simulate checksum mismatch
   user_credential_checksum_t expected_checksum       = 0xF900;
@@ -5533,36 +4256,25 @@ void test_get_user_checksum_without_credentials_mismatch_checksum()
                                        SL_STATUS_FAIL);
 
   // Check if checksum is correct
-  user_credential_checksum_t reported_calculated_checksum;
-  user_credential_checksum_t reported_error_checksum;
+  TEST_ASSERT_EQUAL_MESSAGE(
+    error_expected_checksum,
+    checksum_node.reported<user_credential_checksum_t>(),
+    "Calculated checksum mismatch");
 
-  attribute_store_get_reported(checksum_node,
-                               &reported_calculated_checksum,
-                               sizeof(reported_calculated_checksum));
-  TEST_ASSERT_EQUAL_MESSAGE(error_expected_checksum,
-                            reported_calculated_checksum,
-                            "Calculated checksum mismatch");
-
-  auto error_checksum_node = attribute_store_get_first_child_by_type(
-    user_id_node,
-    ATTRIBUTE(USER_CHECKSUM_MISMATCH_ERROR));
-  attribute_store_get_reported(error_checksum_node,
-                               &reported_error_checksum,
-                               sizeof(reported_error_checksum));
-  TEST_ASSERT_EQUAL_MESSAGE(expected_checksum,
-                            reported_error_checksum,
-                            "Error checksum mismatch");
+  auto error_checksum_node
+    = helper_test_attribute_value(ATTRIBUTE(USER_CHECKSUM_MISMATCH_ERROR),
+                                  expected_checksum,
+                                  user_id_node);
 
   // Now simulate checksum match
   helper_simulate_user_checksum_report(user_id, expected_checksum);
-  attribute_store_get_reported(checksum_node,
-                               &reported_calculated_checksum,
-                               sizeof(reported_calculated_checksum));
-  TEST_ASSERT_EQUAL_MESSAGE(expected_checksum,
-                            reported_calculated_checksum,
-                            "Checksum mismatch");
 
-  TEST_ASSERT_FALSE_MESSAGE(attribute_store_node_exists(error_checksum_node),
+  TEST_ASSERT_EQUAL_MESSAGE(
+    expected_checksum,
+    checksum_node.reported<user_credential_checksum_t>(),
+    "Calculated checksum mismatch");
+
+  TEST_ASSERT_FALSE_MESSAGE(error_checksum_node.is_valid(),
                             "Error node should have been removed");
 }
 
@@ -5581,53 +4293,45 @@ void test_get_credential_checksum_happy_case()
 
   // Create empty RFID_CODE
   user_credential_type_t rfid_type = ZCL_CRED_TYPE_RFID_CODE;
-  attribute_store_emplace(endpoint_id_node,
-                          ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE),
-                          &rfid_type,
-                          sizeof(rfid_type));
+  cpp_endpoint_id_node.emplace_node(ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE),
+                                    rfid_type);
 
   if (tested_credential_types.size() != expected_checksums.size()) {
     TEST_FAIL_MESSAGE("All vectors should be the same size");
   }
 
   for (size_t i = 0; i < tested_credential_types.size(); i++) {
-    auto current_credential_type      = tested_credential_types[i];
-    auto current_credential_type_node = attribute_store_get_node_child_by_value(
-      endpoint_id_node,
-      ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE),
-      REPORTED_ATTRIBUTE,
-      &current_credential_type,
-      sizeof(current_credential_type),
-      0);
+    auto current_credential_type = tested_credential_types[i];
+    auto current_credential_type_node
+      = cpp_endpoint_id_node.child_by_type_and_value(
+        ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE),
+        current_credential_type);
 
-    TEST_ASSERT_TRUE_MESSAGE(
-      attribute_store_node_exists(current_credential_type_node),
-      "Credential type node should exist");
+    TEST_ASSERT_TRUE_MESSAGE(current_credential_type_node.is_valid(),
+                             "Credential type node should exist");
 
     // Get checksum
     auto checksum_node
-      = attribute_store_add_node(ATTRIBUTE(CREDENTIAL_CHECKSUM),
-                                 current_credential_type_node);
+      = current_credential_type_node.add_node(ATTRIBUTE(CREDENTIAL_CHECKSUM));
 
-    helper_test_set_get_with_args(
-      CREDENTIAL_CHECKSUM_GET,
-      checksum_node,
-      {{current_credential_type_node, REPORTED_ATTRIBUTE}});
+    zwave_frame checksum_get_frame;
+    checksum_get_frame.add(current_credential_type);
+
+    helper_test_get_set_frame_happy_case(CREDENTIAL_CHECKSUM_GET,
+                                         checksum_node,
+                                         checksum_get_frame);
 
     user_credential_checksum_t expected_checksum = expected_checksums[i];
     helper_simulate_credential_checksum_report(current_credential_type,
                                                expected_checksum);
 
     // Check if checksum is correct
-    user_credential_checksum_t reported_checksum;
-    attribute_store_get_reported(checksum_node,
-                                 &reported_checksum,
-                                 sizeof(reported_checksum));
-    TEST_ASSERT_EQUAL_MESSAGE(expected_checksum,
-                              reported_checksum,
-                              (std::string("Checksum mismatch for type ")
-                               + std::to_string(current_credential_type))
-                                .c_str());
+    TEST_ASSERT_EQUAL_MESSAGE(
+      expected_checksum,
+      checksum_node.reported<user_credential_checksum_t>(),
+      (std::string("Checksum mismatch for type ")
+       + std::to_string(current_credential_type))
+        .c_str());
   }
 }
 
@@ -5645,28 +4349,25 @@ void test_get_credential_checksum_mismatch()
   }
 
   for (size_t i = 0; i < tested_credential_types.size(); i++) {
-    auto current_credential_type      = tested_credential_types[i];
-    auto current_credential_type_node = attribute_store_get_node_child_by_value(
-      endpoint_id_node,
-      ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE),
-      REPORTED_ATTRIBUTE,
-      &current_credential_type,
-      sizeof(current_credential_type),
-      0);
+    auto current_credential_type = tested_credential_types[i];
+    auto current_credential_type_node
+      = cpp_endpoint_id_node.child_by_type_and_value(
+        ATTRIBUTE(SUPPORTED_CREDENTIAL_TYPE),
+        current_credential_type);
 
-    TEST_ASSERT_TRUE_MESSAGE(
-      attribute_store_node_exists(current_credential_type_node),
-      "Credential type node should exist");
+    TEST_ASSERT_TRUE_MESSAGE(current_credential_type_node.is_valid(),
+                             "Credential type node should exist");
 
     // Get checksum
     auto checksum_node
-      = attribute_store_add_node(ATTRIBUTE(CREDENTIAL_CHECKSUM),
-                                 current_credential_type_node);
+      = current_credential_type_node.add_node(ATTRIBUTE(CREDENTIAL_CHECKSUM));
 
-    helper_test_set_get_with_args(
-      CREDENTIAL_CHECKSUM_GET,
-      checksum_node,
-      {{current_credential_type_node, REPORTED_ATTRIBUTE}});
+    zwave_frame checksum_get_frame;
+    checksum_get_frame.add(current_credential_type);
+
+    helper_test_get_set_frame_happy_case(CREDENTIAL_CHECKSUM_GET,
+                                         checksum_node,
+                                         checksum_get_frame);
 
     user_credential_checksum_t error_checksum = expected_checksums[i] + 1;
     helper_simulate_credential_checksum_report(current_credential_type,
@@ -5674,28 +4375,15 @@ void test_get_credential_checksum_mismatch()
                                                SL_STATUS_FAIL);
 
     // Check error checksum
-    user_credential_checksum_t reported_mismatch_checksum;
-    user_credential_checksum_t reported_error_checksum;
+    TEST_ASSERT_EQUAL_MESSAGE(
+      error_checksum,
+      checksum_node.reported<user_credential_checksum_t>(),
+      "Reported checksum mismatch");
 
-    attribute_store_get_reported(checksum_node,
-                                 &reported_error_checksum,
-                                 sizeof(reported_error_checksum));
-
-    TEST_ASSERT_EQUAL_MESSAGE(error_checksum,
-                              reported_error_checksum,
-                              "Reported checksum mismatch");
-
-    auto mismatch_checksum_node = attribute_store_get_first_child_by_type(
-      current_credential_type_node,
-      ATTRIBUTE(CREDENTIAL_CHECKSUM_MISMATCH_ERROR));
-
-    attribute_store_get_reported(mismatch_checksum_node,
-                                 &reported_mismatch_checksum,
-                                 sizeof(reported_mismatch_checksum));
-
-    TEST_ASSERT_EQUAL_MESSAGE(expected_checksums[i],
-                              reported_mismatch_checksum,
-                              "Mismatch checksum mismatch");
+    auto mismatch_checksum_node = helper_test_attribute_value(
+      ATTRIBUTE(CREDENTIAL_CHECKSUM_MISMATCH_ERROR),
+      expected_checksums[i],
+      current_credential_type_node);
 
     // Try again with correct checksum
 
@@ -5704,17 +4392,13 @@ void test_get_credential_checksum_mismatch()
                                                expected_checksum);
 
     // Check if checksum is correct
-    user_credential_checksum_t reported_checksum;
-    attribute_store_get_reported(checksum_node,
-                                 &reported_checksum,
-                                 sizeof(reported_checksum));
-
-    TEST_ASSERT_EQUAL_MESSAGE(expected_checksum,
-                              reported_checksum,
-                              "Checksum mismatch");
+    TEST_ASSERT_EQUAL_MESSAGE(
+      expected_checksum,
+      checksum_node.reported<user_credential_checksum_t>(),
+      "Checksum mismatch");
 
     TEST_ASSERT_FALSE_MESSAGE(
-      attribute_store_node_exists(mismatch_checksum_node),
+      mismatch_checksum_node.is_valid(),
       "Mismatch checksum node should have been removed");
   }
 }
