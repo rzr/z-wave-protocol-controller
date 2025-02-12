@@ -40,6 +40,9 @@ jobs:
           UNIFYSDK_GIT_REPOSITORY=${{ secrets.UNIFYSDK_GIT_REPOSITORY }}
           UNIFYSDK_GIT_TAG=${{ secrets.UNIFYSDK_GIT_TAG }}
           ./scripts/build-rootfs.sh
+      - name: Build documentation once
+        run: >-
+          ./scripts/build-rootfs.sh dist/docs
       - name: Upload artifacts
         # yamllint disable-line rule:line-length
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
