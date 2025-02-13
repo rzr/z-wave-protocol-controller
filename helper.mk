@@ -110,7 +110,7 @@ setup/rust:
 	curl --insecure  --proto '=https' --tlsv1.2 -sSf  ${rust_url} \
 		| bash -s -- -y \
 			--default-toolchain="${RUST_VERSION}" \
-			--default-host="${CARGO_TARGET_TRIPLE}"
+			# --default-host="${CARGO_TARGET_TRIPLE}"
 	cat $${HOME}/.cargo/env
 	@echo '$@: info: You might like to add ". $${HOME}/.cargo/env" to "$${HOME}/.bashrc"'
 	-which rustc
