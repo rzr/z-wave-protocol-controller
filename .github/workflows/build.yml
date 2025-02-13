@@ -4,7 +4,7 @@
 name: z-wave-protocol-controller Build in docker
 
 on:  # yamllint disable-line rule:truthy
-  push:
+# push: # Disabled for testing
 
 jobs:
   build:
