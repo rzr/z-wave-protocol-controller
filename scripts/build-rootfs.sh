@@ -11,6 +11,8 @@ cat<<EOF
 Usage:
 
 ARCH=arm64 ./scripts/build-rootfs.sh
+
+Relate-to: https://www.debian.org/ports/
 EOF
 
 project="z-wave-protocol-controller"
@@ -80,6 +82,13 @@ EOF
         qemu_package="qemu-system-x86"
         MAKE="/usr/bin/linux32 ${MAKE}"
         ;;
+    mips64el)
+        CMAKE_SYSTEM_PROCESSOR="$ARCH"
+        CARGO_TARGET_TRIPLE="${CMAKE_SYSTEM_PROCESSOR}-unknown-linux-gnuabi64"
+        qemu_arch="${ARCH}"
+        qemu_system="qemu-system-${qemu_arch}"
+        qemu_package="${qemu_system}"
+        ;;        
     *)
         CMAKE_SYSTEM_PROCESSOR="$ARCH"
         CARGO_TARGET_TRIPLE="${CMAKE_SYSTEM_PROCESSOR}-unknown-linux-gnu"
