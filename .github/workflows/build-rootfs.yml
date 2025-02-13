@@ -17,33 +17,33 @@ jobs:
 #         - armhf # TODO Enable when supported
 #         - i386
     steps:
-      # - uses: actions/checkout@v4.2.2
-      #   with:
-      #     fetch-depth: 0
-      #     # Relate-to: https://github.com/actions/checkout/pull/2081#2025
-      #     ref: ${{ github.ref }}
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+          # Relate-to: https://github.com/actions/checkout/pull/2081#2025
+          ref: ${{ github.ref }}
 
-      # - id: describe
-      #   name: Describe HEAD
-      #   run: >-
-      #     echo "describe=$(git describe --tags --always || echo 0)"
-      #     | tee $GITHUB_OUTPUT
-      # - name: Setup and build
-      #   run: >-
-      #     ARCH=${{ matrix.arch }}
-      #     UNIFYSDK_GIT_REPOSITORY=${{ secrets.UNIFYSDK_GIT_REPOSITORY }}
-      #     UNIFYSDK_GIT_TAG=${{ secrets.UNIFYSDK_GIT_TAG }}
-      #     ./scripts/build-rootfs.sh
-      # - name: Upload artifacts
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     # yamllint disable-line rule:line-length
-      #     name: ${{ github.event.repository.name }}-${{ steps.describe.outputs.describe }}-${{ matrix.arch }}
-      #     path: build/dist/
-      # - name: Build documentation once
-      #   if: startsWith(github.ref, 'refs/tags/') && matrix.arch == 'amd64'
-      #   run: >-
-      #     ./scripts/build-rootfs.sh docs/dist
+      - id: describe
+        name: Describe HEAD
+        run: >-
+          echo "describe=$(git describe --tags --always || echo 0)"
+          | tee $GITHUB_OUTPUT
+      - name: Setup and build
+        run: >-
+          ARCH=${{ matrix.arch }}
+          UNIFYSDK_GIT_REPOSITORY=${{ secrets.UNIFYSDK_GIT_REPOSITORY }}
+          UNIFYSDK_GIT_TAG=${{ secrets.UNIFYSDK_GIT_TAG }}
+          ./scripts/build-rootfs.sh
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          # yamllint disable-line rule:line-length
+          name: ${{ github.event.repository.name }}-${{ steps.describe.outputs.describe }}-${{ matrix.arch }}
+          path: build/dist/
+      - name: Build documentation once
+        if: startsWith(github.ref, 'refs/tags/') && matrix.arch == 'amd64'
+        run: >-
+          ./scripts/build-rootfs.sh docs/dist
       - name: Upload Release Asset
         id: upload-release-asset
         env:
