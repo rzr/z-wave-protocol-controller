@@ -45,10 +45,10 @@ jobs:
           ./scripts/build-rootfs.sh docs/dist
       - name: Upload Release Asset
         id: upload-release-asset
-        uses: softprops/action-gh-release@v2
         env:
           token-defined: ${{ secrets.GH_UNIFY_ACCESS_TOKEN != '' }}
         if: startsWith(github.ref, 'refs/tags/') && ${{ env.token-defined }}
+        uses: softprops/action-gh-release@v2
         with:
           files: build/dist/*
           # yamllint disable-line rule:line-length
