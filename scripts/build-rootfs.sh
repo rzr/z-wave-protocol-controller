@@ -30,6 +30,7 @@ CURDIR="$PWD"
 chroot="systemd-nspawn"
 packages="debootstrap \
   debian-archive-keyring \
+  util-linux \
   systemd-container \
   time \
 "
@@ -77,6 +78,7 @@ EOF
         qemu_arch="${ARCH}"
         qemu_system="qemu-system-${qemu_arch}"
         qemu_package="qemu-system-x86"
+        MAKE="/usr/bin/linux32 ${MAKE}"
         ;;
     *)
         CMAKE_SYSTEM_PROCESSOR="$ARCH"
