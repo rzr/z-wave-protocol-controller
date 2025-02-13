@@ -13,13 +13,13 @@ jobs:
       matrix:
         arch:
           - amd64
-          - arm64
-          - armhf # TODO Enable when supported
+#         - arm64
+#         - armhf # TODO Enable when supported
     steps:
       - uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
-          # Workaround: https://github.com/actions/checkout/issues/290#2025
+          # Relate-to: https://github.com/actions/checkout/pull/2081#2025
           ref: ${{ github.ref }}
 
       - id: describe
@@ -47,6 +47,7 @@ jobs:
         id: upload-release-asset
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
+        if: ${{ secrets.GH_UNIFY_ACCESS_TOKEN != '' }}        
         with:
           files: build/dist/*
           # yamllint disable-line rule:line-length
