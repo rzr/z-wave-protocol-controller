@@ -285,12 +285,17 @@ prepare/docker: Dockerfile prepare
 	@echo "# ${project}: log: $@: done: $^"
 
 docker_workdir?=/usr/local/opt/${project}
+docker_branch?=main
+docker_url?=${url}.git#${docker_branch}
 
 docker/%: Dockerfile
 	time docker run "${project}:latest" -C "${docker_workdir}" "${@F}"
 
 test/docker: distclean prepare/docker docker/help docker/test
 	@echo "# ${project}: log: $@: done: $^"
+
+test/docker/build:
+	docker build ${docker_url}
 
 docs: ./scripts/build/build_documentation.py doc ${PLANTUML_JAR_PATH} configure
 	@echo "# export PLANTUML_JAR_PATH=${plantuml_dir}/${plantuml_filename}"
