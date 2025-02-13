@@ -71,6 +71,13 @@ fix_binary no
 preserve yes
 EOF
         ;;
+    i386)
+        export CMAKE_SYSTEM_PROCESSOR="$ARCH"
+        export CARGO_TARGET_TRIPLE="i686-unknown-linux-gnu"
+        qemu_arch="${ARCH}"
+        qemu_system="qemu-system-${qemu_arch}"
+        qemu_package="qemu-system-x86"
+        ;;
     *)
         CMAKE_SYSTEM_PROCESSOR="$ARCH"
         CARGO_TARGET_TRIPLE="${CMAKE_SYSTEM_PROCESSOR}-unknown-linux-gnu"
