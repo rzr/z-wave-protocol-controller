@@ -60,3 +60,4 @@ jobs:
           docker-compose pull
           export ZPC_COMMAND="docker-compose up --abort-on-container-exit"
           cd z-wave-stack-binaries/bin && file -E *_x86_REALTIME.elf
+          ./scripts/tests/z-wave-stack-binaries-test.sh
