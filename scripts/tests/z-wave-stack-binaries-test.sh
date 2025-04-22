@@ -570,6 +570,7 @@ EOF
         now=$(date -u +%s)
     done
 
+    set # debug env
     screen -S "$name" -X quit ||:
     cat "${mqtt_log}"
 
