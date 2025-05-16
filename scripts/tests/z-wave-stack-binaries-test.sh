@@ -109,7 +109,7 @@ exit_()
     echo $code > $code_log
     screen -S "$name" -X "quit" ||:
     ls -l *.log.tmp && more *.log.tmp | cat
-    exit $code
+    exit 42$code # bad code here for testing
 }
 
 
