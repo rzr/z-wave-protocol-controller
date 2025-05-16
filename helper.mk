@@ -44,6 +44,11 @@ packages+=expect
 packages+=graphviz
 export cmake_options+=-DDOXYGEN_HAVE_DOT=YES
 
+# For tests
+packages+=gh
+packages+=mosquitto-clients
+
+
 packages+=python3-breathe python3-myst-parser \
   python3-sphinx-markdown-tables python3-sphinx-rtd-theme \
   python3-linkify-it
