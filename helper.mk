@@ -45,8 +45,9 @@ packages+=graphviz
 export cmake_options+=-DDOXYGEN_HAVE_DOT=YES
 
 packages+=python3-breathe python3-myst-parser \
-  python3-sphinx-markdown-tables python3-sphinx-rtd-theme \
-  python3-linkify-it
+  python3-sphinx-markdown-tables python3-sphinx-rtd-theme
+
+#packages+=python3-linkify-it # Disable for ubuntu-22.04 use "pip install linkify-it-py" instead
 
 # TODO: https://bugs.debian.org/1004136#python-sphinxcontrib.plantuml
 # packages+=python3-sphinxcontrib.plantuml
