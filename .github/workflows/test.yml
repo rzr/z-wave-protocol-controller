@@ -9,6 +9,7 @@ name: test
 run-name: "test: ${{ github.event.workflow_run.head_branch }}#${{ github.event.workflow_run.head_commit.id }}"
 
 on:  # yamllint disable-line rule:truthy
+  # pull_request_target: # Avoid to prevent CodeQL CWE-829
   workflow_run:
     workflows: ["build"]
     types:
@@ -24,6 +25,9 @@ jobs:
     runs-on: ubuntu-24.04
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
+      - name: Security check
+        if: ${{ github.event.action == 'pull_request_target'}}
+        run: echo "Prevent running (CodeQL CWE-829)" && exit 1
       - name: Download image
         id: image
         # yamllint disable-line rule:line-length
