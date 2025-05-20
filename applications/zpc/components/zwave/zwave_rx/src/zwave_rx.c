@@ -11,6 +11,7 @@
  *
  *****************************************************************************/
 //Generic includes
+#include <assert.h>
 #include <stdlib.h>
 
 // Includes from other components
@@ -89,10 +90,16 @@ static void zwave_rx_print_protocol_version(
   char git_commit_string[GIT_COMMIT_HASH_SIZE * 2 + 1] = {0};
   uint16_t index                                       = 0;
   for (uint8_t i = 0; i < GIT_COMMIT_HASH_SIZE; i++) {
-    index += snprintf(git_commit_string + index,
-                      sizeof(git_commit_string) - index,
-                      "%x",
-                      zwapi_version.git_commit[i]);
+    int written = snprintf(git_commit_string + index,
+                           sizeof(git_commit_string) - index,
+                           "%x",
+                           zwapi_version.git_commit[i]);
+    if (written < 0 || written >= (int)(sizeof(git_commit_string) - index)) {
+      sl_log_error(LOG_TAG, "Overflow in zwave_rx_print_protocol_version\n");
+      assert(false);
+      return;
+    }
+    index += written;
   }
 
   sl_log_info(LOG_TAG,
@@ -118,7 +125,7 @@ sl_status_t zwave_rx_init(const char *serial_port,
     = zwave_rx_application_command_handler_bridge;
   zwave_rx_zwapi_callbacks.zwapi_started = zwave_rx_zwave_api_started;
   zwave_rx_zwapi_callbacks.poll_request  = zwave_rx_poll_request;
-  bool soft_reset_needed = false;
+  bool soft_reset_needed                 = false;
   // Initialize our Z-Wave API.
   sl_status_t command_status
     = zwapi_init(serial_port, serial_port_fd, &zwave_rx_zwapi_callbacks);
@@ -216,7 +223,7 @@ sl_status_t zwave_rx_init(const char *serial_port,
         "Success setting Z-Wave module Max Long Range transmit power: %d",
         max_lr_tx_power_dbm);
       sl_log_info(LOG_TAG, "Applying soft reset of the Z-Wave Module\n");
-     soft_reset_needed = true;
+      soft_reset_needed = true;
     }
 
     sl_log_debug(
@@ -226,9 +233,9 @@ sl_status_t zwave_rx_init(const char *serial_port,
   }
 
   if (true == soft_reset_needed) {
-     zwapi_soft_reset();
-     // Wait for Z-Wave API started
-     zwave_rx_wait_for_zwave_api_to_be_ready();
+    zwapi_soft_reset();
+    // Wait for Z-Wave API started
+    zwave_rx_wait_for_zwave_api_to_be_ready();
   }
   // Try to set the node ID basetype to 16 bits disregarding the RF region
   command_status = zwapi_set_node_id_basetype(NODEID_16BITS);
