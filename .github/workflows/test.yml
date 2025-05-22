@@ -59,9 +59,9 @@ jobs:
           ${{ env.debian_packages }}
           && sudo apt-get clean -y
           && echo "https://github.com/Z-Wave-Alliance/z-wave-stack/issues/733"
-          && mkdir -p z-wave-stack-binaries
+          && mkdir -p ${{ runner.temp }}/z-wave-stack-binaries
           && tar xfz z-wave-stack-binaries-*-Linux.tar.gz
-          -C z-wave-stack-binaries
+          -C ${{ runner.temp }}/z-wave-stack-binaries
           && rm z-wave-stack-binaries-*-Linux.tar.gz
           && date -u
 
@@ -74,7 +74,7 @@ jobs:
           $ZPC_COMMAND --version
           docker-compose pull
           export ZPC_COMMAND="docker-compose up --abort-on-container-exit"
-          cd z-wave-stack-binaries/bin && file -E *_x86_REALTIME.elf && cd -
+          export z_wave_stack_binaries_bin_dir="${{ runner.temp }}/z-wave-stack-binaries/bin"         
           export ZPC_ARGS="--log.level=d"
           ./scripts/tests/z-wave-stack-binaries-test.sh
         continue-on-error: true
