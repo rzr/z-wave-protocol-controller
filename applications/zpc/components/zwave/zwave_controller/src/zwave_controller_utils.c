@@ -118,22 +118,34 @@ void zwave_sl_log_nif_data(zwave_node_id_t node_id,
   char message[DEBUG_MESSAGE_BUFFER_LENGTH];
   uint16_t index = 0;
 
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "NIF from NodeID: %d",
-                    node_id);
+  int n = snprintf(message + index,
+                   sizeof(message) - index,
+                   "NIF from NodeID: %d",
+                   node_id);
+  if (n < 0 || n >= (int)(sizeof(message) - index)) {
+    break;
+  }
+  index += n;
 
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    " Capability/Security bytes: 0x%02X 0x%02X - ",
-                    node_info->listening_protocol,
-                    node_info->optional_protocol);
+  n = snprintf(message + index,
+               sizeof(message) - index,
+               " Capability/Security bytes: 0x%02X 0x%02X - ",
+               node_info->listening_protocol,
+               node_info->optional_protocol);
+  if (n < 0 || n >= (int)(sizeof(message) - index)) {
+    break;
+  }
+  index += n;
 
   if (node_info->optional_protocol
       & ZWAVE_NODE_INFO_OPTIONAL_PROTOCOL_CONTROLLER_MASK) {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      "The node is a controller - ");
+    n = snprintf(message + index,
+                 sizeof(message) - index,
+                 "The node is a controller - ");
+    if (n < 0 || n >= (int)(sizeof(message) - index)) {
+      break;
+    }
+    index += n;
   } else {
     index += snprintf(message + index,
                       sizeof(message) - index,
@@ -142,7 +154,11 @@ void zwave_sl_log_nif_data(zwave_node_id_t node_id,
 
   if (node_info->listening_protocol
       & ZWAVE_NODE_INFO_LISTENING_PROTOCOL_LISTENING_MASK) {
-    index += snprintf(message + index, sizeof(message) - index, "AL mode - ");
+    n = snprintf(message + index, sizeof(message) - index, "AL mode - ");
+    if (n < 0 || n >= (int)(sizeof(message) - index)) {
+      break;
+    }
+    index += n;
   } else if (node_info->optional_protocol
              & (ZWAVE_NODE_INFO_OPTIONAL_PROTOCOL_SENSOR_1000MS_MASK
                 | ZWAVE_NODE_INFO_OPTIONAL_PROTOCOL_SENSOR_250MS_MASK)) {
@@ -164,10 +180,14 @@ void zwave_sl_log_nif_data(zwave_node_id_t node_id,
                     node_info->specific_device_class);
 
   for (uint8_t i = 0; i < node_info->command_class_list_length; i++) {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      "%02X ",
-                      node_info->command_class_list[i]);
+    n = snprintf(message + index,
+                 sizeof(message) - index,
+                 "%02X ",
+                 node_info->command_class_list[i]);
+    if (n < 0 || n >= (int)(sizeof(message) - index)) {
+      break;
+    }
+    index += n;
   }
 
   sl_log_debug(LOG_TAG, "%s", message);
