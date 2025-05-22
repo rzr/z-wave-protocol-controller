@@ -17,6 +17,7 @@ on:  # yamllint disable-line rule:truthy
 jobs:
   test:
     permissions:
+      actions: read
       contents: read
       statuses: write
     env:
@@ -30,7 +31,6 @@ jobs:
         with:
           image: "${{ env.project-name }}:latest"
           workflow: "build"
-          token: ${{ secrets.GH_SL_ACCESS_TOKEN }}
           workflow_run_id: ${{ github.event.workflow_run.id }}
 
       # yamllint disable-line rule:line-length
