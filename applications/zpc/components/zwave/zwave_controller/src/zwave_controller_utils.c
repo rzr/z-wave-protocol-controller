@@ -12,6 +12,7 @@
  *****************************************************************************/
 
 //Generic includes
+#include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -76,37 +77,73 @@ void zwave_sl_log_frame_data(
   char message[DEBUG_MESSAGE_BUFFER_LENGTH];
   uint16_t index = 0;
 
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "Z-Wave Frame (NodeID %d:%d -> %d:%d ",
-                    connection_info->remote.node_id,
-                    connection_info->remote.endpoint_id,
-                    connection_info->local.node_id,
-                    connection_info->local.endpoint_id);
+  int written = snprintf(message + index,
+                         sizeof(message) - index,
+                         "Z-Wave Frame (NodeID %d:%d -> %d:%d ",
+                         connection_info->remote.node_id,
+                         connection_info->remote.endpoint_id,
+                         connection_info->local.node_id,
+                         connection_info->local.endpoint_id);
+  if (written < 0 || written >= (int)(sizeof(message) - index)) {
+    assert(false);
+    sl_log_error(LOG_TAG, "Overflow in zwave_sl_log_frame_data\n");
+    return;
+  }
+  index += written;
 
   if (connection_info->local.is_multicast) {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      "via multicast/broadcast.");
+    written = snprintf(message + index,
+                       sizeof(message) - index,
+                       "via multicast/broadcast.");
+    if (written < 0 || written >= (int)(sizeof(message) - index)) {
+      assert(false);
+      sl_log_error(LOG_TAG, "Overflow in zwave_sl_log_frame_data\n");
+      return;
+    }
+    index += written;
   } else {
-    index
-      += snprintf(message + index, sizeof(message) - index, "via singlecast.");
+    written
+      = snprintf(message + index, sizeof(message) - index, "via singlecast.");
+    if (written < 0 || written >= (int)(sizeof(message) - index)) {
+      assert(false);
+      sl_log_error(LOG_TAG, "Overflow in zwave_sl_log_frame_data\n");
+      return;
+    }
+    index += written;
   }
 
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    " Status flags: 0x%02X - ",
-                    rx_options->status_flags);
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "RSSI: %d dBm - Frame payload (hex): ",
-                    rx_options->rssi);
+  written = snprintf(message + index,
+                     sizeof(message) - index,
+                     " Status flags: 0x%02X - ",
+                     rx_options->status_flags);
+  if (written < 0 || written >= (int)(sizeof(message) - index)) {
+    assert(false);
+    sl_log_error(LOG_TAG, "Overflow in zwave_sl_log_frame_data\n");
+    return;
+  }
+  index += written;
+  written = snprintf(message + index,
+                     sizeof(message) - index,
+                     "RSSI: %d dBm - Frame payload (hex): ",
+                     rx_options->rssi);
+  if (written < 0 || written >= (int)(sizeof(message) - index)) {
+    assert(false);
+    sl_log_error(LOG_TAG, "Overflow in zwave_sl_log_frame_data\n");
+    return;
+  }
+  index += written;
 
   for (uint8_t i = 0; i < frame_length; i++) {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      "%02X ",
-                      frame_data[i]);
+    written = snprintf(message + index,
+                       sizeof(message) - index,
+                       "%02X ",
+                       frame_data[i]);
+    if (written < 0 || written >= (int)(sizeof(message) - index)) {
+      assert(false);
+      sl_log_error(LOG_TAG, "Overflow in zwave_sl_log_frame_data\n");
+      return;
+    }
+    index += written;
   }
   sl_log_debug(LOG_TAG, "%s\n", message);
 }
@@ -118,22 +155,41 @@ void zwave_sl_log_nif_data(zwave_node_id_t node_id,
   char message[DEBUG_MESSAGE_BUFFER_LENGTH];
   uint16_t index = 0;
 
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "NIF from NodeID: %d",
-                    node_id);
+  int written = snprintf(message + index,
+                         sizeof(message) - index,
+                         "NIF from NodeID: %d",
+                         node_id);
+  if (written < 0 || written >= (int)(sizeof(message) - index)) {
+    sl_log_error(LOG_TAG, "Overflow in zwave_sl_log_nif_data\n");
+    assert(false);
+    return;
+  }
+  index += written;
 
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    " Capability/Security bytes: 0x%02X 0x%02X - ",
-                    node_info->listening_protocol,
-                    node_info->optional_protocol);
+  written = snprintf(message + index,
+                     sizeof(message) - index,
+                     " Capability/Security bytes: 0x%02X 0x%02X - ",
+                     node_info->listening_protocol,
+                     node_info->optional_protocol);
+  if (written < 0 || written >= (int)(sizeof(message) - index)) {
+    sl_log_error(LOG_TAG, "Overflow in zwave_sl_log_nif_data\n");
+    assert(false);
+    return;
+  }
+  index += written;
 
   if (node_info->optional_protocol
       & ZWAVE_NODE_INFO_OPTIONAL_PROTOCOL_CONTROLLER_MASK) {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      "The node is a controller - ");
+    written = snprintf(message + index,
+                       sizeof(message) - index,
+                       "The node is a controller - ");
+    if (written < 0 || written >= (int)(sizeof(message) - index)) {
+      sl_log_error(LOG_TAG, "Overflow in zwave_sl_log_nif_data\n");
+      assert(false);
+      return;
+    }
+    index += written;
+
   } else {
     index += snprintf(message + index,
                       sizeof(message) - index,
@@ -142,32 +198,64 @@ void zwave_sl_log_nif_data(zwave_node_id_t node_id,
 
   if (node_info->listening_protocol
       & ZWAVE_NODE_INFO_LISTENING_PROTOCOL_LISTENING_MASK) {
-    index += snprintf(message + index, sizeof(message) - index, "AL mode - ");
+    written = snprintf(message + index, sizeof(message) - index, "AL mode - ");
+    if (written < 0 || written >= (int)(sizeof(message) - index)) {
+      sl_log_error(LOG_TAG, "Overflow in zwave_sl_log_nif_data\n");
+      assert(false);
+      return;
+    }
+    index += written;
+
   } else if (node_info->optional_protocol
              & (ZWAVE_NODE_INFO_OPTIONAL_PROTOCOL_SENSOR_1000MS_MASK
                 | ZWAVE_NODE_INFO_OPTIONAL_PROTOCOL_SENSOR_250MS_MASK)) {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      "FL mode (FLiRS) - ");
+    written = snprintf(message + index,
+                       sizeof(message) - index,
+                       "FL mode (FLiRS) - ");
+    if (written < 0 || written >= (int)(sizeof(message) - index)) {
+      sl_log_error(LOG_TAG, "Overflow in zwave_sl_log_nif_data\n");
+      assert(false);
+      return;
+    }
+    index += written;
+
   } else {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      "NL mode (Non-Listening) - ");
+    written = snprintf(message + index,
+                       sizeof(message) - index,
+                       "NL mode (Non-Listening) - ");
+    if (written < 0 || written >= (int)(sizeof(message) - index)) {
+      sl_log_error(LOG_TAG, "Overflow in zwave_sl_log_nif_data\n");
+      assert(false);
+      return;
+    }
+    index += written;
   }
 
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "Basic, Generic and Specific Device Classes: 0x%02X 0x%02X "
-                    "0x%02X - Supported CC list: ",
-                    node_info->basic_device_class,
-                    node_info->generic_device_class,
-                    node_info->specific_device_class);
-
+  written
+    = snprintf(message + index,
+               sizeof(message) - index,
+               "Basic, Generic and Specific Device Classes: 0x%02X 0x%02X "
+               "0x%02X - Supported CC list: ",
+               node_info->basic_device_class,
+               node_info->generic_device_class,
+               node_info->specific_device_class);
+  if (written < 0 || written >= (int)(sizeof(message) - index)) {
+    sl_log_error(LOG_TAG, "Overflow in zwave_sl_log_nif_data\n");
+    assert(false);
+    return;
+  }
+  index += written;
   for (uint8_t i = 0; i < node_info->command_class_list_length; i++) {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      "%02X ",
-                      node_info->command_class_list[i]);
+    written = snprintf(message + index,
+                       sizeof(message) - index,
+                       "%02X ",
+                       node_info->command_class_list[i]);
+    if (written < 0 || written >= (int)(sizeof(message) - index)) {
+      sl_log_error(LOG_TAG, "Overflow in zwave_sl_log_nif_data\n");
+      assert(false);
+      return;
+    }
+    index += written;
   }
 
   sl_log_debug(LOG_TAG, "%s", message);
@@ -178,7 +266,13 @@ void zwave_sl_log_dsk(const char *tag, const zwave_dsk_t dsk)
   (void)tag;  // Unused in Z-Wave build.
   char message[DEBUG_MESSAGE_BUFFER_LENGTH];
   uint16_t index = 0;
-  index += snprintf(message + index, sizeof(message) - index, "DSK: ");
+  int written    = snprintf(message + index, sizeof(message) - index, "DSK: ");
+  if (written < 0 || written >= (int)(sizeof(message) - index)) {
+    sl_log_error(LOG_TAG, "Overflow in zwave_sl_log_dsk\n");
+    assert(false);
+    return;
+  }
+  index += written;
   zpc_converters_dsk_to_str(dsk, message + index, sizeof(message) - index);
   sl_log_info(tag, "%s\n", message);
 }
