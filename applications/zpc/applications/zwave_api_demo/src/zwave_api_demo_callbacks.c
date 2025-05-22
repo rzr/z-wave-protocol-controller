@@ -10,7 +10,7 @@
  * sections of the MSLA applicable to Source Code.
  *
  *****************************************************************************/
-
+#include <assert.h>
 #include "zwave_api_demo.h"
 
 #define LOG_TAG "zwapi_api_demo_callbacks"
@@ -26,30 +26,70 @@ void zwapi_demo_application_handler(uint8_t rx_status,
   char message[MAXIMUM_MESSAGE_SIZE];
   uint16_t index = 0;
 
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "Z-Wave Command received: ");
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "rx_status: %d - ",
-                    rx_status);
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "destination NodeID: %d - ",
-                    destination_node_id);
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "source NodeID: %d - ",
-                    source_node_id);
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "RSSI value: %d - Payload: ",
-                    rssi_value);
+  int written = snprintf(message + index,
+                         sizeof(message) - index,
+                         "Z-Wave Command received: ");
+  if (written < 0 || written >= sizeof(message) - index) {
+    sl_log_error(LOG_TAG, "Buffer overflow prevented while writing message.");
+    assert(false);
+    return;
+  }
+  index += written;
+  written = snprintf(message + index,
+                     sizeof(message) - index,
+                     "rx_status: %d - ",
+                     rx_status);
+  if (written < 0 || written >= sizeof(message) - index) {
+    sl_log_error(LOG_TAG, "Buffer overflow prevented while writing message.");
+    assert(false);
+    break;
+  }
+  index += written;
+  written = snprintf(message + index,
+                     sizeof(message) - index,
+                     "destination NodeID: %d - ",
+                     destination_node_id);
+  if (written < 0 || written >= sizeof(message) - index) {
+    sl_log_error(LOG_TAG, "Buffer overflow prevented while writing message.");
+    assert(false);
+
+    break;
+  }
+  index += written;
+  written = snprintf(message + index,
+                     sizeof(message) - index,
+                     "source NodeID: %d - ",
+                     source_node_id);
+  if (written < 0 || written >= sizeof(message) - index) {
+    sl_log_error(LOG_TAG, "Buffer overflow prevented while writing message.");
+    assert(false);
+
+    break;
+  }
+  index += written;
+  written = snprintf(message + index,
+                     sizeof(message) - index,
+                     "RSSI value: %d - Payload: ",
+                     rssi_value);
+  if (written < 0 || written >= sizeof(message) - index) {
+    sl_log_error(LOG_TAG, "Buffer overflow prevented while writing message.");
+    assert(false);
+
+    break;
+  }
+  index += written;
   for (uint8_t i = 0; i < zwave_command_length; i++) {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      "%02X ",
-                      zwave_command[i]);
+    written = snprintf(message + index,
+                       sizeof(message) - index,
+                       "%02X ",
+                       zwave_command[i]);
+    if (written < 0 || written >= sizeof(message) - index) {
+      sl_log_error(LOG_TAG, "Buffer overflow prevented while writing message.");
+      assert(false);
+
+      break;
+    }
+    index += written;
   }
   sl_log_debug(LOG_TAG, "%s\n", message);
 }
@@ -64,28 +104,68 @@ void zwapi_demo_application_controller_update(uint8_t status,
   char message[MAXIMUM_MESSAGE_SIZE];
   uint16_t index = 0;
 
-  index += snprintf(message + index, sizeof(message) - index, "NIF received: ");
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "status: %d - ",
-                    status);
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "NodeID: %d - ",
-                    node_id);
+  int written
+    = snprintf(message + index, sizeof(message) - index, "NIF received: ");
+  if (written < 0 || written >= sizeof(message) - index) {
+    sl_log_error(LOG_TAG, "Buffer overflow prevented while writing message.");
+    assert(false);
 
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "NWI HomeID: %X - ",
-                    nwi_home_id);
+    return;
+  }
+  index += written;
+  written = snprintf(message + index,
+                     sizeof(message) - index,
+                     "status: %d - ",
+                     status);
+  if (written < 0 || written >= sizeof(message) - index) {
+    sl_log_error(LOG_TAG, "Buffer overflow prevented while writing message.");
+    assert(false);
 
-  index += snprintf(message + index, sizeof(message) - index, "NIF Contents:");
+    break;
+  }
+  index += written;
+  written = snprintf(message + index,
+                     sizeof(message) - index,
+                     "NodeID: %d - ",
+                     node_id);
+  if (written < 0 || written >= sizeof(message) - index) {
+    sl_log_error(LOG_TAG, "Buffer overflow prevented while writing message.");
+    assert(false);
 
+    break;
+  }
+  index += written;
+  written = snprintf(message + index,
+                     sizeof(message) - index,
+                     "NWI HomeID: %X - ",
+                     nwi_home_id);
+  if (written < 0 || written >= sizeof(message) - index) {
+    sl_log_error(LOG_TAG, "Buffer overflow prevented while writing message.");
+    assert(false);
+
+    break;
+  }
+  index += written;
+  written = snprintf(message + index, sizeof(message) - index, "NIF Contents:");
+  if (written < 0 || written >= sizeof(message) - index) {
+    sl_log_error(LOG_TAG, "Buffer overflow prevented while writing message.");
+    assert(false);
+
+    break;
+  }
+  index += written;
   for (uint8_t i = 0; i < zwave_nif_length; i++) {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      "%02X ",
-                      zwave_nif[i]);
+    written = snprintf(message + index,
+                       sizeof(message) - index,
+                       "%02X ",
+                       zwave_nif[i]);
+    if (written < 0 || written >= sizeof(message) - index) {
+      sl_log_error(LOG_TAG, "Buffer overflow prevented while writing message.");
+      assert(false);
+
+      break;
+    }
+    index += written;
   }
   sl_log_debug(LOG_TAG, "%s\n", message);
 }
@@ -305,12 +385,24 @@ void zwapi_demo_zwave_api_started(const uint8_t *buffer, uint8_t buffer_length)
   char message[MAXIMUM_MESSAGE_SIZE];
   uint8_t index = 0;
 
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "Z-Wave API started. Current NIF: ");
+  int written = snprintf(message + index,
+                         sizeof(message) - index,
+                         "Z-Wave API started. Current NIF: ");
+  if (written < 0 || written >= (int)(sizeof(message) - index)) {
+    sl_log_error(LOG_TAG, "Buffer overflow prevented while writing message.");
+    assert(false);
+    return;
+  }
+  index += written;
   for (uint8_t i = 0; i < buffer_length; i++) {
-    index
-      += snprintf(message + index, sizeof(message) - index, "%02X ", buffer[i]);
+    written
+      = snprintf(message + index, sizeof(message) - index, "%02X ", buffer[i]);
+    if (written < 0 || written >= (int)(sizeof(message) - index)) {
+      sl_log_error(LOG_TAG, "Buffer overflow prevented while writing message.");
+      assert(false);
+      return;
+    }
+    index += written;
   }
   sl_log_info(LOG_TAG, "%s\n", message);
 }
