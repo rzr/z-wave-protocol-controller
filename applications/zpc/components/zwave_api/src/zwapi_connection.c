@@ -50,14 +50,37 @@ static const char *zwapi_frame_to_string(const uint8_t *buffer,
       // Don't log the SOF byte.
       continue;
     } else if (i == 1) {
-      index += snprintf(message + index, sizeof(message) - index, "Length=");
+      {
+        int n = snprintf(message + index, sizeof(message) - index, "Length=");
+        if (n < 0 || n >= sizeof(message) - index) {
+          break;
+        }
+        index += n;
+      }
     } else if (i == 2) {
-      index += snprintf(message + index, sizeof(message) - index, "Type=");
+      {
+        int n = snprintf(message + index, sizeof(message) - index, "Type=");
+        if (n < 0 || n >= sizeof(message) - index) {
+          break;
+        }
+        index += n;
+      }
     } else if (i == 3) {
-      index += snprintf(message + index, sizeof(message) - index, "Cmd=");
+      {
+        int n = snprintf(message + index, sizeof(message) - index, "Cmd=");
+        if (n < 0 || n >= sizeof(message) - index) {
+          break;
+        }
+        index += n;
+      }
     }
-    index
-      += snprintf(message + index, sizeof(message) - index, "%02X ", buffer[i]);
+    {
+      int n = snprintf(message + index, sizeof(message) - index, "%02X ", buffer[i]);
+      if (n < 0 || n >= sizeof(message) - index) {
+        break;
+      }
+      index += n;
+    }
   }
   return message;
 }
