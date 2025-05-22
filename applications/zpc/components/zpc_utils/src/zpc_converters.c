@@ -52,7 +52,11 @@ sl_status_t zpc_converters_dsk_to_str(const zwave_dsk_t src,
   size_t index = 0;
   for (int i = 0; i < sizeof(zwave_dsk_t); i += 2) {
     int d = (src[i] << 8) | src[i + 1];
-    index += snprintf(&dst[index], dst_max_len - index, "%05i-", d);
+    int n = snprintf(&dst[index], dst_max_len - index, "%05i-", d);
+    if (n < 0 || n >= dst_max_len - index) {
+      return SL_STATUS_WOULD_OVERFLOW;
+    }
+    index += n;
   }
   // Erase the last "-"
   if (index > 0) {
