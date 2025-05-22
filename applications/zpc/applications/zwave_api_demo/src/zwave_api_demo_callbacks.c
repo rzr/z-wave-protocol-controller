@@ -305,12 +305,21 @@ void zwapi_demo_zwave_api_started(const uint8_t *buffer, uint8_t buffer_length)
   char message[MAXIMUM_MESSAGE_SIZE];
   uint8_t index = 0;
 
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "Z-Wave API started. Current NIF: ");
+  int n = snprintf(message + index,
+                   sizeof(message) - index,
+                   "Z-Wave API started. Current NIF: ");
+  if (n < 0 || n >= (int)(sizeof(message) - index)) {
+    sl_log_error(LOG_TAG, "Buffer overflow prevented while writing message.");
+    return;
+  }
+  index += n;
   for (uint8_t i = 0; i < buffer_length; i++) {
-    index
-      += snprintf(message + index, sizeof(message) - index, "%02X ", buffer[i]);
+    n = snprintf(message + index, sizeof(message) - index, "%02X ", buffer[i]);
+    if (n < 0 || n >= (int)(sizeof(message) - index)) {
+      sl_log_error(LOG_TAG, "Buffer overflow prevented while writing message.");
+      return;
+    }
+    index += n;
   }
   sl_log_info(LOG_TAG, "%s\n", message);
 }
