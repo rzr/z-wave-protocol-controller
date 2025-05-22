@@ -18,8 +18,7 @@
 #include <errno.h>
 #include <stdio.h>
 
-sl_status_t zpc_converters_dsk_str_to_internal(const char *src,
-                                               zwave_dsk_t dst)
+sl_status_t zpc_converters_dsk_str_to_internal(const char *src, zwave_dsk_t dst)
 {
   unsigned int dst_idx = 0;
   const char *idx      = src;
@@ -51,8 +50,13 @@ sl_status_t zpc_converters_dsk_to_str(const zwave_dsk_t src,
   }
   size_t index = 0;
   for (int i = 0; i < sizeof(zwave_dsk_t); i += 2) {
-    int d = (src[i] << 8) | src[i + 1];
-    index += snprintf(&dst[index], dst_max_len - index, "%05i-", d);
+    int d       = (src[i] << 8) | src[i + 1];
+    int written = snprintf(&dst[index], dst_max_len - index, "%05i-", d);
+    if (written < 0 || written >= dst_max_len - index) {
+      assert(false);
+      return SL_STATUS_WOULD_OVERFLOW;
+    }
+    index += written;
   }
   // Erase the last "-"
   if (index > 0) {
