@@ -26,30 +26,42 @@ void zwapi_demo_application_handler(uint8_t rx_status,
   char message[MAXIMUM_MESSAGE_SIZE];
   uint16_t index = 0;
 
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "Z-Wave Command received: ");
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "rx_status: %d - ",
-                    rx_status);
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "destination NodeID: %d - ",
-                    destination_node_id);
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "source NodeID: %d - ",
-                    source_node_id);
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "RSSI value: %d - Payload: ",
-                    rssi_value);
+  int n = snprintf(message + index,
+                   sizeof(message) - index,
+                   "Z-Wave Command received: ");
+  if (n < 0 || n >= sizeof(message) - index) return;
+  index += n;
+  n = snprintf(message + index,
+               sizeof(message) - index,
+               "rx_status: %d - ",
+               rx_status);
+  if (n < 0 || n >= sizeof(message) - index) return;
+  index += n;
+  n = snprintf(message + index,
+               sizeof(message) - index,
+               "destination NodeID: %d - ",
+               destination_node_id);
+  if (n < 0 || n >= sizeof(message) - index) return;
+  index += n;
+  n = snprintf(message + index,
+               sizeof(message) - index,
+               "source NodeID: %d - ",
+               source_node_id);
+  if (n < 0 || n >= sizeof(message) - index) return;
+  index += n;
+  n = snprintf(message + index,
+               sizeof(message) - index,
+               "RSSI value: %d - Payload: ",
+               rssi_value);
+  if (n < 0 || n >= sizeof(message) - index) return;
+  index += n;
   for (uint8_t i = 0; i < zwave_command_length; i++) {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      "%02X ",
-                      zwave_command[i]);
+    n = snprintf(message + index,
+                 sizeof(message) - index,
+                 "%02X ",
+                 zwave_command[i]);
+    if (n < 0 || n >= sizeof(message) - index) break;
+    index += n;
   }
   sl_log_debug(LOG_TAG, "%s\n", message);
 }
@@ -64,28 +76,37 @@ void zwapi_demo_application_controller_update(uint8_t status,
   char message[MAXIMUM_MESSAGE_SIZE];
   uint16_t index = 0;
 
-  index += snprintf(message + index, sizeof(message) - index, "NIF received: ");
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "status: %d - ",
-                    status);
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "NodeID: %d - ",
-                    node_id);
-
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "NWI HomeID: %X - ",
-                    nwi_home_id);
-
-  index += snprintf(message + index, sizeof(message) - index, "NIF Contents:");
-
+  int n = snprintf(message + index, sizeof(message) - index, "NIF received: ");
+  if (n < 0 || n >= sizeof(message) - index) return;
+  index += n;
+  n = snprintf(message + index,
+               sizeof(message) - index,
+               "status: %d - ",
+               status);
+  if (n < 0 || n >= sizeof(message) - index) return;
+  index += n;
+  n = snprintf(message + index,
+               sizeof(message) - index,
+               "NodeID: %d - ",
+               node_id);
+  if (n < 0 || n >= sizeof(message) - index) return;
+  index += n;
+  n = snprintf(message + index,
+               sizeof(message) - index,
+               "NWI HomeID: %X - ",
+               nwi_home_id);
+  if (n < 0 || n >= sizeof(message) - index) return;
+  index += n;
+  n = snprintf(message + index, sizeof(message) - index, "NIF Contents:");
+  if (n < 0 || n >= sizeof(message) - index) return;
+  index += n;
   for (uint8_t i = 0; i < zwave_nif_length; i++) {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      "%02X ",
-                      zwave_nif[i]);
+    n = snprintf(message + index,
+                 sizeof(message) - index,
+                 "%02X ",
+                 zwave_nif[i]);
+    if (n < 0 || n >= sizeof(message) - index) break;
+    index += n;
   }
   sl_log_debug(LOG_TAG, "%s\n", message);
 }
