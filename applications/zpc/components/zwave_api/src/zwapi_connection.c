@@ -11,6 +11,7 @@
  *
  *****************************************************************************/
 
+#include <assert.h>
 #include <string.h>
 #include "zwapi_connection.h"
 #include "zwapi_serial.h"
@@ -51,35 +52,53 @@ static const char *zwapi_frame_to_string(const uint8_t *buffer,
       continue;
     } else if (i == 1) {
       {
-        int n = snprintf(message + index, sizeof(message) - index, "Length=");
-        if (n < 0 || n >= sizeof(message) - index) {
+        int written
+          = snprintf(message + index, sizeof(message) - index, "Length=");
+        if (written < 0 || written >= sizeof(message) - index) {
+          sl_log_error(LOG_TAG,
+                       "Buffer overflow prevented while writing message.");
+          assert(false);
           break;
         }
-        index += n;
+        index += written;
       }
     } else if (i == 2) {
       {
-        int n = snprintf(message + index, sizeof(message) - index, "Type=");
-        if (n < 0 || n >= sizeof(message) - index) {
+        int written
+          = snprintf(message + index, sizeof(message) - index, "Type=");
+        if (written < 0 || written >= sizeof(message) - index) {
+          sl_log_error(LOG_TAG,
+                       "Buffer overflow prevented while writing message.");
+          assert(false);
           break;
         }
-        index += n;
+        index += written;
       }
     } else if (i == 3) {
       {
-        int n = snprintf(message + index, sizeof(message) - index, "Cmd=");
-        if (n < 0 || n >= sizeof(message) - index) {
+        int written
+          = snprintf(message + index, sizeof(message) - index, "Cmd=");
+        if (written < 0 || written >= sizeof(message) - index) {
+          sl_log_error(LOG_TAG,
+                       "Buffer overflow prevented while writing message.");
+          assert(false);
           break;
         }
-        index += n;
+        index += written;
       }
     }
     {
-      int n = snprintf(message + index, sizeof(message) - index, "%02X ", buffer[i]);
-      if (n < 0 || n >= sizeof(message) - index) {
+      int n = snprintf(message + index,
+                       sizeof(message) - index,
+                       "%02X ",
+                       buffer[i]);
+      if (written < 0 || written >= sizeof(message) - index) {
+        sl_log_error(LOG_TAG,
+                     "Buffer overflow prevented while writing message.");
+        assert(false);
         break;
       }
-      index += n;
+      index += written;
     }
   }
   return message;
