@@ -77,37 +77,60 @@ void zwave_sl_log_frame_data(
   char message[DEBUG_MESSAGE_BUFFER_LENGTH];
   uint16_t index = 0;
 
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "Z-Wave Frame (NodeID %d:%d -> %d:%d ",
-                    connection_info->remote.node_id,
-                    connection_info->remote.endpoint_id,
-                    connection_info->local.node_id,
-                    connection_info->local.endpoint_id);
+  int n = snprintf(message + index,
+                   sizeof(message) - index,
+                   "Z-Wave Frame (NodeID %d:%d -> %d:%d ",
+                   connection_info->remote.node_id,
+                   connection_info->remote.endpoint_id,
+                   connection_info->local.node_id,
+                   connection_info->local.endpoint_id);
+  if (n < 0 || n >= (int)(sizeof(message) - index)) {
+    return;
+  }
+  index += n;
 
   if (connection_info->local.is_multicast) {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      "via multicast/broadcast.");
+    n = snprintf(message + index,
+                 sizeof(message) - index,
+                 "via multicast/broadcast.");
+    if (n < 0 || n >= (int)(sizeof(message) - index)) {
+      return;
+    }
+    index += n;
   } else {
-    index
-      += snprintf(message + index, sizeof(message) - index, "via singlecast.");
+    n = snprintf(message + index, sizeof(message) - index, "via singlecast.");
+    if (n < 0 || n >= (int)(sizeof(message) - index)) {
+      return;
+    }
+    index += n;
   }
 
+  n = snprintf(message + index,
+               sizeof(message) - index,
+               " Status flags: 0x%02X - ",
+               rx_options->status_flags);
+  if (n < 0 || n >= (int)(sizeof(message) - index)) {
+    return;
+  }
+  index += n;
   index += snprintf(message + index,
                     sizeof(message) - index,
-                    " Status flags: 0x%02X - ",
-                    rx_options->status_flags);
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "RSSI: %d dBm - Frame payload (hex): ",
-                    rx_options->rssi);
+               "RSSI: %d dBm - Frame payload (hex): ",
+               rx_options->rssi);
+  if (n < 0 || n >= (int)(sizeof(message) - index)) {
+    return;
+  }
+  index += n;
 
   for (uint8_t i = 0; i < frame_length; i++) {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      "%02X ",
-                      frame_data[i]);
+    n = snprintf(message + index,
+                 sizeof(message) - index,
+                 "%02X ",
+                 frame_data[i]);
+    if (n < 0 || n >= (int)(sizeof(message) - index)) {
+      break;
+    }
+    index += n;
   }
   sl_log_debug(LOG_TAG, "%s\n", message);
 }
