@@ -111,15 +111,21 @@ static const char *zwapi_frame_to_string(const uint8_t *buffer,
   static char message[1000] = {'\0'};
   uint16_t index            = 0;
   for (uint16_t i = 0; i < buffer_length; i++) {
+    int n = 0;
     if (i == IDX_LEN) {
-      index += snprintf(message + index, sizeof(message) - index, "Length=");
+      n = snprintf(message + index, sizeof(message) - index, "Length=");
     } else if (i == IDX_TYPE) {
-      index += snprintf(message + index, sizeof(message) - index, "Type=");
+      n = snprintf(message + index, sizeof(message) - index, "Type=");
     } else if (i == IDX_CMD) {
-      index += snprintf(message + index, sizeof(message) - index, "Cmd=");
+      n = snprintf(message + index, sizeof(message) - index, "Cmd=");
+    } else {
+      n = snprintf(message + index, sizeof(message) - index, "%02X ", buffer[i]);
     }
-    index
-      += snprintf(message + index, sizeof(message) - index, "%02X ", buffer[i]);
+    if (n < 0 || n >= (int)(sizeof(message) - index)) {
+      // Stop processing if snprintf fails or buffer is full
+      break;
+    }
+    index += n;
   }
   return message;
 }
