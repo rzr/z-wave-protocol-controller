@@ -403,52 +403,80 @@ void zwave_tx_queue::log_element(const zwave_tx_session_id_t session_id,
 void zwave_tx_queue::simple_log(zwave_tx_queue_element_t *e) const
 {
   uint16_t index = 0;
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "Enqueuing new frame (id=%p)",
-                    e->zwave_tx_session_id);
+  int n = snprintf(message + index,
+                   sizeof(message) - index,
+                   "Enqueuing new frame (id=%p)",
+                   e->zwave_tx_session_id);
+  if (n < 0 || n >= static_cast<int>(sizeof(message) - index)) {
+    return;
+  }
+  index += n;
 
   if (e->options.transport.valid_parent_session_id == true) {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      " (parent id=%p)",
-                      e->options.transport.parent_session_id);
+    int n = snprintf(message + index,
+                     sizeof(message) - index,
+                     " (parent id=%p)",
+                     e->options.transport.parent_session_id);
+    if (n < 0 || n >= static_cast<int>(sizeof(message) - index)) {
+      return;
+    }
+    index += n;
   }
 
   // Source address
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    " - %d:%d -> ",
-                    e->connection_info.local.node_id,
-                    e->connection_info.local.endpoint_id);
+  int n = snprintf(message + index,
+                   sizeof(message) - index,
+                   " - %d:%d -> ",
+                   e->connection_info.local.node_id,
+                   e->connection_info.local.endpoint_id);
+  if (n < 0 || n >= static_cast<int>(sizeof(message) - index)) {
+    return;
+  }
+  index += n;
 
   // Destination
   if (e->connection_info.remote.is_multicast == false) {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      " %d:%d - ",
-                      e->connection_info.remote.node_id,
-                      e->connection_info.remote.endpoint_id);
+    int n = snprintf(message + index,
+                     sizeof(message) - index,
+                     " %d:%d - ",
+                     e->connection_info.remote.node_id,
+                     e->connection_info.remote.endpoint_id);
+    if (n < 0 || n >= static_cast<int>(sizeof(message) - index)) {
+      return;
+    }
+    index += n;
   } else {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      "Group ID %d (endpoint=%d) - ",
-                      e->connection_info.remote.multicast_group,
-                      e->connection_info.remote.endpoint_id);
+    int n = snprintf(message + index,
+                     sizeof(message) - index,
+                     "Group ID %d (endpoint=%d) - ",
+                     e->connection_info.remote.multicast_group,
+                     e->connection_info.remote.endpoint_id);
+    if (n < 0 || n >= static_cast<int>(sizeof(message) - index)) {
+      return;
+    }
+    index += n;
   }
 
   // Encapsulation & payload
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "Encapsulation %d - Payload (%d bytes) [",
-                    e->connection_info.encapsulation,
-                    e->data_length);
+  int n = snprintf(message + index,
+                   sizeof(message) - index,
+                   "Encapsulation %d - Payload (%d bytes) [",
+                   e->connection_info.encapsulation,
+                   e->data_length);
+  if (n < 0 || n >= static_cast<int>(sizeof(message) - index)) {
+    return;
+  }
+  index += n;
 
   for (uint16_t i = 0; i < e->data_length; i++) {
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      "%02X ",
-                      e->data[i]);
+    int n = snprintf(message + index,
+                     sizeof(message) - index,
+                     "%02X ",
+                     e->data[i]);
+    if (n < 0 || n >= static_cast<int>(sizeof(message) - index)) {
+      return;
+    }
+    index += n;
   }
   sl_log_debug(LOG_TAG, "%s] - Tx Queue size: %d\n", message, queue.size());
 }
