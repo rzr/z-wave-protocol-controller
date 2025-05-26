@@ -312,13 +312,27 @@ static sl_status_t node_list()
   if (command_status == SL_STATUS_OK) {
     char message[MAXIMUM_MESSAGE_SIZE];
     uint16_t index = 0;
-    index
-      += snprintf(message + index, sizeof(message) - index, "NodeID List: ");
+    int written
+      = snprintf(message + index, sizeof(message) - index, "NodeID List: ");
+    if (written < 0 || written >= (int)(sizeof(message) - index)) {
+      sl_log_error(LOG_TAG,
+                   "Buffer overflow prevented while writing message\n");
+      return SL_STATUS_FAIL;
+    }
+    index += written;
+
     for (zwave_node_id_t node_id = ZW_MIN_NODE_ID; node_id <= ZW_LR_MAX_NODE_ID;
          node_id++) {
       if (ZW_IS_NODE_IN_MASK(node_id, node_list) == 1) {
-        index
-          += snprintf(message + index, sizeof(message) - index, "%d ", node_id);
+        written
+          = snprintf(message + index, sizeof(message) - index, "%d ", node_id);
+        if (written < 0 || written >= (int)(sizeof(message) - index)) {
+          sl_log_error(LOG_TAG,
+                       "Buffer overflow prevented while writing message\n");
+          assert(false);
+          return SL_STATUS_FAIL;
+        }
+        index += written;
       }
     }
     sl_log_info(LOG_TAG, "%s\n", message);
@@ -337,39 +351,67 @@ static sl_status_t failed_node_list()
   }
   char message[MAXIMUM_MESSAGE_SIZE];
   uint16_t index = 0;
-  index += snprintf(message + index,
-                    sizeof(message) - index,
-                    "Failed NodeID List: ");
+  int written    = snprintf(message + index,
+                         sizeof(message) - index,
+                         "Failed NodeID List: ");
+  if (written < 0 || written >= (int)(sizeof(message) - index)) {
+    sl_log_error(LOG_TAG, "Buffer overflow prevented while writing message\n");
+    assert(false);
+    return SL_STATUS_FAIL;
+  }
+  index += written;
+
   for (zwave_node_id_t node_id = ZW_MIN_NODE_ID; node_id <= ZW_LR_MAX_NODE_ID;
        node_id++) {
     if (ZW_IS_NODE_IN_MASK(node_id, node_list) == 1) {
       if (zwapi_is_node_failed(node_id)) {
-        index
-          += snprintf(message + index, sizeof(message) - index, "%d ", node_id);
+        int written
+          = snprintf(message + index, sizeof(message) - index, "%d ", node_id);
+        if (written < 0 || written >= (int)(sizeof(message) - index)) {
+          sl_log_error(LOG_TAG,
+                       "Buffer overflow prevented while writing message\n");
+          assert(false);
+          return SL_STATUS_FAIL;
+        }
+        index += written;
       }
     }
+    sl_log_info(LOG_TAG, "%s\n", message);
+
+    return command_status;
   }
-  sl_log_info(LOG_TAG, "%s\n", message);
 
-  return command_status;
-}
+  static sl_status_t virtual_node_list()
+  {
+    zwave_nodemask_t node_list = {0};
 
-static sl_status_t virtual_node_list()
-{
-  zwave_nodemask_t node_list = {0};
-
-  sl_status_t command_status = zwapi_get_virtual_nodes(node_list);
-  if (command_status == SL_STATUS_OK) {
-    char message[MAXIMUM_MESSAGE_SIZE];
-    uint16_t index = 0;
-    index += snprintf(message + index,
-                      sizeof(message) - index,
-                      "Virtual NodeID List: ");
+    sl_status_t command_status = zwapi_get_virtual_nodes(node_list);
+    if (command_status == SL_STATUS_OK) {
+      char message[MAXIMUM_MESSAGE_SIZE];
+      uint16_t index = 0;
+      int written = snprintf(message + index,
+                             sizeof(message) - index,
+                             "Virtual NodeID List: ");
+      if (written < 0 || written >= (int)(sizeof(message) - index)) {
+        sl_log_error(LOG_TAG,
+                     "Buffer overflow prevented while writing message\n");
+        assert(false);
+        return SL_STATUS_FAIL;
+      }
+      index += written;
+    }
     for (zwave_node_id_t node_id = ZW_MIN_NODE_ID; node_id <= ZW_LR_MAX_NODE_ID;
          node_id++) {
       if (ZW_IS_NODE_IN_MASK(node_id, node_list) == 1) {
         index
           += snprintf(message + index, sizeof(message) - index, "%d ", node_id);
+        if (written < 0 || written >= (int)(sizeof(message) - index)) {
+          sl_log_error(LOG_TAG,
+                       "Buffer overflow prevented while writing message\n");
+          assert(false);
+          return SL_STATUS_FAIL;
+        }
+        index += written;
       }
     }
     sl_log_info(LOG_TAG, "%s\n", message);
