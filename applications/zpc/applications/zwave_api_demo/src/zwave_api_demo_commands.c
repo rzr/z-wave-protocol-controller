@@ -312,13 +312,21 @@ static sl_status_t node_list()
   if (command_status == SL_STATUS_OK) {
     char message[MAXIMUM_MESSAGE_SIZE];
     uint16_t index = 0;
-    index
-      += snprintf(message + index, sizeof(message) - index, "NodeID List: ");
+    int n = snprintf(message + index, sizeof(message) - index, "NodeID List: ");
+    if (n < 0 || n >= (int)(sizeof(message) - index)) {
+      sl_log_info(LOG_TAG, "Buffer overflow prevented while writing NodeID List.\n");
+      return SL_STATUS_FAIL;
+    }
+    index += n;
     for (zwave_node_id_t node_id = ZW_MIN_NODE_ID; node_id <= ZW_LR_MAX_NODE_ID;
          node_id++) {
       if (ZW_IS_NODE_IN_MASK(node_id, node_list) == 1) {
-        index
-          += snprintf(message + index, sizeof(message) - index, "%d ", node_id);
+        n = snprintf(message + index, sizeof(message) - index, "%d ", node_id);
+        if (n < 0 || n >= (int)(sizeof(message) - index)) {
+          sl_log_info(LOG_TAG, "Buffer overflow prevented while writing NodeID.\n");
+          return SL_STATUS_FAIL;
+        }
+        index += n;
       }
     }
     sl_log_info(LOG_TAG, "%s\n", message);
@@ -337,15 +345,24 @@ static sl_status_t failed_node_list()
   }
   char message[MAXIMUM_MESSAGE_SIZE];
   uint16_t index = 0;
-  index += snprintf(message + index,
+  int n = snprintf(message + index,
                     sizeof(message) - index,
                     "Failed NodeID List: ");
+  if (n < 0 || n >= (int)(sizeof(message) - index)) {
+    sl_log_info(LOG_TAG, "Buffer overflow prevented while writing Failed NodeID List.\n");
+    return SL_STATUS_FAIL;
+  }
+  index += n;
   for (zwave_node_id_t node_id = ZW_MIN_NODE_ID; node_id <= ZW_LR_MAX_NODE_ID;
        node_id++) {
     if (ZW_IS_NODE_IN_MASK(node_id, node_list) == 1) {
       if (zwapi_is_node_failed(node_id)) {
-        index
-          += snprintf(message + index, sizeof(message) - index, "%d ", node_id);
+        n = snprintf(message + index, sizeof(message) - index, "%d ", node_id);
+        if (n < 0 || n >= (int)(sizeof(message) - index)) {
+          sl_log_info(LOG_TAG, "Buffer overflow prevented while writing Failed NodeID.\n");
+          return SL_STATUS_FAIL;
+        }
+        index += n;
       }
     }
   }
@@ -362,14 +379,23 @@ static sl_status_t virtual_node_list()
   if (command_status == SL_STATUS_OK) {
     char message[MAXIMUM_MESSAGE_SIZE];
     uint16_t index = 0;
-    index += snprintf(message + index,
+    int n = snprintf(message + index,
                       sizeof(message) - index,
                       "Virtual NodeID List: ");
+    if (n < 0 || n >= (int)(sizeof(message) - index)) {
+      sl_log_info(LOG_TAG, "Buffer overflow prevented while writing Virtual NodeID List.\n");
+      return SL_STATUS_FAIL;
+    }
+    index += n;
     for (zwave_node_id_t node_id = ZW_MIN_NODE_ID; node_id <= ZW_LR_MAX_NODE_ID;
          node_id++) {
       if (ZW_IS_NODE_IN_MASK(node_id, node_list) == 1) {
-        index
-          += snprintf(message + index, sizeof(message) - index, "%d ", node_id);
+        n = snprintf(message + index, sizeof(message) - index, "%d ", node_id);
+        if (n < 0 || n >= (int)(sizeof(message) - index)) {
+          sl_log_info(LOG_TAG, "Buffer overflow prevented while writing Virtual NodeID.\n");
+          return SL_STATUS_FAIL;
+        }
+        index += n;
       }
     }
     sl_log_info(LOG_TAG, "%s\n", message);
