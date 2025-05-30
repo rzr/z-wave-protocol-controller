@@ -95,6 +95,9 @@ endif
 
 run_file?=${build_dir}/applications/zpc/zpc
 
+# Can be overloaded from env: ./helper.mk ctest="ctest -V -R"
+ctest?=ctest
+
 help: ./helper.mk
 	@echo "# ${project}: ${url}"
 	@echo "#"
@@ -240,7 +243,7 @@ ${build_dir}: ${build_dir}/CMakeCache.txt
 	file -E "$<"
 
 test: ${build_dir}
-	ctest --test-dir ${<}/${project_test_dir}
+	${ctest} --test-dir ${<}/${project_test_dir}
 
 check: test
 
@@ -290,6 +293,12 @@ dist/deb: ${build_dir}
 	cp -av ${<}/*.deb $</$@
 
 dist: dist/cmake
+
+clean:
+	rm -rf ${build_dir}/_deps/*-build
+
+cleanall: configure/clean
+	rm -rf ${build_dir}/_deps
 
 distclean:
 	rm -rf ${build_dir}
