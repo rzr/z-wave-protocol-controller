@@ -38,7 +38,7 @@ jobs:
         # yamllint disable rule:line-length
         run: |
           set -xe
-          file="${{ steps.image.output_directory}}/action_image_artifact_${{ github.event.repository.name }}_latest/${{ github.event.repository.name }}_latest"
+          file="${{ steps.image.outputs.download_path}}"
           echo "Info for comparing to build artifacts"
           sha256sum "${file}"
           tar -xOf "${file}" manifest.json | jq
