@@ -22,6 +22,7 @@
 #include "zwave_tx_mock.h"
 
 // Generic includes
+#include <assert.h>
 #include <stdbool.h>
 
 // Test constant
