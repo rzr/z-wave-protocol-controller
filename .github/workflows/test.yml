@@ -35,14 +35,15 @@ jobs:
           workflow_run_id: ${{ github.event.workflow_run.id }}
       - name: Check and remove downloaded artifact
         # yamllint disable rule:line-length
+        env:
+          file: ${{ steps.image.outputs.download_path }}
         run: |
           set -xe
-          file="/tmp/action_image_artifact_${{ github.event.repository.name }}_latest/${{ github.event.repository.name }}_latest"
           echo "Info for comparing to build artifacts"
-          sha256sum "${file}"
-          tar -xOf "${file}" manifest.json | jq
+          sha256sum "${{env.file}}"
+          tar -xOf "${{env.file}}" manifest.json | jq
           echo "TODO: https://github.com/ishworkh/container-image-artifact-download/issues/7#issuecomment-2904751460"
-          rm -rfv "${file}"
+          rm -rfv "${{env.file}}"
           echo "TODO: https://docs.docker.com/engine/security/trust/"
         # yamllint enable rule:line-length
       # yamllint disable-line rule:line-length
