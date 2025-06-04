@@ -47,11 +47,16 @@ jobs:
           rm -rfv "${{env.file}}"
           echo "TODO: https://docs.docker.com/engine/security/trust/"
         # yamllint enable rule:line-length
+
+      - name: Download tests artifacts
       # yamllint disable-line rule:line-length
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
-          fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_commit.id }}
+          # yamllint disable-line
+          name: ${{ github.event.repository.name }}-tests
+          github-token: ${{ secrets.GH_SL_ACCESS_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+          path: ${{ runner.temp }}
 
       - name: Download embedded applications package
         # yamllint disable-line rule:line-length
@@ -82,8 +87,12 @@ jobs:
       - name: Run
         id: run
         # yamllint disable rule:line-length
+        env:
+          working-directory: ${{ runner.temp }}
+          file: 
         run: |
           set -x
+          find .
           export ZPC_RUN_MODE="docker"
           export ZPC_COMMAND="docker run ${{ env.project-name }}"
           $ZPC_COMMAND --version
@@ -91,7 +100,7 @@ jobs:
           export ZPC_COMMAND="docker-compose up --abort-on-container-exit"
           export z_wave_stack_binaries_bin_dir="${{ runner.temp }}/z-wave-stack-binaries/bin"
           export ZPC_ARGS="--log.level=d"
-          ./scripts/tests/z-wave-stack-binaries-test.sh
+          ./tests/scripts/z-wave-stack-binaries-test.sh
         # yamllint enable rule:line-length
         continue-on-error: true
 
