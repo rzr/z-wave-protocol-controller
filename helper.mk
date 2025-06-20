@@ -23,6 +23,7 @@ version?=$(shell git describe --tags --always 2> /dev/null || echo "0")
 BUILD_DEV_GUI?=OFF
 BUILD_IMAGE_PROVIDER?=ON
 
+ctest?=ctest
 cmake_options?=-B ${build_dir}
 
 CMAKE_GENERATOR?=Ninja
@@ -240,9 +241,14 @@ ${build_dir}: ${build_dir}/CMakeCache.txt
 	file -E "$<"
 
 test: ${build_dir}
-	ctest --test-dir ${<}/${project_test_dir}
+	${ctest} --test-dir ${<}/${project_test_dir}
 
 check: test
+	${ctest} \
+		--output-on-failure
+		--rerun-failed \
+		--test-dir ${<}/${project_test_dir} \
+
 
 zwa_project?=z-wave-stack-binaries
 zwa_ver?=25.1.0-28-g7e0b50f
