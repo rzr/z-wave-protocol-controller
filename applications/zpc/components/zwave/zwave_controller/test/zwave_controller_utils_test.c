@@ -138,21 +138,21 @@ void test_is_command_class_in_supported_list()
 {
   // Test constant
   static uint8_t test_nif[]      = {0xD2,
-                               0x09,
-                               0xFB,
-                               0x01,
-                               0xBD,
-                               0xCB,
-                               0x92,
-                               0xA7,
-                               0xCA,
-                               0x1A,
-                               0xEA,
-                               0x99,
-                               0xC6,
-                               0x66,
-                               0x9F,
-                               0xFF};
+                                    0x09,
+                                    0xFB,
+                                    0x01,
+                                    0xBD,
+                                    0xCB,
+                                    0x92,
+                                    0xA7,
+                                    0xCA,
+                                    0x1A,
+                                    0xEA,
+                                    0x99,
+                                    0xC6,
+                                    0x66,
+                                    0x9F,
+                                    0xFF};
   static uint8_t test_nif_length = sizeof(test_nif);
 
   TEST_ASSERT_TRUE(
