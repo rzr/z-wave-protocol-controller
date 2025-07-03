@@ -62,6 +62,13 @@ rust_url?=https://sh.rustup.rs
 RUST_VERSION?=1.71.0
 export PATH := ${HOME}/.cargo/bin:${PATH}
 
+ifndef BUILD_WRAPPER_OUT_DIR
+cmake?=cmake
+else
+hostype_dash?=$(shell echo ${HOSTYPE} | sed -e 's|_|-|g')
+build_wrapper?=build-wrapper-linux-${hostype_dash} --out-dir "${BUILD_WRAPPER_OUT_DIR}"
+cmake?=${build_wrapper} cmake
+endif
 
 # Allow overloading from env if needed
 ifdef VERBOSE
@@ -166,7 +173,7 @@ setup/cmake:
 		--prefix=/usr/local \
 		--skip-license
 	rm -v "${cmake_filename}"
-	cmake --version
+	${cmake} --version
 
 setup-cmake: setup/cmake
 
@@ -225,12 +232,12 @@ reconfigure: configure/clean configure
 	@date -u
 
 ${build_dir}/CMakeCache.txt: CMakeLists.txt
-	cmake ${cmake_options}
+	${cmake} ${cmake_options}
 
 all: ${build_dir}/CMakeCache.txt
-#	cmake --build ${<D} \
+#	${cmake} --build ${<D} \
 #		|| cat ${build_dir}/CMakeFiles/CMakeOutput.log
-	cmake --build ${<D}
+	${cmake} --build ${<D}
 .PHONY: all
 
 ${build_dir}/%: all
@@ -281,11 +288,11 @@ zwa/test: ./scripts/tests/z-wave-stack-binaries-test.sh ${zwa_dir}
 		time $< # Add debug=1 to begining of this line to trace 
 
 dist/cmake: ${build_dir}
-	cmake --build $< --target package
-	cmake --build $< --target package_archive
+	${cmake} --build $< --target package
+	${cmake} --build $< --target package_archive
 
 dist/deb: ${build_dir}
-	cmake --build $< --target package
+	${cmake} --build $< --target package
 	install -d $</$@
 	cp -av ${<}/*.deb $</$@
 
@@ -296,7 +303,7 @@ distclean:
 
 prepare: git/prepare
 	git --version
-	cmake --version
+	${cmake} --version
 
 all/default: configure prepare all test dist
 	@date -u
@@ -370,7 +377,7 @@ docs: ./scripts/build/build_documentation.py doc ${PLANTUML_JAR_PATH} configure
 	touch $@/.nojekyll
 
 zpc/docs/api: docs
-	cmake --build build --target  zpc_doxygen
+	${cmake} --build build --target  zpc_doxygen
 	install -d docs/doxygen_zpc
 	cp -rfa build/zpc_doxygen_zpc/html/* docs/doxygen_zpc/
 
