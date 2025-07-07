@@ -1279,7 +1279,7 @@ S2_init_ctx(uint32_t home)
     return 0;
   }
 #endif
-  memset(ctx, 0, sizeof(struct S2));
+  explicit_bzero(ctx, sizeof(struct S2));
 
   ctx->my_home_id = home;
   ctx->loaded_keys = 0;
@@ -1329,7 +1329,7 @@ void
 S2_destroy(struct S2* p_context)
 {
   CTX_DEF
-  memset(ctxt, 0, sizeof(struct S2));
+  explicit_bzero(ctxt, sizeof(struct S2));
 #ifndef SINGLE_CONTEXT
   free(ctxt);
 #endif
