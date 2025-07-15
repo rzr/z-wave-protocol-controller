@@ -19,6 +19,8 @@ project_docs_api_target?=zpc_doxygen
 version?=$(shell git describe --tags --always 2> /dev/null || echo "0")
 
 # Allow overloading from env if needed
+SHELL=/bin/bash -o pipefail
+
 # VERBOSE?=1
 BUILD_DEV_GUI?=OFF
 BUILD_IMAGE_PROVIDER?=ON
@@ -40,6 +42,7 @@ packages+=python3-defusedxml # For extract_get.py
 # TODO: remove for offline build
 packages+=curl wget python3-pip
 packages+=expect
+packages+=cppcheck
 
 # For docs
 packages+=graphviz
@@ -242,7 +245,12 @@ ${build_dir}: ${build_dir}/CMakeCache.txt
 test: ${build_dir}
 	ctest --test-dir ${<}/${project_test_dir}
 
-check: test
+cppcheck:
+	$@ --version
+	$@ --quiet -i "${build_dir}" --error-exitcode=1 . | tr -d '[:cntrl:]' # pipefail
+
+check: cppcheck test
+
 
 zwa_project?=z-wave-stack-binaries
 zwa_ver?=25.1.0-28-g7e0b50f
