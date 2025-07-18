@@ -17,7 +17,6 @@ sudo="${sudo:=}"
 duration=3 # Allocated time in mins until watchdog quit
 
 ZPC_COMMAND="${ZPC_COMMAND:=/usr/bin/zpc}"
-zpc_api="${zpc_api:=uic}"
 
 [ "" != "${z_wave_stack_binaries_bin_dir}" ] \
     || z_wave_stack_binaries_bin_dir="${PWD}/z-wave-stack-binaries/bin"
@@ -345,7 +344,7 @@ zpc_cli_()
 }
 
 
-play_uic_net_add_node_()
+play_net_add_node_()
 {
     node="soc_switch_on_off"
     [ -z $1 ] || node="$1"
@@ -413,7 +412,7 @@ play_uic_net_add_node_()
 }
 
 
-play_uic_net_remove_node_()
+play_net_remove_node_()
 {
     node="soc_switch_on_off"
     [ -z $1 ] || node="$1"
@@ -437,7 +436,7 @@ play_uic_net_remove_node_()
 }
 
 
-play_uic_node_OnOff_()
+play_node_soc_switch_on_off_()
 {
     echo
     type="OnOff"
@@ -527,19 +526,28 @@ play_uic_s2v2_node_()
 }
 
 
-play_uic_()
+play_demo_()
 {
-    play_uic_net_add_node_
-    play_uic_net_remove_node_
+    node="soc_switch_on_off"
+    play_net_add_node_ $node
+    play_net_remove_node_ $node
 
-    play_uic_net_add_node_
-    play_uic_node_OnOff_
-    play_uic_net_remove_node_
+    play_net_add_node_ $node
+    play_node_${node}_
+    play_net_remove_node_ $node
 
-    play_uic_net_add_node_
-    play_uic_s2v2_node_
-    play_uic_node_OnOff_
-    play_uic_net_remove_node_
+    node="soc_multilevel_sensor"
+    play_net_add_node_ $node
+    play_node_${node}_
+    play_net_remove_node_ $node
+
+    log_ "TODO: https://github.com/orgs/Z-Wave-Alliance/projects/10/views/1"
+    if false ; then
+      play_uic_net_add_node_
+      play_uic_s2v2_node_
+      play_uic_node_OnOff_
+      play_uic_net_remove_node_
+    fi
 }
 
 
@@ -552,7 +560,7 @@ play_()
     controller_cli_ h
     node_cli_ h
 
-    play_${zpc_api}_ || code=$?
+    play_demo_ || code=$?
     exit_ 0$code
 }
 
