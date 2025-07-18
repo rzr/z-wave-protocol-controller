@@ -144,10 +144,12 @@ sub_()
     local sub="#"
     local count=1
     local expect=""
-
+    local delay=1
+    
     [ "$1" = "" ] || sub="$1"
     [ "$2" = "" ] || expect="$2"
     [ "$3" = "" ] || count="$3"
+    [ "$4" = "" ] || delay="$4"
 
     printf "${cyan}sub: $sub${nocol} (count=${count})\n"
     mosquitto_sub -v -t "$sub" -C $count | tee "$mqtt_sub_log"
@@ -160,6 +162,7 @@ sub_()
                  cat "$mqtt_sub_log"  ;
                  exit_ 11; }
     fi
+    sleep $delay
 }
 
 
@@ -367,6 +370,7 @@ play_net_add_node_()
     pubsub_ "$pub" "$message" "$sub"
 
     log_ "Find controller"
+
     sub="ucl/by-unid/+/ProtocolController/NetworkManagement"
     message="{}"
     json='{"State":"idle","SupportedStateList":["add node","remove node","reset"]}'
@@ -374,6 +378,11 @@ play_net_add_node_()
     expect=$(echo "$json" | sed 's/\[/\\[/g; s/\]/\\]/g')
     pubsub_ "$pub" "$message" "$sub" "$expect"
 
+    sub="ucl/by-unid/$contunid/State"
+    json='{"MaximumCommandDelay":0,"NetworkList":[""],"NetworkStatus":"Online functional","Security":"Z-Wave S2 Access Control"}'
+    expect=$(echo "$json" | sed 's/\[/\\[/g; s/\]/\\]/g')
+    sub_ "$sub" "$expect"
+    
     log_ "net: ${command}: node: Set to learn mode"
     node_cli_ "$node" n
     [ 0 -eq 0$nodeid ] || exit_ 16
@@ -396,34 +405,38 @@ play_net_add_node_()
     node_cli_ "$node" d
     node_cli_ "$node" n
 
-    log_ "Takes time from interviewing to functional"
+    log_ "Takes time from interviewing to functional"    
     pub="ucl/by-unid/$contunid/ProtocolController/NetworkManagement/Write"
     message='{"State":"add node","StateParameters":{"UserAccept":true,"SecurityCode":"'${SecurityCode}'","AllowMultipleInclusions":false}}'
     sub="ucl/by-unid/$nodeunid/State"
-    MaximumCommandDelay='.*' # Variable: 1, 300
-    NetworkStatus='.*' # 
-    NetworkStatus='"Online interviewing"'
-    json='{"MaximumCommandDelay":'${MaximumCommandDelay}',"NetworkList":[""],"NetworkStatus":'${NetworkStatus}',"Security":"Z-Wave S2 Authenticated"}'
-    expect=$(echo "$json" | sed 's/\[/\\[/g; s/\]/\\]/g')
-    expect="$sub $expect"
-    count="2" # "NetworkStatus": "Online interviewing" *2
-    count="3"
-    pubsub_ "$pub" "$message" "$sub" "$expect" "$count"
+    pub_ "$pub" "$message"
 
-    NetworkStatus='"Online functional"'
-    json='{"MaximumCommandDelay":'${MaximumCommandDelay}',"NetworkList":[""],"NetworkStatus":'${NetworkStatus}',"Security":"Z-Wave S2 Authenticated"}'
+    NetworkStatus='.*' # Match: [ "Online interviewing", "Online functional" ]
+    MaximumCommandDelay='.*' # Variable: 1, 300
+    Security='.*'
+    json='{"MaximumCommandDelay":'${MaximumCommandDelay}',"NetworkList":[""],"NetworkStatus":"'${NetworkStatus}'","Security":"'${Security}'"}'
     expect=$(echo "$json" | sed 's/\[/\\[/g; s/\]/\\]/g')
     expect="$sub $expect"
-    pubsub_ "$pub" "$message" "$sub" "$expect"
-    
-    pub=""
-    message=""
+
+    NetworkStatus='Online functional'
+    Security="Z-Wave S2 Authenticated"
+    json='{"MaximumCommandDelay":'${MaximumCommandDelay}',"NetworkList":[""],"NetworkStatus":"'${NetworkStatus}'","Security":"'${Security}'"}'
+    over_expect=$(echo "$json" | sed 's/\[/\\[/g; s/\]/\\]/g')
+    over_expect="$sub $over_expect"
+    over=false
+    while ! $over ; do # Multiple steps: "Online interviewing"+
+        log_ "is it over ?"
+        sub_ "$sub" "$expect"
+        # "Z-Wave S2 Authenticated"
+        grep -E "$over_expect" "$mqtt_sub_log" && over=true ||:
+    done                                      
+        
     sub="ucl/by-unid/+/State/Attributes/EndpointIdList/Reported"
     sub=$(echo "$sub "| sed -e "s|/+/|/$nodeunid/|g")
     json='{"value":[0]}'
     expect=$(echo "$json" | sed 's/\[/\\[/g; s/\]/\\]/g')
     expect="$sub $expect"
-    pubsub_ "$pub" "$message" "$sub" "$expect" 2
+    # sub_ "$sub" "$expect"
 
     node_cli_ "$node" H # expected on 1st time
     [ $conthomeid = $nodehomeid ] || exit 17_
@@ -448,7 +461,9 @@ play_net_remove_node_()
     message='{"State":"remove node"}'
     sub="ucl/by-unid/+/State/SupportedCommands"
     node_cli_ "$node" n > /dev/null
-    expect=$(echo "$sub (null)" | sed -e "s|/+/|/$nodeunid/|g")
+    expect='(null)'
+    expect=$(echo "$expect" | sed sed 's|[()]|\\&|g')
+    expect=$(echo "$sub $expect" | sed -e "s|/+/|/$nodeunid/|g")
     node_cli_ "$node" l
     pubsub_ "$pub" "$message" "$sub" "$expect" 3
     node_cli_ "$node" n
