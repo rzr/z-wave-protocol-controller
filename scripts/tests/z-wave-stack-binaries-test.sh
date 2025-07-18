@@ -425,7 +425,6 @@ play_net_add_node_()
     over_expect="$sub $over_expect"
     over=false
     while ! $over ; do # Multiple steps: "Online interviewing"+
-        log_ "is it over ?"
         sub_ "$sub" "$expect"
         # "Z-Wave S2 Authenticated"
         grep -E "$over_expect" "$mqtt_sub_log" && over=true ||:
@@ -462,7 +461,7 @@ play_net_remove_node_()
     sub="ucl/by-unid/+/State/SupportedCommands"
     node_cli_ "$node" n > /dev/null
     expect='(null)'
-    expect=$(echo "$expect" | sed sed 's|[()]|\\&|g')
+    expect=$(echo "$expect" | sed -e 's|[()]|\\&|g')
     expect=$(echo "$sub $expect" | sed -e "s|/+/|/$nodeunid/|g")
     node_cli_ "$node" l
     pubsub_ "$pub" "$message" "$sub" "$expect" 3
@@ -531,22 +530,57 @@ play_node_soc_switch_on_off_()
 play_node_soc_multilevel_sensor_()
 {  
     local app="soc_multilevel_sensor"
-    local type="Battery"
-    local property="battery_level"
-    local value=100
-    
     node_cli_ "$node" n
-    log_ "$app: $type: Play on $nodeid ~T738437 ~T738442"
+    log_ "$app:: Play on $nodeid ~T738437 ~T738442"
 
-    log_ "$app: $type: Initial state reported after inclusion"
-#    sub="zpc/${homeid}/${nodeid}/ep0/${type}/Report/${type}Report"
-#    expect="$sub "'{"'${property}'":'$value'' # TODO: Partial payload
-#    sub_ "$sub" "$expect"
+    log_ "$app: Initial state reported after inclusion"
+
+    key='value' ; key='"'$key'"' # JSON quoted string
+
+    ep="ep0/Basic/Attributes/PowerSource/Reported"
+    sub="ucl/by-unid/${nodeunid}/$ep"
+    value='Battery' ; value='"'$value'"'
+    expect='{'$key':'$value'}'
+    expect="$sub $expect"
+    sub_ "$sub" "$expect"
+
+    ep='ep0/TemperatureMeasurement/Attributes/MeasuredValue/Reported'
+    sub="ucl/by-unid/${nodeunid}/$ep"
+    value=322
+    expect='{'$key':'$value'}'
+    expect="$sub $expect"
+    sub_ "$sub" "$expect"
+
+    ep='ep0/RelativityHumidity/Attributes/MeasuredValue/Reported'
+    sub="ucl/by-unid/${nodeunid}/$ep"
+    value=8
+    expect='{'$key':'$value'}'
+    expect="$sub $expect"
+    sub_ "$sub" "$expect"
+    
+    ep="ep0/PowerConfiguration/Attributes/BatteryPercentageRemaining/Reported"
+    sub="ucl/by-unid/${nodeunid}/$ep"
+    value=100
+    expect='{'$key':'$value'}'
+    expect="$sub $expect"
+    sub_ "$sub" "$expect"
+}
+
+play_node_soc_door_lock_keypad_()
+{  
+    local app="soc_door_lock_keypad"
+    node_cli_ "$node" n
+    log_ "$app:: Play on $nodeid ~T738437 ~T738442"
+
+    log_ "$app: Initial state reported after inclusion"
+
+    key='value' ; key='"'$key'"' # JSON quoted string
 }
 
 
-play_uic_s2v2_node_()
+play_net_s2v2_node_()
 {
+    log_ "TODO: https://github.com/orgs/Z-Wave-Alliance/projects/10/views/1"
     type="OnOff"
     node_cli_ "$node" H
     node_cli_ "$node" n
@@ -581,20 +615,20 @@ play_uic_s2v2_node_()
 play_node_()
 {
     node="$1"
-
-    play_net_add_node_ $node
-    play_net_remove_node_ $node
-
     if ! true ; then
+        play_net_add_node_ $node
+        play_net_remove_node_ $node
+    fi
+    
+    if true ; then
         play_net_add_node_ $node
         play_node_${node}_
         play_net_remove_node_ $node
     fi
     if ! true ; then
-      play_uic_net_add_node_
-      play_uic_s2v2_node_
-      play_uic_node_OnOff_
-      play_uic_net_remove_node_
+        play_net_add_node_ $node
+        play_s2v2_node_
+        play_net_remove_node_ $node
     else
         log_ "TODO: https://github.com/orgs/Z-Wave-Alliance/projects/10/views/1"
     fi
@@ -603,8 +637,14 @@ play_node_()
 play_demo_()
 {
     nodes=""
-    # nodes="soc_switch_on_off"
-    nodes="$nodes soc_multilevel_sensor"
+    nodes="$nodes soc_switch_on_off"
+    nodes="$nodes soc_multilevel_sensor"    
+    # nodes="$nodes soc_door_lock_keypad"
+    # nodes="$nodes soc_led_bulb"
+    # nodes="$nodes soc_power_strip"
+    # nodes="$nodes soc_sensor_pir"
+    # nodes="$nodes soc_wall_controller"
+    
     for node in $nodes ; do
         play_node_ $node
     done
@@ -683,16 +723,21 @@ sleep 1
 
 split
 focus down
-screen -t "zpc" "4" $0 run_ zpc
-sleep 2
-
-focus right
-screen -t "mqtt" "5" $0 run_ mqtt
+screen -t "soc_door_lock_keypad" "4" $0 run_app_ soc_door_lock_keypad
 sleep 1
 
 split
 focus down
-screen -t "play (quit with: Ctrl+a \)" "6" $0 run_ play
+screen -t "zpc" "10" $0 run_ zpc
+sleep 2
+
+focus right
+screen -t "mqtt" "11" $0 run_ mqtt
+sleep 1
+
+split
+focus down
+screen -t "play (quit with: Ctrl+a \)" "12" $0 run_ play
 
 EOF
 
