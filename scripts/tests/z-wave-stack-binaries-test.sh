@@ -32,7 +32,7 @@ file="screen.rc"
 mqtt_pub_log="mqtt_pub.log.tmp"
 mqtt_sub_log="mqtt_sub.log.tmp"
 mqtt_log="mqtt.log.tmp"
-controller_log="controller.log.tmp"
+controller_log="ncp_serial_api_controller.log.tmp"
 node_log="node.log.tmp"
 
 nocol="\e[0m"
@@ -209,20 +209,33 @@ pubsub_()
     [  "0" = "$code" ] || exit_ $code # Quit on 1st failure
 }
 
+### Applications
 
-controller_()
+app_()
 {
-    controller_app=$(realpath "${z_wave_stack_binaries_bin_dir}/ZW_zwave_ncp_serial_api_controller_"*"_REALTIME"*".elf" | head -n1)
-    file -E "${controller_app}"
-    ${controller_app} --pty
+    local app="$1"
+    [ "" != "$app" ] || app="soc_switch_on_off"
+    local app_file=$(realpath \
+                         "${z_wave_stack_binaries_bin_dir}/ZW_zwave_${app}_"*"_REALTIME"*".elf" \
+                         | head -n1)
+    [ "$debug" = "" ] || file -E "${app_file}"
+    "${app_file}" --pty
 }
 
+
+run_app_()
+{
+    local app="$1" && shift
+    local log="$app.log.tmp"
+    rm -f "$log"
+    app_ "$app" "$@" 2>&1 | tee "$log"
+}
 
 controller_cli_()
 {
     while [ ! -e "${controller_log}" ] ; do sleep 1; done
     sleep 1
-    screen -S "$name" -p 1 -t "controller" -X stuff "$@^M"
+    screen -S "$name" -p "ncp_serial_api_controller" -t "controller: $@" -X stuff "$@^M"
     sleep 1
     case $1 in
         h)
@@ -255,18 +268,12 @@ controller_cli_()
 }
 
 
-node_()
-{
-    node_app=$(realpath "${z_wave_stack_binaries_bin_dir}/ZW_zwave_soc_switch_on_off_"*"_REALTIME"*".elf" | head -n1)
-    [ "$debug" = "" ] || file -E "${node_app}"
-    ${node_app} --pty
-}
-
-
 node_cli_()
 {
+    [ ! -z $node ] || node="soc_switch_on_off"
+    node_log="$node.log.tmp"
     while [ ! -e "${node_log}" ] ; do sleep 1; done
-    screen -S "$name" -p 2 -t "node" -X stuff "$@^M"
+    screen -S "$name" -p "${node}" -X stuff "$@^M"
     sleep 1
     case $1 in
         h)
@@ -323,26 +330,34 @@ zpc_cli_()
     log_ "TODO: Fix console that eat some chars, and discard next workaround"
     log_ "TODO: https://github.com/SiliconLabsSoftware/z-wave-engine-application-layer/issues/30"
     if ! true ; then
-        screen -S "$name" -p 3 -t zpc -X stuff "$@^M"
+        screen -S "$name" -p "zpc" -t zpc -X stuff "$@^M"
     else
         string="$@"
         for (( i=0; i<${#string}; i++ )); do
             char="${string:$i:1}"
-            screen -S "$name" -p 3 -t zpc -X stuff "$char"
+            screen -S "$name" -p "zpc" -t zpc -X stuff "$char"
             sleep .1
         done
-        screen -S "$name" -p 3 -t zpc -X stuff "^M"
+        screen -S "$name" -p "zpc" -t zpc -X stuff "^M"
         sleep 1
-        screen -S "$name" -p 3 -t zpc -X hardcopy zpc_cli.log.tmp
+        screen -S "$name" -p "zpc" -t zpc -X hardcopy zpc_cli.log.tmp
     fi
 }
 
 
 play_uic_net_add_node_()
 {
-    log_ "net: controller: Add node (set in learn mode)"
-    controller_cli_ H | grep "^HOME_ID: ........$" || exit_ 14
-    controller_cli_ n | grep "^NODE_ID: " || exit_ 15
+    node="soc_switch_on_off"
+    [ -z $1 ] || node="$1"
+
+    [ 0 -eq 0$nodeid ] || exit_ 100
+
+    command="add_node"
+    log_ "net: $command: (node should be set in learn mode)"
+    node_cli_ H
+
+    controller_cli_ H
+    controller_cli_ n
 
     sub="ucl/by-mqtt-client/zpc/ApplicationMonitoring/SupportedCommands"
     pub="$sub" # Can be anything
@@ -355,12 +370,11 @@ play_uic_net_add_node_()
     expect='{"State":"idle","SupportedStateList":["add node","remove node","reset"]}'
     pubsub_ "$pub" "$message" "$sub" "$expect"
 
-    log_ "net: node: Set to learn mode"
-    homeid=$(sed -n -e 's|ucl/by-unid/zw-\(.*\)-\([0-9]*\)/.*|\1|gp' "$mqtt_sub_log")
-    contid=$(sed -n -e 's|ucl/by-unid/zw-\(.*\)-\([0-9]*\)/.*|\2|gp' "$mqtt_sub_log")
-    contunid="zw-$homeid-$contid"
-    node_cli_ n | grep 'NODE_ID: 0' || exit_ 16
+    log_ "net: ${command}: node: Set to learn mode"
+    node_cli_ n
+    [ 0 -eq 0$nodeid ] || exit_ 16
     node_cli_ l
+    node_cli_ n
 
     log_ "net: cont: Add node"
     pub="ucl/by-unid/$contunid/ProtocolController/NetworkManagement/Write"
@@ -391,14 +405,24 @@ play_uic_net_add_node_()
     sub="ucl/by-unid/+/State/Attributes/EndpointIdList/Reported"
     expect=$(echo "$sub "'{"value":[0]}' | sed -e "s|/+/|/$nodeunid/|g")
     pubsub_ "$pub" "$message" "$sub" "$expect" 2
+
+    node_cli_ H # expected on 1st time
+    [ $conthomeid = $nodehomeid ] || exit 17_
     node_cli_ n # 2 expected on 1st time
+    [ $nodeid -ne 0 ] || exit 100
 }
 
 
 play_uic_net_remove_node_()
 {
+    node="soc_switch_on_off"
+    [ -z $1 ] || node="$1"
+
+    [ 0 -ne 0$nodeid ] || exit_ 100 # TODO
+
     echo
-    log_ "net: Remove node $nodeunid (~T738436)"
+    command="remove_node"
+    log_ "net: $command: $nodeid (~T738436)"
     controller_cli_ n > /dev/null
 
     pub="ucl/by-unid/$contunid/ProtocolController/NetworkManagement/Write"
@@ -408,7 +432,8 @@ play_uic_net_remove_node_()
     expect=$(echo "$sub (null)" | sed -e "s|/+/|/$nodeunid/|g")
     node_cli_ l
     pubsub_ "$pub" "$message" "$sub" "$expect" 3
-    node_cli_ n | grep '^NODE_ID: 0$' || exit_ 18
+    node_cli_ n
+    [ 0 -eq $nodeid ] || exit_ 18
 }
 
 
@@ -577,26 +602,26 @@ default_()
 hardstatus alwayslastline
 
 split -v
-screen -t "controller" 1 $0 run_ controller
+screen -t "ncp_serial_api_controller" "1" $0 run_app_ ncp_serial_api_controller
 sleep 1
 
 split
 focus down
-screen -t "node" 2 $0 run_ node
+screen -t "soc_switch_on_off" "2" $0 run_app_ soc_switch_on_off
 sleep 1
 
 split
 focus down
-screen -t "zpc" 3 $0 run_ zpc
+screen -t "zpc" "4" $0 run_ zpc
 sleep 2
 
 focus right
-screen -t "mqtt" 4 $0 run_ mqtt
+screen -t "mqtt" "5" $0 run_ mqtt
 sleep 1
 
 split
 focus down
-screen -t "play (quit with: Ctrl+a \) " 5 $0 run_ play
+screen -t "play (quit with: Ctrl+a \)" "6" $0 run_ play
 
 EOF
 
