@@ -25,14 +25,15 @@ ZPC_COMMAND="${ZPC_COMMAND:=/usr/bin/zpc}"
 
 name='z-wave'
 code=0
-code_log="code.log.tmp"
-zpc_log="zpc.log.tmp"
+log_suffix=".log.tmp"
+code_log="code${log_suffix}"
+zpc_log="zpc${log_suffix}"
 file="screen.rc"
-mqtt_pub_log="mqtt_pub.log.tmp"
-mqtt_sub_log="mqtt_sub.log.tmp"
-mqtt_log="mqtt.log.tmp"
-controller_log="ncp_serial_api_controller.log.tmp"
-node_log="node.log.tmp"
+mqtt_pub_log="mqtt_pub${log_suffix}"
+mqtt_sub_log="mqtt_sub${log_suffix}"
+mqtt_log="mqtt${log_suffix}"
+controller_log="ncp_serial_api_controller${log_suffix}"
+node_log="node${log_suffix}"
 
 nocol="\e[0m"
 blue="\e[0;34m"
@@ -107,7 +108,7 @@ exit_()
     [ -z $debug ] || sleep 1000
     echo $code > $code_log
     screen -S "$name" -X "quit" ||:
-    ls -l *.log.tmp && more *.log.tmp | cat
+    ls -l *${log_suffix} && more *${log_suffix} | cat
     exit $code
 }
 
@@ -115,7 +116,7 @@ exit_()
 run_()
 {
     local task="$1" && shift
-    local log="$task.log.tmp"
+    local log="$task${log_suffix}"
     rm -f "$log"
     ${task}_ "$@" 2>&1 | tee "$log"
 }
@@ -154,7 +155,7 @@ sub_()
 
     if [ "" != "$expect" ] ; then
         tail -n +$count "$mqtt_sub_log" \
-            | head -n1 | grep -F "$expect" 2>&1 > /dev/null \
+            | head -n1 | grep -E "$expect" 2>&1 > /dev/null \
             || { printf "${red}exp: error:: ${expect}${nocol}\n" ;
                  cat "$mqtt_sub_log"  ;
                  exit_ 11; }
@@ -225,16 +226,17 @@ app_()
 run_app_()
 {
     local app="$1" && shift
-    local log="$app.log.tmp"
+    local log="$app${log_suffix}"
     rm -f "$log"
     app_ "$app" "$@" 2>&1 | tee "$log"
 }
 
 controller_cli_()
 {
+    app="ncp_serial_api_controller"
     while [ ! -e "${controller_log}" ] ; do sleep 1; done
     sleep 1
-    screen -S "$name" -p "ncp_serial_api_controller" -t "controller: $@" -X stuff "$@^M"
+    screen -S "$name" -p "${app}" -t "controller: $@" -X stuff "$@^M"
     sleep 1
     case $1 in
         h)
@@ -269,14 +271,15 @@ controller_cli_()
 
 node_cli_()
 {
+    [ -z $1 ] || { node="$1" && shift ; }
     [ ! -z $node ] || node="soc_switch_on_off"
-    node_log="$node.log.tmp"
+    node_log="$node${log_suffix}"
     while [ ! -e "${node_log}" ] ; do sleep 1; done
     screen -S "$name" -p "${node}" -X stuff "$@^M"
     sleep 1
     case $1 in
         h)
-            echo "node: Should display help"
+            echo "node: ${node}: Should display help"
             ;;
         d)
             DSK=$(grep 'DSK: ' "${node_log}" \
@@ -284,7 +287,7 @@ node_cli_()
             SecurityCode=$(echo "$DSK" | sed -e 's|\([0-9]*\)-[0-9-]*$|\1|g')
             ;;
         l)
-            echo "node: Set to learn mode ${nodeid} needed on add_node"
+            echo "node: ${node}: Set to learn mode ${nodeid} needed on add_node"
             ;;
         H)
             nodehomeid=$(grep 'HOME_ID: ' "${node_log}" \
@@ -339,7 +342,7 @@ zpc_cli_()
         done
         screen -S "$name" -p "zpc" -t zpc -X stuff "^M"
         sleep 1
-        screen -S "$name" -p "zpc" -t zpc -X hardcopy zpc_cli.log.tmp
+        screen -S "$name" -p "zpc" -t zpc -X hardcopy zpc_cli${log_suffix}
     fi
 }
 
@@ -353,7 +356,7 @@ play_net_add_node_()
 
     command="add_node"
     log_ "net: $command: (node should be set in learn mode)"
-    node_cli_ H
+    node_cli_ "$node" H
 
     controller_cli_ H
     controller_cli_ n
@@ -366,14 +369,16 @@ play_net_add_node_()
     log_ "Find controller"
     sub="ucl/by-unid/+/ProtocolController/NetworkManagement"
     message="{}"
-    expect='{"State":"idle","SupportedStateList":["add node","remove node","reset"]}'
+    json='{"State":"idle","SupportedStateList":["add node","remove node","reset"]}'
+    expect='{"State":"idle","SupportedStateList":\["add node","remove node","reset"\]}'
+    expect=$(echo "$json" | sed 's/\[/\\[/g; s/\]/\\]/g')
     pubsub_ "$pub" "$message" "$sub" "$expect"
 
     log_ "net: ${command}: node: Set to learn mode"
-    node_cli_ n
+    node_cli_ "$node" n
     [ 0 -eq 0$nodeid ] || exit_ 16
-    node_cli_ l
-    node_cli_ n
+    node_cli_ "$node" l
+    node_cli_ "$node" n
 
     log_ "net: cont: Add node"
     pub="ucl/by-unid/$contunid/ProtocolController/NetworkManagement/Write"
@@ -382,32 +387,47 @@ play_net_add_node_()
     count="2" # NODEID=0001 is controller , NODEID=0002 is expected node
     expect="State/SupportedCommands"
     pubsub_ "$pub" "$message" "$sub" "$expect"
-    node_cli_ H | grep "HOME_ID: ${homeid}" || exit_ 17
-    node_cli_ n # Should not be 0
+    node_cli_ "$node" H | grep "HOME_ID: ${homeid}" || exit_ 17 # TODO
+    node_cli_ "$node" n # Should not be 0
     pub=''
     sub=$(echo "$sub" | sed -e "s|/+/|/$nodeunid/|g")
     pubsub_ "$pub" "$message" "$sub" "$sub"
 
-    node_cli_ d
-    node_cli_ n
+    node_cli_ "$node" d
+    node_cli_ "$node" n
 
     log_ "Takes time from interviewing to functional"
     pub="ucl/by-unid/$contunid/ProtocolController/NetworkManagement/Write"
     message='{"State":"add node","StateParameters":{"UserAccept":true,"SecurityCode":"'${SecurityCode}'","AllowMultipleInclusions":false}}'
     sub="ucl/by-unid/$nodeunid/State"
-    expect="$sub "'{"MaximumCommandDelay":1,"NetworkList":[""],"NetworkStatus":"Online functional","Security":"Z-Wave S2 Authenticated"}'
-    count="3" # "NetworkStatus": "Online interviewing" *2
+    MaximumCommandDelay='.*' # Variable: 1, 300
+    NetworkStatus='.*' # 
+    NetworkStatus='"Online interviewing"'
+    json='{"MaximumCommandDelay":'${MaximumCommandDelay}',"NetworkList":[""],"NetworkStatus":'${NetworkStatus}',"Security":"Z-Wave S2 Authenticated"}'
+    expect=$(echo "$json" | sed 's/\[/\\[/g; s/\]/\\]/g')
+    expect="$sub $expect"
+    count="2" # "NetworkStatus": "Online interviewing" *2
+    count="3"
     pubsub_ "$pub" "$message" "$sub" "$expect" "$count"
 
+    NetworkStatus='"Online functional"'
+    json='{"MaximumCommandDelay":'${MaximumCommandDelay}',"NetworkList":[""],"NetworkStatus":'${NetworkStatus}',"Security":"Z-Wave S2 Authenticated"}'
+    expect=$(echo "$json" | sed 's/\[/\\[/g; s/\]/\\]/g')
+    expect="$sub $expect"
+    pubsub_ "$pub" "$message" "$sub" "$expect"
+    
     pub=""
     message=""
     sub="ucl/by-unid/+/State/Attributes/EndpointIdList/Reported"
-    expect=$(echo "$sub "'{"value":[0]}' | sed -e "s|/+/|/$nodeunid/|g")
+    sub=$(echo "$sub "| sed -e "s|/+/|/$nodeunid/|g")
+    json='{"value":[0]}'
+    expect=$(echo "$json" | sed 's/\[/\\[/g; s/\]/\\]/g')
+    expect="$sub $expect"
     pubsub_ "$pub" "$message" "$sub" "$expect" 2
 
-    node_cli_ H # expected on 1st time
+    node_cli_ "$node" H # expected on 1st time
     [ $conthomeid = $nodehomeid ] || exit 17_
-    node_cli_ n # 2 expected on 1st time
+    node_cli_ "$node" n # 2 expected on 1st time
     [ $nodeid -ne 0 ] || exit 100
 }
 
@@ -427,11 +447,11 @@ play_net_remove_node_()
     pub="ucl/by-unid/$contunid/ProtocolController/NetworkManagement/Write"
     message='{"State":"remove node"}'
     sub="ucl/by-unid/+/State/SupportedCommands"
-    node_cli_ n > /dev/null
+    node_cli_ "$node" n > /dev/null
     expect=$(echo "$sub (null)" | sed -e "s|/+/|/$nodeunid/|g")
-    node_cli_ l
+    node_cli_ "$node" l
     pubsub_ "$pub" "$message" "$sub" "$expect" 3
-    node_cli_ n
+    node_cli_ "$node" n
     [ 0 -eq $nodeid ] || exit_ 18
 }
 
@@ -439,8 +459,9 @@ play_net_remove_node_()
 play_node_soc_switch_on_off_()
 {
     echo
+    app="soc_switch_on_off"
     type="OnOff"
-    node_cli_ n
+    node_cli_ "$node" n
     log_ "$type: Play on $nodeunid ~T738437 ~T738442"
     attribute="$type"
 
@@ -483,20 +504,37 @@ play_node_soc_switch_on_off_()
     sleep 1
 
     log_ "$type: Events from device $nodeunid"
-    node_cli_ 1 # From Off to On
+    node_cli_ "$node" 1 # From Off to On
     expect="$sub "'{"value":true}'
     sub_ "$sub" "$expect"
-    node_cli_ 1 # From On to Off
+    node_cli_ "$node" 1 # From On to Off
     expect="$sub "'{"value":false}'
     sub_ "$sub" "$expect"
+}
+
+
+play_node_soc_multilevel_sensor_()
+{  
+    local app="soc_multilevel_sensor"
+    local type="Battery"
+    local property="battery_level"
+    local value=100
+    
+    node_cli_ "$node" n
+    log_ "$app: $type: Play on $nodeid ~T738437 ~T738442"
+
+    log_ "$app: $type: Initial state reported after inclusion"
+#    sub="zpc/${homeid}/${nodeid}/ep0/${type}/Report/${type}Report"
+#    expect="$sub "'{"'${property}'":'$value'' # TODO: Partial payload
+#    sub_ "$sub" "$expect"
 }
 
 
 play_uic_s2v2_node_()
 {
     type="OnOff"
-    node_cli_ H
-    node_cli_ n
+    node_cli_ "$node" H
+    node_cli_ "$node" n
     echo "info: Play $type on $nodeunid"
 
     command="EnableNls"
@@ -525,31 +563,37 @@ play_uic_s2v2_node_()
     grep 'ucl_nm_neighbor_discovery' "${zpc_log}" || exit_ 24
 }
 
-
-play_demo_()
+play_node_()
 {
-    node="soc_switch_on_off"
+    node="$1"
+
     play_net_add_node_ $node
     play_net_remove_node_ $node
 
-    play_net_add_node_ $node
-    play_node_${node}_
-    play_net_remove_node_ $node
-
-    node="soc_multilevel_sensor"
-    play_net_add_node_ $node
-    play_node_${node}_
-    play_net_remove_node_ $node
-
-    log_ "TODO: https://github.com/orgs/Z-Wave-Alliance/projects/10/views/1"
-    if false ; then
+    if ! true ; then
+        play_net_add_node_ $node
+        play_node_${node}_
+        play_net_remove_node_ $node
+    fi
+    if ! true ; then
       play_uic_net_add_node_
       play_uic_s2v2_node_
       play_uic_node_OnOff_
       play_uic_net_remove_node_
+    else
+        log_ "TODO: https://github.com/orgs/Z-Wave-Alliance/projects/10/views/1"
     fi
 }
 
+play_demo_()
+{
+    nodes=""
+    # nodes="soc_switch_on_off"
+    nodes="$nodes soc_multilevel_sensor"
+    for node in $nodes ; do
+        play_node_ $node
+    done
+}
 
 play_()
 {
@@ -558,7 +602,6 @@ play_()
     while ! grep -- "\[mqtt_client\] Connection to MQTT broker" "${zpc_log}" ; do sleep 1 ; done
 
     controller_cli_ h
-    node_cli_ h
 
     play_demo_ || code=$?
     exit_ 0$code
@@ -620,6 +663,11 @@ sleep 1
 
 split
 focus down
+screen -t "soc_multilevel_sensor" "3" $0 run_app_ soc_multilevel_sensor
+sleep 1
+
+split
+focus down
 screen -t "zpc" "4" $0 run_ zpc
 sleep 2
 
@@ -651,7 +699,7 @@ EOF
     echo "info: Start watchdog to allow $duration minutes"
     while [ $now -le $expired ]; do
         screen -ls "$name" || break
-        [ -z $debug ] || { ls -l *.log.tmp &&  more *.log.tmp | cat ; }
+        [ -z $debug ] || { ls -l *${log_suffix} &&  more *${log_suffix} | cat ; }
         more "${mqtt_log}" | tail ||:
         sleep $beat
         now=$(date -u +%s)
