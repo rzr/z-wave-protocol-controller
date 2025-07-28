@@ -1279,7 +1279,17 @@ S2_init_ctx(uint32_t home)
     return 0;
   }
 #endif
+
+  // Erase sensitive memory safely
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
+  memset_explicit(ctx, 0, sizeof(struct S2));
+#elif defined(HAVE_EXPLICIT_BZERO) // for gcc-12
   explicit_bzero(ctx, sizeof(struct S2));
+#elif defined(__APPLE__) // for MacOS
+  memset_s(ctx, 0, sizeof(struct S2));
+#else
+  memset(ctx, 0, sizeof(struct S2)); //NOSONAR: Fallback option
+#endif
 
   ctx->my_home_id = home;
   ctx->loaded_keys = 0;
