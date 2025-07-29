@@ -10,7 +10,10 @@
 #include "s2_protocol.h"
 #include "s2_classcmd.h"
 #include "../inclusion/s2_inclusion_internal.h"
-#include<string.h>
+
+#include <assert.h>
+#include <string.h>
+
 #include "ccm.h"
 #include "aes_cmac.h"
 #include "nextnonce.h"
@@ -1282,13 +1285,25 @@ S2_init_ctx(uint32_t home)
 
   // Erase sensitive memory safely
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
-  memset_explicit(ctx, 0, sizeof(struct S2));
-#elif defined(HAVE_EXPLICIT_BZERO) // for gcc-12
+  void *result = memset_explicit(ctx, 0, sizeof(struct S2));
+  assert(result == ctx);
+  if (result != ctx) {
+    return (NULL);
+  }
+#elif defined(HAVE_EXPLICIT_BZERO)  // for gcc-12
   explicit_bzero(ctx, sizeof(struct S2));
-#elif defined(__APPLE__) // for MacOS
-  memset_s(ctx, 0, sizeof(struct S2));
+#elif defined(__APPLE__)            // for MacOS
+  errno_t result = memset_s(ctx, sizeof(struct S2), 0, sizeof(struct S2)); 
+  assert(result == 0);
+  if (result != 0) {
+    return (NULL);
+  }
 #else
-  memset(ctx, 0, sizeof(struct S2)); //NOSONAR: Fallback option
+  void *result = memset(ctx, 0, sizeof(struct S2));  //NOSONAR: Fallback option
+  assert(result == ctx);
+  if (result != ctx) {
+    return (NULL);
+  }
 #endif
 
   ctx->my_home_id = home;
@@ -1339,7 +1354,20 @@ void
 S2_destroy(struct S2* p_context)
 {
   CTX_DEF
+  // Erase sensitive memory safely
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
+  void *result = memset_explicit(ctxt, 0, sizeof(struct S2));
+  assert(result == ctxt);
+#elif defined(HAVE_EXPLICIT_BZERO)  // for gcc-12
   explicit_bzero(ctxt, sizeof(struct S2));
+#elif defined(__APPLE__)            // for MacOS
+  errno_t result = memset_s(ctxt, sizeof(struct S2), 0, sizeof(struct S2)); 
+  assert(result == 0);
+#else
+  void *result = memset(ctxt, 0, sizeof(struct S2));  //NOSONAR: Fallback option
+  assert(result == ctxt);
+#endif
+    
 #ifndef SINGLE_CONTEXT
   free(ctxt);
 #endif
