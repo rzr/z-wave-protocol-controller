@@ -206,8 +206,11 @@ static void
                                 uint8_t zwapi_zwave_nif_length,
                                 zwave_node_info_t *destination_node_info)
 {
+  static const int header_offset = 3;
   if (zwapi_zwave_nif == NULL || destination_node_info == NULL
-      || zwapi_zwave_nif_length == 0) {
+      || zwapi_zwave_nif_length == 0
+      || zwapi_zwave_nif_length <= header_offset // For zwave_command_class_list_unpack
+  ) {
     return;
   }
 
@@ -239,7 +242,7 @@ static void
 
   zwave_command_class_list_unpack(destination_node_info,
                                   &zwapi_zwave_nif[index],
-                                  zwapi_zwave_nif_length - 3);
+                                  zwapi_zwave_nif_length - header_offset);
 }
 
 void zwave_rx_poll_request()
