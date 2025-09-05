@@ -334,7 +334,7 @@ ${coverage_file}: test all
 	ls -l "$@"
 
 zwa_project?=z-wave-stack-binaries
-zwa_ver?=25.1.0-28-g7e0b50f
+zwa_ver?=25.9.0
 zwa_rev?=v${zwa_ver}
 zwa_file?=${zwa_project}-${zwa_ver}-Linux.tar.gz
 zwa_url?=https://github.com/Z-Wave-Alliance/${zwa_project}
