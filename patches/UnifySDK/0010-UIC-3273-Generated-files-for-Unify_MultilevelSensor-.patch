@@ -1,4 +1,4 @@
-From c0ecd3accaa8958ed7c698c31eda84c504352413 Mon Sep 17 00:00:00 2001
+From 6bb1911c76658081391ac3bd8c268c374e3617f0 Mon Sep 17 00:00:00 2001
 From: Philippe Coval <philippe.coval@silabs.com>
 Date: Tue, 16 Sep 2025 10:58:38 +0200
 Subject: [PATCH] UIC-3273: Generated files for Unify_MultilevelSensor using
