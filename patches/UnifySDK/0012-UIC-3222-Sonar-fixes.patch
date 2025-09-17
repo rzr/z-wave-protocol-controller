@@ -1,0 +1,58 @@
+From df073d04e9095c28c358600b70bf95e0a68d0969 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Boris=20Labb=C3=A9?= <boris.labbe@silabs.com>
+Date: Wed, 18 Sep 2024 12:04:41 +0200
+Subject: [PATCH] UIC-3222: Sonar fixes
+
+---
+ .../src/attribute_store_node.cpp              |  5 +++++
+ .../test/attribute_store_cpp_wrap_test.cpp    | 20 +++++++++++++++++++
+ 2 files changed, 25 insertions(+)
+
+diff --git a/components/uic_attribute_store/src/attribute_store_node.cpp b/components/uic_attribute_store/src/attribute_store_node.cpp
+index 437a5d6bc7..3610a8f2e4 100644
+--- a/components/uic_attribute_store/src/attribute_store_node.cpp
++++ b/components/uic_attribute_store/src/attribute_store_node.cpp
+@@ -96,6 +96,11 @@ attribute_store_node *attribute_store_node::find_id(attribute_store_node_t _id)
+ attribute_store_node*
+   attribute_store_node::change_parent(attribute_store_node* new_parent)
+ {
++  if (this->parent_node == NULL) {
++    sl_log_critical(LOG_TAG, "Cannot change parent of the root node.");
++    return NULL;
++  }
++
+   if (new_parent == NULL) {
+     sl_log_warning(LOG_TAG, "Cannot change parent to a NULL node.");
+     return NULL;
+diff --git a/components/uic_attribute_store/test/attribute_store_cpp_wrap_test.cpp b/components/uic_attribute_store/test/attribute_store_cpp_wrap_test.cpp
+index 0def92ab15..dcdccacbed 100644
+--- a/components/uic_attribute_store/test/attribute_store_cpp_wrap_test.cpp
++++ b/components/uic_attribute_store/test/attribute_store_cpp_wrap_test.cpp
+@@ -336,4 +336,24 @@ void test_attribute_store_change_parent_not_same_parent()
+                             "D should have 42 as reported value");
+ }
+ 
++void test_attribute_store_change_parent_invalids()
++{
++  attribute root = attribute::root();
++  attribute a    = root.add_node('A');
++
++  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_FAIL,
++                            root.change_parent(a),
++                            "Shouldn't be able to change root node parent");
++
++  TEST_ASSERT_EQUAL_MESSAGE(
++    SL_STATUS_FAIL,
++    a.change_parent(attribute(0)),
++    "Shouldn't be able to change parent to a invalid node parent");
++
++  TEST_ASSERT_EQUAL_MESSAGE(
++    SL_STATUS_FAIL,
++    attribute(0).change_parent(a),
++    "Shouldn't be able to change a invalid node parent");
++}
++
+ } // extern "C"
+-- 
+2.39.5
+

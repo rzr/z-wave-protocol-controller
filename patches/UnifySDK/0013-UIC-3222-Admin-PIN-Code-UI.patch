@@ -1,0 +1,38 @@
+From b3c65f7eb26e2513c5db7d64d0c25cea7cf13500 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Boris=20Labb=C3=A9?= <boris.labbe@silabs.com>
+Date: Mon, 14 Oct 2024 15:53:22 +0200
+Subject: [PATCH] UIC-3222: Admin PIN Code UI
+
+---
+ .../dev_gui/src/pages/user-credential/user-credential.tsx | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/applications/dev_ui/dev_gui/src/pages/user-credential/user-credential.tsx b/applications/dev_ui/dev_gui/src/pages/user-credential/user-credential.tsx
+index 0c0881ca1a..f1da4f0333 100644
+--- a/applications/dev_ui/dev_gui/src/pages/user-credential/user-credential.tsx
++++ b/applications/dev_ui/dev_gui/src/pages/user-credential/user-credential.tsx
+@@ -224,6 +224,7 @@ export class UserCredential extends React.Component<UserCredentialProps, UserCre
+                   <th>Supported User Types</th>
+                   <th>Supported Credential Types</th>
+                   <th>Supported Credential Rules</th>
++                  <th>Admin PIN Code</th>
+                   <th>Supported Commands</th>
+                 </tr>
+               </thead>
+@@ -251,6 +252,13 @@ export class UserCredential extends React.Component<UserCredentialProps, UserCre
+                           <td>{this.getBadges(item.UserCredential?.SupportedUserTypes?.Reported)}</td>
+                           <td>{this.getSupportedCredentialType(item.UserCredential?.SupportedCredentialTypes?.Reported, item.UserCredential?.Credentials)}</td>
+                           <td>{this.getBadges(item.UserCredential?.SupportedCredentialRules?.Reported)}</td>
++                          <td>{(item.UserCredential?.SupportAdminPinCode?.Reported) ?
++                            <Tooltip key={index} title={"Deactivation supported : " + item.UserCredential?.SupportAdminPinCodeDeactivation?.Reported}>
++                              <span>{item.UserCredential?.AdminPinCode?.Reported}</span>
++                            </Tooltip>
++                            : <RiIcons.RiCloseCircleFill color="red"/>
++                          }
++                          </td>
+                           <td className="float-left">
+                             {commands && commands.length
+                               ? <DropdownButton menuAlign={'right'} variant="outline-primary" title="Commands" className="float-right" disabled={isOffline} size="sm">
+-- 
+2.39.5
+
