@@ -1,0 +1,108 @@
+From f0461681f727a3be5e6cc751f9ec369b3c6d5e9b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Boris=20Labb=C3=A9?= <boris.labbe@silabs.com>
+Date: Tue, 10 Sep 2024 15:41:30 +0200
+Subject: [PATCH] UIC-3222: Allow to send toast to the UI
+
+Sending data over ucl/Event can display a message in the DevUI
+---
+ applications/dev_ui/dev_gui/src/App.tsx       | 20 +++++++++++++++++++
+ .../dev_ui/dev_gui/src/dev-gui-api/handler.js | 16 ++++++++++++++-
+ .../dev_ui/dev_gui/src/dev-gui-api/main.js    |  5 ++++-
+ 3 files changed, 39 insertions(+), 2 deletions(-)
+
+diff --git a/applications/dev_ui/dev_gui/src/App.tsx b/applications/dev_ui/dev_gui/src/App.tsx
+index 92e17f0c9a..5b8673baf8 100644
+--- a/applications/dev_ui/dev_gui/src/App.tsx
++++ b/applications/dev_ui/dev_gui/src/App.tsx
+@@ -148,6 +148,23 @@ class App extends Component<{}, AppState> {
+     this.setState({ CommissionableDevices: list });
+   }
+ 
++  handleEvents(data: any) {
++    var toastType = toast.TYPE.DEFAULT;
++    switch (data.level) {
++      case 1:
++        toastType = toast.TYPE.INFO;
++        break;
++      case 2:
++        toastType = toast.TYPE.WARNING;
++        break;
++      case 3:
++      case 4:
++        toastType = toast.TYPE.ERROR;
++        break;
++    }
++    toast(data.message, { type: toastType })
++  }
++
+   handleUPTIChange(list: any[]) {
+     let upti = this.state.UPTI;
+     upti.List = list;
+@@ -412,6 +429,9 @@ class App extends Component<{}, AppState> {
+       case "commissionable-device":
+         this.handleCommissionableDevices(mes.data);
+         break;
++      case "event":
++        this.handleEvents(mes.data);
++        break;
+     }
+   }
+ 
+diff --git a/applications/dev_ui/dev_gui/src/dev-gui-api/handler.js b/applications/dev_ui/dev_gui/src/dev-gui-api/handler.js
+index f24aef987e..784d84c500 100644
+--- a/applications/dev_ui/dev_gui/src/dev-gui-api/handler.js
++++ b/applications/dev_ui/dev_gui/src/dev-gui-api/handler.js
+@@ -40,6 +40,20 @@ exports.processSmartStart = (topic, message) => {
+     }
+ }
+ 
++exports.processEvent = (topic, message) => {
++    console.log(`Received Event : '${message}'`);
++    if (message.toString() == "")
++        return;
++    try {
++        return {
++            type: "event",
++            data: JSON.parse(message)
++        };
++    } catch (error) {
++        return getErrorResponse(topic, message, error);
++    }
++}
++
+ exports.processCluster = (topic, message) => {
+     let index = -1;
+     let match = topic.match(/ucl\/by-unid\/(.*)\/(ep\d+)\/(.*)/)
+@@ -678,4 +692,4 @@ exports.addToQueue = addToQueue;
+ exports.runQueueHandler = runQueueHandler;
+ exports.getErrorResponse = getErrorResponse;
+ exports.clients = clients;
+-exports.state = state;
+\ No newline at end of file
++exports.state = state;
+diff --git a/applications/dev_ui/dev_gui/src/dev-gui-api/main.js b/applications/dev_ui/dev_gui/src/dev-gui-api/main.js
+index 43e80e8dc5..4d829d972f 100644
+--- a/applications/dev_ui/dev_gui/src/dev-gui-api/main.js
++++ b/applications/dev_ui/dev_gui/src/dev-gui-api/main.js
+@@ -33,7 +33,8 @@ let topics = ["ucl/SmartStart/List",
+     "ucl/UPTICap/#",
+     "ucl/by-machine-id/+/SystemMetrics/SupportedCommands",
+     "ucl/by-machine-id/+/SystemMetrics/Attributes/#",
+-    "ucl/by-mqtt-client/+/ApplicationMonitoring/Attributes/#"
++    "ucl/by-mqtt-client/+/ApplicationMonitoring/Attributes/#",
++    "ucl/Event"
+ ];
+ Object.keys(supportedClusters).forEach((i) => {
+     topics.push(`ucl/by-unid/+/+/${i}/SupportedCommands`);
+@@ -282,6 +283,8 @@ function onMqttMessage(topic, message) {
+         response = handler.processAppMonitoringList(topic, message);
+     } else if (topic.match(/ucl\/SmartStart\/CommissionableDevice\/(.*)/)) {
+         response = handler.processCommissionableDevices(topic, message);
++    } else if (topic === "ucl/Event") {
++        response = handler.processEvent(topic, message);
+     }
+     if (response && Object.keys(response).length > 0)
+         handler.addToQueue(response.type, response.data);
+-- 
+2.39.5
+

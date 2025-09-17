@@ -1,0 +1,252 @@
+From 26b2357b1717410056a68f093696d99c65997034 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Boris=20Labb=C3=A9?= <boris.labbe@silabs.com>
+Date: Tue, 3 Sep 2024 11:51:18 +0200
+Subject: [PATCH] UIC-3222: Allow to change parent of a node
+
+This utility function will allow us to implement UUIC association with ease
+---
+ .../uic_attribute_store/include/attribute.hpp |  5 ++
+ .../include/attribute_store.h                 | 14 +++
+ .../src/attribute_store.cpp                   | 21 +++++
+ .../src/attribute_store_node.cpp              | 29 ++++++
+ .../src/attribute_store_node.h                | 11 +++
+ .../test/attribute_store_cpp_wrap_test.cpp    | 90 +++++++++++++++++++
+ 6 files changed, 170 insertions(+)
+
+diff --git a/components/uic_attribute_store/include/attribute.hpp b/components/uic_attribute_store/include/attribute.hpp
+index 466ad9ffef..b30947a68b 100644
+--- a/components/uic_attribute_store/include/attribute.hpp
++++ b/components/uic_attribute_store/include/attribute.hpp
+@@ -504,6 +504,11 @@ class attribute
+     _n = ATTRIBUTE_STORE_INVALID_NODE;
+   }
+ 
++  sl_status_t change_parent(attribute new_parent)
++  {
++    return attribute_store_change_parent(this->_n, new_parent);
++  }
++
+   /**
+    * @brief Visit all nodes in the tree.
+    *
+diff --git a/components/uic_attribute_store/include/attribute_store.h b/components/uic_attribute_store/include/attribute_store.h
+index 59dfe10db7..288999918e 100644
+--- a/components/uic_attribute_store/include/attribute_store.h
++++ b/components/uic_attribute_store/include/attribute_store.h
+@@ -505,6 +505,20 @@ uint8_t attribute_store_get_node_value_size(
+ sl_status_t attribute_store_refresh_node_and_children_callbacks(
+   attribute_store_node_t node);
+ 
++/**
++ * @brief Change parent of node to the new parent.
++ * 
++ * @note The parent node must be a valid node in the attribute store.
++ * @note The new parent should have the type than the node current parent
++ * 
++ * @param node        The node handle of the node to change parent
++ * @param new_parent  The node handle of the new parent
++ * 
++ * @return SL_STATUS_OK if the parent was changed successfully, SL_STATUS_FAIL otherwise
++ */
++sl_status_t attribute_store_change_parent(attribute_store_node_t node,
++                                          attribute_store_node_t new_parent);
++
+ /**
+  * @brief Log the content of the Attribute Store tree using \ref sl_log.
+ */
+diff --git a/components/uic_attribute_store/src/attribute_store.cpp b/components/uic_attribute_store/src/attribute_store.cpp
+index ed5a6a333a..043141d875 100644
+--- a/components/uic_attribute_store/src/attribute_store.cpp
++++ b/components/uic_attribute_store/src/attribute_store.cpp
+@@ -158,6 +158,27 @@ static attribute_store_node *
+   return found_node;
+ }
+ 
++sl_status_t attribute_store_change_parent(attribute_store_node_t node,
++                                          attribute_store_node_t new_parent)
++{
++  auto base_node = attribute_store_get_node_from_id(node);
++  if (base_node == NULL) {
++    sl_log_error(LOG_TAG, "Node %d not found in the attribute store.", node);
++    return SL_STATUS_FAIL;
++  }
++  auto parent_node = attribute_store_get_node_from_id(new_parent);
++  if (parent_node == NULL) {
++    sl_log_error(LOG_TAG,
++                 "Parent node %d not found in the attribute store.",
++                 new_parent);
++    return SL_STATUS_FAIL;
++  }
++
++  return base_node->change_parent(parent_node) != NULL ? SL_STATUS_OK
++                                                       : SL_STATUS_FAIL;
++}
++
++
+ /**
+  * @brief Compares if a node value is identical to the value/value size
+  *
+diff --git a/components/uic_attribute_store/src/attribute_store_node.cpp b/components/uic_attribute_store/src/attribute_store_node.cpp
+index de96b58a30..437a5d6bc7 100644
+--- a/components/uic_attribute_store/src/attribute_store_node.cpp
++++ b/components/uic_attribute_store/src/attribute_store_node.cpp
+@@ -93,6 +93,35 @@ attribute_store_node *attribute_store_node::find_id(attribute_store_node_t _id)
+   return NULL;
+ }
+ 
++attribute_store_node*
++  attribute_store_node::change_parent(attribute_store_node* new_parent)
++{
++  if (new_parent == NULL) {
++    sl_log_warning(LOG_TAG, "Cannot change parent to a NULL node.");
++    return NULL;
++  }
++
++  if (new_parent == this->parent_node) {
++    sl_log_warning(LOG_TAG, "Cannot change parent to the same node.");
++    return NULL;
++  }
++
++  if (new_parent->type != this->parent_node->type) {
++    sl_log_warning(LOG_TAG,
++                   "Cannot change parent to a node of different type. "
++                   "New Parent type: %s, Old parent type: %s",
++                   attribute_store_get_type_name(new_parent->type),
++                   attribute_store_get_type_name(this->parent_node->type));
++    return NULL;
++  }
++  // Clear old parent child link
++  this->parent_node->remove_child_link(this);
++
++  new_parent->child_nodes.push_back(this);
++  this->parent_node = new_parent;
++  return new_parent;
++}
++
+ ///////////////////////////////////////////////////////////////////////////////
+ // Log functions
+ ///////////////////////////////////////////////////////////////////////////////
+diff --git a/components/uic_attribute_store/src/attribute_store_node.h b/components/uic_attribute_store/src/attribute_store_node.h
+index c840746904..63d0a2b247 100644
+--- a/components/uic_attribute_store/src/attribute_store_node.h
++++ b/components/uic_attribute_store/src/attribute_store_node.h
+@@ -109,6 +109,17 @@ class attribute_store_node
+    */
+   attribute_store_node *find_id(attribute_store_node_t _id);
+ 
++  /**
++   * @brief Change the parent node to new_parent
++   * 
++   * @note The new parent must be of the same type as the current parent
++   * 
++   * @param new_parent The new parent node to assign to the current node
++   * 
++   * @returns The new parent node if the operation was successful, NULL otherwise
++   */
++  attribute_store_node *change_parent(attribute_store_node* new_parent);
++
+   /**
+    * @brief Logs the content of the a Node using \ref sl_log
+   */
+diff --git a/components/uic_attribute_store/test/attribute_store_cpp_wrap_test.cpp b/components/uic_attribute_store/test/attribute_store_cpp_wrap_test.cpp
+index d578608021..0def92ab15 100644
+--- a/components/uic_attribute_store/test/attribute_store_cpp_wrap_test.cpp
++++ b/components/uic_attribute_store/test/attribute_store_cpp_wrap_test.cpp
+@@ -246,4 +246,94 @@ void test_attribute_store_cpp_wrap_emplace_happy_case()
+                             "Should have created a new node");
+ }
+ 
++void test_attribute_store_change_parent_happy_case()
++{
++  /*         A
++ *        / \
++ *        B   B
++ *       / \
++ *      C   D
++*/
++
++  attribute a = attribute::root().add_node('A');
++  attribute b1 = a.add_node('B');
++  attribute b2 = a.add_node('B');
++  attribute c = b1.add_node('C');
++  attribute d = b1.add_node('D');
++
++  c.set_reported(55);
++  d.set_reported(42);
++
++  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_OK, d.change_parent(b2), "Change parent should have worked");
++
++  TEST_ASSERT_EQUAL_MESSAGE(1, b1.child_count(), "B1 should only have 1 child now");
++  TEST_ASSERT_EQUAL_MESSAGE(1, b2.child_count(), "B2 should have 1 child now");
++  TEST_ASSERT_EQUAL_MESSAGE(d, b2.child(0), "D should be the only child of B2");
++  TEST_ASSERT_EQUAL_MESSAGE(d.parent(), b2, "D should have B2 as parent");
++  TEST_ASSERT_EQUAL_MESSAGE(42,
++                            d.reported<int>(),
++                            "D should have 42 as reported value");
++}
++
++void test_attribute_store_change_parent_not_same_parent_type()
++{
++  /*       A
++ *        / \
++ *        B  E
++ *       / \
++ *      C   D
++*/
++
++  attribute a = attribute::root().add_node('A');
++  attribute b = a.add_node('B');
++  attribute e = a.add_node('E');
++  attribute c = b.add_node('C');
++  attribute d = b.add_node('D');
++
++  c.set_reported(55);
++  d.set_reported(42);
++
++  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_FAIL,
++                            d.change_parent(e),
++                            "Change parent should NOT have worked");
++
++  TEST_ASSERT_EQUAL_MESSAGE(2, b.child_count(), "B should still have 2 child");
++  TEST_ASSERT_EQUAL_MESSAGE(0, e.child_count(), "E should not have any child");
++  TEST_ASSERT_EQUAL_MESSAGE(d.parent(), b, "D should have B as parent");
++  TEST_ASSERT_EQUAL_MESSAGE(42,
++                            d.reported<int>(),
++                            "D should have 42 as reported value");
++}
++
++
++void test_attribute_store_change_parent_not_same_parent()
++{
++  /*       A
++ *        / \
++ *        B  E
++ *       / \
++ *      C   D
++*/
++
++  attribute a = attribute::root().add_node('A');
++  attribute b = a.add_node('B');
++  attribute e = a.add_node('E');
++  attribute c = b.add_node('C');
++  attribute d = b.add_node('D');
++
++  c.set_reported(55);
++  d.set_reported(42);
++
++  TEST_ASSERT_EQUAL_MESSAGE(SL_STATUS_FAIL,
++                            d.change_parent(b),
++                            "Change parent should NOT have worked");
++
++  TEST_ASSERT_EQUAL_MESSAGE(2, b.child_count(), "B should still have 2 child");
++  TEST_ASSERT_EQUAL_MESSAGE(0, e.child_count(), "E should not have any child");
++  TEST_ASSERT_EQUAL_MESSAGE(d.parent(), b, "D should have B as parent");
++  TEST_ASSERT_EQUAL_MESSAGE(42,
++                            d.reported<int>(),
++                            "D should have 42 as reported value");
++}
++
+ } // extern "C"
+-- 
+2.39.5
+
