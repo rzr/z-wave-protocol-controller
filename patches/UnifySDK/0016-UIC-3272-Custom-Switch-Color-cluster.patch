@@ -1,0 +1,81 @@
+From d6dafa94d28e5abfacdab6ea03062f9ed01cfded Mon Sep 17 00:00:00 2001
+From: Viet <Viet.Nguyen@silabs.com>
+Date: Wed, 11 Sep 2024 18:17:01 +0700
+Subject: [PATCH] UIC-3272: Custom Switch Color cluster
+
+---
+ .../dotdot-xml/Unify_SwitchColor.xml          | 48 +++++++++++++++++++
+ components/uic_dotdot/dotdot-xml/library.xml  |  4 +-
+ 2 files changed, 50 insertions(+), 2 deletions(-)
+ create mode 100644 components/uic_dotdot/dotdot-xml/Unify_SwitchColor.xml
+
+diff --git a/components/uic_dotdot/dotdot-xml/Unify_SwitchColor.xml b/components/uic_dotdot/dotdot-xml/Unify_SwitchColor.xml
+new file mode 100644
+index 0000000000..e4a5d1d6d9
+--- /dev/null
++++ b/components/uic_dotdot/dotdot-xml/Unify_SwitchColor.xml
+@@ -0,0 +1,48 @@
++<?xml version="1.0"?>
++<!-- 
++Zigbee Alliance owns the copyright to the text and content displayed or 
++included in this document (including in PDF, XML files and other formats) in 
++all forms of media, which copyright is protected by the copyright laws of the 
++United States and by international treaties.  Full text of licensing terms 
++applicable to this document can be found in the LICENSE.md file.
++-->
++<zcl:cluster
++	xmlns:zcl="http://zigbee.org/zcl/clusters"
++	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++	xmlns:type="http://zigbee.org/zcl/types"
++	xmlns:xi="http://www.w3.org/2001/XInclude"
++	xsi:schemaLocation="http://zigbee.org/zcl/clusters cluster.xsd http://zigbee.org/zcl/types type.xsd"
++	id="FFA1" revision="1" name="UnifySwitchColor">
++  <classification role="application" picsCode="OO" primaryTransaction="1" />
++  <server>
++    <attributes>
++      <attribute id="0000" name="WarmWhite" type="uint8" max="255" required="true" reportRequired="true" default="0" />
++      <attribute id="0001" name="ColdWhite" type="uint8" max="255" required="true" reportRequired="true" default="0" />
++      <attribute id="0002" name="Red" type="uint8" max="255" required="true" reportRequired="true" default="0" />
++      <attribute id="0003" name="Green" type="uint8" max="255" required="true" reportRequired="true" default="0" />
++      <attribute id="0004" name="Blue" type="uint8" max="255" required="true" reportRequired="true" default="0" />
++      <attribute id="0005" name="Amber" type="uint8" max="255" required="true" reportRequired="true" default="0" />
++      <attribute id="0006" name="Cyan" type="uint8" max="255" required="true" reportRequired="true" default="0" />
++      <attribute id="0007" name="Purple" type="uint8" max="255" required="true" reportRequired="true" default="0" />
++    </attributes>
++    <commands>
++      <command id="00" name="SetColor" required="true">
++        <fields>
++          <field name="ColorComponentId" type="uint8" />
++          <field name="Value" type="uint8" />
++          <field name="Duration" type="uint32" />
++        </fields>
++      </command>
++      <command id="01" name="StartStopChange" required="true">
++        <fields>
++          <field name="StartStop" type="bool" />
++          <field name="UpDown" type="bool" />
++          <field name="IgnorStartLevel" type="bool" />
++          <field name="ColorComponentId" type="uint8" />
++          <field name="StartLevel" type="uint8" />
++          <field name="Duration" type="uint32" />
++        </fields>
++      </command>
++    </commands>
++  </server>
++</zcl:cluster>
+diff --git a/components/uic_dotdot/dotdot-xml/library.xml b/components/uic_dotdot/dotdot-xml/library.xml
+index 79e165dbc6..892551c6b0 100644
+--- a/components/uic_dotdot/dotdot-xml/library.xml
++++ b/components/uic_dotdot/dotdot-xml/library.xml
+@@ -502,5 +502,5 @@ applicable to this document can be found in the LICENSE.md file.
+   <xi:include href="Unify_Thermostat.xml" parse="xml"/>
+   <xi:include href="Unify_FanControl.xml" parse="xml"/>
+   <xi:include href="Unify_UserCredential.xml" parse="xml"/>
+-  
+-</zcl:library>
+\ No newline at end of file
++  <xi:include href="Unify_SwitchColor.xml" parse="xml"/>
++</zcl:library>
+-- 
+2.39.5
+
