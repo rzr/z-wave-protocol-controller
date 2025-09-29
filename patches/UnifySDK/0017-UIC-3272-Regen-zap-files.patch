@@ -1,0 +1,1073 @@
+From f91e80abb94fea222cdf8499b64ddcbec992cd16 Mon Sep 17 00:00:00 2001
+From: Philippe Coval <philippe.coval@silabs.com>
+Date: Mon, 29 Sep 2025 10:46:44 +0200
+Subject: [PATCH] UIC-3272: Regen zap files
+
+Signed-off-by: Philippe Coval <philippe.coval@silabs.com>
+---
+ .../src/eed_attribute_store_clusters.c        |  32 +
+ .../src/eed_dotdot_create_clusters.cpp        |  87 +++
+ .../include/dotdot_attribute_id_definitions.h |   9 +
+ .../dotdot_cluster_command_id_definitions.h   |   4 +
+ .../include/dotdot_cluster_id_definitions.h   |   4 +
+ .../readme_ucl_mqtt_reference.md              | 697 ++++++++++++++++++
+ .../src/dotdot_attribute_id_definitions.c     |  79 ++
+ .../src/dotdot_cluster_id_definitions.c       |   5 +
+ 8 files changed, 917 insertions(+)
+
+diff --git a/applications/examples/applications/emulated_end_device/components/eed_attribute_store/zap-generated/src/eed_attribute_store_clusters.c b/applications/examples/applications/emulated_end_device/components/eed_attribute_store/zap-generated/src/eed_attribute_store_clusters.c
+index 05c5b08f6f..b0d111a7fa 100644
+--- a/applications/examples/applications/emulated_end_device/components/eed_attribute_store/zap-generated/src/eed_attribute_store_clusters.c
++++ b/applications/examples/applications/emulated_end_device/components/eed_attribute_store/zap-generated/src/eed_attribute_store_clusters.c
+@@ -2823,6 +2823,38 @@ sl_status_t eed_attribute_store_clusters_init()
+     &on_zcl_desired_value_update,
+     DOTDOT_ATTRIBUTE_ID_UNIFY_HUMIDITY_CONTROL_AUTO_SETPOINT_PRECISION,
+     DESIRED_ATTRIBUTE);
++  attribute_store_register_callback_by_type_and_state(
++    &on_zcl_desired_value_update,
++    DOTDOT_ATTRIBUTE_ID_UNIFY_SWITCH_COLOR_WARM_WHITE,
++    DESIRED_ATTRIBUTE);
++  attribute_store_register_callback_by_type_and_state(
++    &on_zcl_desired_value_update,
++    DOTDOT_ATTRIBUTE_ID_UNIFY_SWITCH_COLOR_COLD_WHITE,
++    DESIRED_ATTRIBUTE);
++  attribute_store_register_callback_by_type_and_state(
++    &on_zcl_desired_value_update,
++    DOTDOT_ATTRIBUTE_ID_UNIFY_SWITCH_COLOR_RED,
++    DESIRED_ATTRIBUTE);
++  attribute_store_register_callback_by_type_and_state(
++    &on_zcl_desired_value_update,
++    DOTDOT_ATTRIBUTE_ID_UNIFY_SWITCH_COLOR_GREEN,
++    DESIRED_ATTRIBUTE);
++  attribute_store_register_callback_by_type_and_state(
++    &on_zcl_desired_value_update,
++    DOTDOT_ATTRIBUTE_ID_UNIFY_SWITCH_COLOR_BLUE,
++    DESIRED_ATTRIBUTE);
++  attribute_store_register_callback_by_type_and_state(
++    &on_zcl_desired_value_update,
++    DOTDOT_ATTRIBUTE_ID_UNIFY_SWITCH_COLOR_AMBER,
++    DESIRED_ATTRIBUTE);
++  attribute_store_register_callback_by_type_and_state(
++    &on_zcl_desired_value_update,
++    DOTDOT_ATTRIBUTE_ID_UNIFY_SWITCH_COLOR_CYAN,
++    DESIRED_ATTRIBUTE);
++  attribute_store_register_callback_by_type_and_state(
++    &on_zcl_desired_value_update,
++    DOTDOT_ATTRIBUTE_ID_UNIFY_SWITCH_COLOR_PURPLE,
++    DESIRED_ATTRIBUTE);
+   // clang-format on
+   return SL_STATUS_OK;
+ }
+\ No newline at end of file
+diff --git a/applications/examples/applications/emulated_end_device/components/eed_attribute_store/zap-generated/src/eed_dotdot_create_clusters.cpp b/applications/examples/applications/emulated_end_device/components/eed_attribute_store/zap-generated/src/eed_dotdot_create_clusters.cpp
+index e3ce84ccee..5619115b87 100644
+--- a/applications/examples/applications/emulated_end_device/components/eed_attribute_store/zap-generated/src/eed_dotdot_create_clusters.cpp
++++ b/applications/examples/applications/emulated_end_device/components/eed_attribute_store/zap-generated/src/eed_dotdot_create_clusters.cpp
+@@ -4208,6 +4208,57 @@ void dotdot_create_unify_humidity_control_wrapper(const dotdot_unid_t unid, cons
+ 
+ }
+ 
++void dotdot_create_unify_switch_color_wrapper(const dotdot_unid_t unid, const dotdot_endpoint_id_t endpoint_id){
++    // Create and set a default value if undefined.
++    dotdot_create_unify_switch_color_warm_white(unid,endpoint_id);
++    if (false == dotdot_unify_switch_color_warm_white_is_reported_defined(unid,endpoint_id)){
++    dotdot_set_unify_switch_color_warm_white(unid,endpoint_id,REPORTED_ATTRIBUTE, static_cast<uint8_t>(0));
++        }
++
++    // Create and set a default value if undefined.
++    dotdot_create_unify_switch_color_cold_white(unid,endpoint_id);
++    if (false == dotdot_unify_switch_color_cold_white_is_reported_defined(unid,endpoint_id)){
++    dotdot_set_unify_switch_color_cold_white(unid,endpoint_id,REPORTED_ATTRIBUTE, static_cast<uint8_t>(0));
++        }
++
++    // Create and set a default value if undefined.
++    dotdot_create_unify_switch_color_red(unid,endpoint_id);
++    if (false == dotdot_unify_switch_color_red_is_reported_defined(unid,endpoint_id)){
++    dotdot_set_unify_switch_color_red(unid,endpoint_id,REPORTED_ATTRIBUTE, static_cast<uint8_t>(0));
++        }
++
++    // Create and set a default value if undefined.
++    dotdot_create_unify_switch_color_green(unid,endpoint_id);
++    if (false == dotdot_unify_switch_color_green_is_reported_defined(unid,endpoint_id)){
++    dotdot_set_unify_switch_color_green(unid,endpoint_id,REPORTED_ATTRIBUTE, static_cast<uint8_t>(0));
++        }
++
++    // Create and set a default value if undefined.
++    dotdot_create_unify_switch_color_blue(unid,endpoint_id);
++    if (false == dotdot_unify_switch_color_blue_is_reported_defined(unid,endpoint_id)){
++    dotdot_set_unify_switch_color_blue(unid,endpoint_id,REPORTED_ATTRIBUTE, static_cast<uint8_t>(0));
++        }
++
++    // Create and set a default value if undefined.
++    dotdot_create_unify_switch_color_amber(unid,endpoint_id);
++    if (false == dotdot_unify_switch_color_amber_is_reported_defined(unid,endpoint_id)){
++    dotdot_set_unify_switch_color_amber(unid,endpoint_id,REPORTED_ATTRIBUTE, static_cast<uint8_t>(0));
++        }
++
++    // Create and set a default value if undefined.
++    dotdot_create_unify_switch_color_cyan(unid,endpoint_id);
++    if (false == dotdot_unify_switch_color_cyan_is_reported_defined(unid,endpoint_id)){
++    dotdot_set_unify_switch_color_cyan(unid,endpoint_id,REPORTED_ATTRIBUTE, static_cast<uint8_t>(0));
++        }
++
++    // Create and set a default value if undefined.
++    dotdot_create_unify_switch_color_purple(unid,endpoint_id);
++    if (false == dotdot_unify_switch_color_purple_is_reported_defined(unid,endpoint_id)){
++    dotdot_set_unify_switch_color_purple(unid,endpoint_id,REPORTED_ATTRIBUTE, static_cast<uint8_t>(0));
++        }
++
++}
++
+ 
+ void dotdot_unretain_basic_wrapper(const dotdot_unid_t unid, const dotdot_endpoint_id_t endpoint_id){
+     char base_topic[256];
+@@ -6718,6 +6769,40 @@ void dotdot_unretain_unify_humidity_control_wrapper(const dotdot_unid_t unid, co
+     uic_mqtt_dotdot_unify_humidity_control_publish_empty_supported_commands(unid, endpoint_id);
+ }
+ 
++void dotdot_unretain_unify_switch_color_wrapper(const dotdot_unid_t unid, const dotdot_endpoint_id_t endpoint_id){
++    char base_topic[256];
++    snprintf(base_topic, sizeof(base_topic), "ucl/by-unid/%s/ep%d", unid, endpoint_id);
++    attribute_store::attribute ep_node = eed_attribute_store_get_endpoint_node(unid, endpoint_id);
++
++    uic_mqtt_dotdot_unify_switch_color_warm_white_unretain(base_topic,UCL_MQTT_PUBLISH_TYPE_ALL);
++    ep_node.child_by_type(DOTDOT_ATTRIBUTE_ID_UNIFY_SWITCH_COLOR_WARM_WHITE).delete_node();
++
++    uic_mqtt_dotdot_unify_switch_color_cold_white_unretain(base_topic,UCL_MQTT_PUBLISH_TYPE_ALL);
++    ep_node.child_by_type(DOTDOT_ATTRIBUTE_ID_UNIFY_SWITCH_COLOR_COLD_WHITE).delete_node();
++
++    uic_mqtt_dotdot_unify_switch_color_red_unretain(base_topic,UCL_MQTT_PUBLISH_TYPE_ALL);
++    ep_node.child_by_type(DOTDOT_ATTRIBUTE_ID_UNIFY_SWITCH_COLOR_RED).delete_node();
++
++    uic_mqtt_dotdot_unify_switch_color_green_unretain(base_topic,UCL_MQTT_PUBLISH_TYPE_ALL);
++    ep_node.child_by_type(DOTDOT_ATTRIBUTE_ID_UNIFY_SWITCH_COLOR_GREEN).delete_node();
++
++    uic_mqtt_dotdot_unify_switch_color_blue_unretain(base_topic,UCL_MQTT_PUBLISH_TYPE_ALL);
++    ep_node.child_by_type(DOTDOT_ATTRIBUTE_ID_UNIFY_SWITCH_COLOR_BLUE).delete_node();
++
++    uic_mqtt_dotdot_unify_switch_color_amber_unretain(base_topic,UCL_MQTT_PUBLISH_TYPE_ALL);
++    ep_node.child_by_type(DOTDOT_ATTRIBUTE_ID_UNIFY_SWITCH_COLOR_AMBER).delete_node();
++
++    uic_mqtt_dotdot_unify_switch_color_cyan_unretain(base_topic,UCL_MQTT_PUBLISH_TYPE_ALL);
++    ep_node.child_by_type(DOTDOT_ATTRIBUTE_ID_UNIFY_SWITCH_COLOR_CYAN).delete_node();
++
++    uic_mqtt_dotdot_unify_switch_color_purple_unretain(base_topic,UCL_MQTT_PUBLISH_TYPE_ALL);
++    ep_node.child_by_type(DOTDOT_ATTRIBUTE_ID_UNIFY_SWITCH_COLOR_PURPLE).delete_node();
++
++
++    uic_mqtt_dotdot_unify_switch_color_unretain_cluster_revision(base_topic);
++    uic_mqtt_dotdot_unify_switch_color_publish_empty_supported_commands(unid, endpoint_id);
++}
++
+ 
+     void eed_dotdot_create_clusters(const dotdot_unid_t unid, const dotdot_endpoint_id_t endpoint_id) {
+         for (auto& pair : CreateClusterMap) {
+@@ -6797,6 +6882,7 @@ std::map<std::string, eed_cluster_attribute_wrapper> CreateClusterMap = {
+ { "UnifyFanControl", dotdot_create_unify_fan_control_wrapper },
+ { "UnifyThermostat", dotdot_create_unify_thermostat_wrapper },
+ { "UnifyHumidityControl", dotdot_create_unify_humidity_control_wrapper },
++{ "UnifySwitchColor", dotdot_create_unify_switch_color_wrapper },
+ };
+ 
+ std::map<std::string, eed_cluster_attribute_wrapper> CreateUnretainMap = {
+@@ -6849,4 +6935,5 @@ std::map<std::string, eed_cluster_attribute_wrapper> CreateUnretainMap = {
+ { "UnifyFanControl", dotdot_unretain_unify_fan_control_wrapper },
+ { "UnifyThermostat", dotdot_unretain_unify_thermostat_wrapper },
+ { "UnifyHumidityControl", dotdot_unretain_unify_humidity_control_wrapper },
++{ "UnifySwitchColor", dotdot_unretain_unify_switch_color_wrapper },
+ };
+\ No newline at end of file
+diff --git a/components/uic_dotdot/zap-generated/include/dotdot_attribute_id_definitions.h b/components/uic_dotdot/zap-generated/include/dotdot_attribute_id_definitions.h
+index b1512d6a82..643ace7524 100644
+--- a/components/uic_dotdot/zap-generated/include/dotdot_attribute_id_definitions.h
++++ b/components/uic_dotdot/zap-generated/include/dotdot_attribute_id_definitions.h
+@@ -893,6 +893,15 @@ typedef enum {
+ #define DOTDOT_UNIFY_HUMIDITY_CONTROL_AUTO_SETPOINT_ATTRIBUTE_ID ((dotdot_attribute_id_t)0x11)
+ #define DOTDOT_UNIFY_HUMIDITY_CONTROL_AUTO_SETPOINT_SCALE_ATTRIBUTE_ID ((dotdot_attribute_id_t)0x12)
+ #define DOTDOT_UNIFY_HUMIDITY_CONTROL_AUTO_SETPOINT_PRECISION_ATTRIBUTE_ID ((dotdot_attribute_id_t)0x13)
++// Definitions for cluster: UnifySwitchColor
++#define DOTDOT_UNIFY_SWITCH_COLOR_WARM_WHITE_ATTRIBUTE_ID ((dotdot_attribute_id_t)0x0)
++#define DOTDOT_UNIFY_SWITCH_COLOR_COLD_WHITE_ATTRIBUTE_ID ((dotdot_attribute_id_t)0x1)
++#define DOTDOT_UNIFY_SWITCH_COLOR_RED_ATTRIBUTE_ID ((dotdot_attribute_id_t)0x2)
++#define DOTDOT_UNIFY_SWITCH_COLOR_GREEN_ATTRIBUTE_ID ((dotdot_attribute_id_t)0x3)
++#define DOTDOT_UNIFY_SWITCH_COLOR_BLUE_ATTRIBUTE_ID ((dotdot_attribute_id_t)0x4)
++#define DOTDOT_UNIFY_SWITCH_COLOR_AMBER_ATTRIBUTE_ID ((dotdot_attribute_id_t)0x5)
++#define DOTDOT_UNIFY_SWITCH_COLOR_CYAN_ATTRIBUTE_ID ((dotdot_attribute_id_t)0x6)
++#define DOTDOT_UNIFY_SWITCH_COLOR_PURPLE_ATTRIBUTE_ID ((dotdot_attribute_id_t)0x7)
+ 
+ // clang-format on
+ 
+diff --git a/components/uic_dotdot/zap-generated/include/dotdot_cluster_command_id_definitions.h b/components/uic_dotdot/zap-generated/include/dotdot_cluster_command_id_definitions.h
+index 958a1064f5..6067e3ce74 100644
+--- a/components/uic_dotdot/zap-generated/include/dotdot_cluster_command_id_definitions.h
++++ b/components/uic_dotdot/zap-generated/include/dotdot_cluster_command_id_definitions.h
+@@ -397,6 +397,10 @@
+ #define DOTDOT_UNIFY_HUMIDITY_CONTROL_MODE_SET_COMMAND_ID (0x1)
+ #define DOTDOT_UNIFY_HUMIDITY_CONTROL_SETPOINT_SET_COMMAND_ID (0x2)
+ 
++// Commands for cluster: UnifySwitchColor
++#define DOTDOT_UNIFY_SWITCH_COLOR_SET_COLOR_COMMAND_ID (0x0)
++#define DOTDOT_UNIFY_SWITCH_COLOR_START_STOP_CHANGE_COMMAND_ID (0x1)
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+diff --git a/components/uic_dotdot/zap-generated/include/dotdot_cluster_id_definitions.h b/components/uic_dotdot/zap-generated/include/dotdot_cluster_id_definitions.h
+index ee7d429b0f..78c2cd96b4 100644
+--- a/components/uic_dotdot/zap-generated/include/dotdot_cluster_id_definitions.h
++++ b/components/uic_dotdot/zap-generated/include/dotdot_cluster_id_definitions.h
+@@ -270,6 +270,10 @@
+ #define DOTDOT_UNIFY_HUMIDITY_CONTROL_CLUSTER_ID ((dotdot_cluster_id_t)0xFDA0)
+ 
+ 
++// Definitions for cluster: UnifySwitchColor
++#define DOTDOT_UNIFY_SWITCH_COLOR_CLUSTER_ID ((dotdot_cluster_id_t)0xFFA1)
++
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+diff --git a/components/uic_dotdot/zap-generated/readme_ucl_mqtt_reference.md b/components/uic_dotdot/zap-generated/readme_ucl_mqtt_reference.md
+index 18ad4f947e..e1d6b1ddca 100644
+--- a/components/uic_dotdot/zap-generated/readme_ucl_mqtt_reference.md
++++ b/components/uic_dotdot/zap-generated/readme_ucl_mqtt_reference.md
+@@ -55997,6 +55997,703 @@ mosquitto_pub -t 'ucl/by-unid/<UNID>/<EP>/UnifyHumidityControl/Commands/ForceRea
+ <!-- END OF UnifyHumidityControl Commands Section -->
+ <!-- -->
+ 
++<br><br><br>
++
++
++<!-- -->
++<!-- -->
++<!-- NEW Page Cluster Support -->
++<!-- -->
++<!-- -->
++\page unify_switch_color UnifySwitchColor Cluster
++The following commands and attributes are accepted as JSON payloads for the
++UnifySwitchColor cluster.
++
++<br><br>
++
++<!-- -->
++<!--  START OF UnifySwitchColor Attributes Section -->
++<!-- -->
++\section unify_switch_color_attrs UnifySwitchColor Attributes
++The following attribute topics are used to retrieve the UnifySwitchColor cluster state.
++
++<br>
++
++\subsection unify_switch_color_attr_warm_white UnifySwitchColor/WarmWhite Attribute
++
++**MQTT Topic Pattern:**
++
++```
++[PREFIX]/UnifySwitchColor/Attributes/WarmWhite/Reported
++[PREFIX]/UnifySwitchColor/Attributes/WarmWhite/Desired
++```
++
++**MQTT Payload JSON Schema:**
++
++```json
++{
++  "$schema": "http://json-schema.org/draft-07/schema#",
++  "title": "UnifySwitchColor Cluster WarmWhite Attribute Properties",
++  "type": "object",
++  "properties": {
++    "value": {
++      "type": "integer"
++    }
++  },
++  "required": [
++    "value"
++  ]
++}
++```
++
++
++**Example Mosquitto CLI Tool Usage**
++
++To see desired/reported value for WarmWhite attribute under the by-unid topic space:
++
++```console
++mosquitto_sub -t 'ucl/by-unid/+/+/UnifySwitchColor/Attributes/WarmWhite/+'
++
++# Example output
++
++ucl/by-unid/<UNID>/ep0/UnifySwitchColor/Attributes/WarmWhite/Desired { "value": <DESIRED_WARM_WHITE>}
++ucl/by-unid/<UNID>/ep0/UnifySwitchColor/Attributes/WarmWhite/Reported { "value": <REPORTED_WARM_WHITE>}
++
++```
++
++<br><br>
++
++\subsection unify_switch_color_attr_cold_white UnifySwitchColor/ColdWhite Attribute
++
++**MQTT Topic Pattern:**
++
++```
++[PREFIX]/UnifySwitchColor/Attributes/ColdWhite/Reported
++[PREFIX]/UnifySwitchColor/Attributes/ColdWhite/Desired
++```
++
++**MQTT Payload JSON Schema:**
++
++```json
++{
++  "$schema": "http://json-schema.org/draft-07/schema#",
++  "title": "UnifySwitchColor Cluster ColdWhite Attribute Properties",
++  "type": "object",
++  "properties": {
++    "value": {
++      "type": "integer"
++    }
++  },
++  "required": [
++    "value"
++  ]
++}
++```
++
++
++**Example Mosquitto CLI Tool Usage**
++
++To see desired/reported value for ColdWhite attribute under the by-unid topic space:
++
++```console
++mosquitto_sub -t 'ucl/by-unid/+/+/UnifySwitchColor/Attributes/ColdWhite/+'
++
++# Example output
++
++ucl/by-unid/<UNID>/ep0/UnifySwitchColor/Attributes/ColdWhite/Desired { "value": <DESIRED_COLD_WHITE>}
++ucl/by-unid/<UNID>/ep0/UnifySwitchColor/Attributes/ColdWhite/Reported { "value": <REPORTED_COLD_WHITE>}
++
++```
++
++<br><br>
++
++\subsection unify_switch_color_attr_red UnifySwitchColor/Red Attribute
++
++**MQTT Topic Pattern:**
++
++```
++[PREFIX]/UnifySwitchColor/Attributes/Red/Reported
++[PREFIX]/UnifySwitchColor/Attributes/Red/Desired
++```
++
++**MQTT Payload JSON Schema:**
++
++```json
++{
++  "$schema": "http://json-schema.org/draft-07/schema#",
++  "title": "UnifySwitchColor Cluster Red Attribute Properties",
++  "type": "object",
++  "properties": {
++    "value": {
++      "type": "integer"
++    }
++  },
++  "required": [
++    "value"
++  ]
++}
++```
++
++
++**Example Mosquitto CLI Tool Usage**
++
++To see desired/reported value for Red attribute under the by-unid topic space:
++
++```console
++mosquitto_sub -t 'ucl/by-unid/+/+/UnifySwitchColor/Attributes/Red/+'
++
++# Example output
++
++ucl/by-unid/<UNID>/ep0/UnifySwitchColor/Attributes/Red/Desired { "value": <DESIRED_RED>}
++ucl/by-unid/<UNID>/ep0/UnifySwitchColor/Attributes/Red/Reported { "value": <REPORTED_RED>}
++
++```
++
++<br><br>
++
++\subsection unify_switch_color_attr_green UnifySwitchColor/Green Attribute
++
++**MQTT Topic Pattern:**
++
++```
++[PREFIX]/UnifySwitchColor/Attributes/Green/Reported
++[PREFIX]/UnifySwitchColor/Attributes/Green/Desired
++```
++
++**MQTT Payload JSON Schema:**
++
++```json
++{
++  "$schema": "http://json-schema.org/draft-07/schema#",
++  "title": "UnifySwitchColor Cluster Green Attribute Properties",
++  "type": "object",
++  "properties": {
++    "value": {
++      "type": "integer"
++    }
++  },
++  "required": [
++    "value"
++  ]
++}
++```
++
++
++**Example Mosquitto CLI Tool Usage**
++
++To see desired/reported value for Green attribute under the by-unid topic space:
++
++```console
++mosquitto_sub -t 'ucl/by-unid/+/+/UnifySwitchColor/Attributes/Green/+'
++
++# Example output
++
++ucl/by-unid/<UNID>/ep0/UnifySwitchColor/Attributes/Green/Desired { "value": <DESIRED_GREEN>}
++ucl/by-unid/<UNID>/ep0/UnifySwitchColor/Attributes/Green/Reported { "value": <REPORTED_GREEN>}
++
++```
++
++<br><br>
++
++\subsection unify_switch_color_attr_blue UnifySwitchColor/Blue Attribute
++
++**MQTT Topic Pattern:**
++
++```
++[PREFIX]/UnifySwitchColor/Attributes/Blue/Reported
++[PREFIX]/UnifySwitchColor/Attributes/Blue/Desired
++```
++
++**MQTT Payload JSON Schema:**
++
++```json
++{
++  "$schema": "http://json-schema.org/draft-07/schema#",
++  "title": "UnifySwitchColor Cluster Blue Attribute Properties",
++  "type": "object",
++  "properties": {
++    "value": {
++      "type": "integer"
++    }
++  },
++  "required": [
++    "value"
++  ]
++}
++```
++
++
++**Example Mosquitto CLI Tool Usage**
++
++To see desired/reported value for Blue attribute under the by-unid topic space:
++
++```console
++mosquitto_sub -t 'ucl/by-unid/+/+/UnifySwitchColor/Attributes/Blue/+'
++
++# Example output
++
++ucl/by-unid/<UNID>/ep0/UnifySwitchColor/Attributes/Blue/Desired { "value": <DESIRED_BLUE>}
++ucl/by-unid/<UNID>/ep0/UnifySwitchColor/Attributes/Blue/Reported { "value": <REPORTED_BLUE>}
++
++```
++
++<br><br>
++
++\subsection unify_switch_color_attr_amber UnifySwitchColor/Amber Attribute
++
++**MQTT Topic Pattern:**
++
++```
++[PREFIX]/UnifySwitchColor/Attributes/Amber/Reported
++[PREFIX]/UnifySwitchColor/Attributes/Amber/Desired
++```
++
++**MQTT Payload JSON Schema:**
++
++```json
++{
++  "$schema": "http://json-schema.org/draft-07/schema#",
++  "title": "UnifySwitchColor Cluster Amber Attribute Properties",
++  "type": "object",
++  "properties": {
++    "value": {
++      "type": "integer"
++    }
++  },
++  "required": [
++    "value"
++  ]
++}
++```
++
++
++**Example Mosquitto CLI Tool Usage**
++
++To see desired/reported value for Amber attribute under the by-unid topic space:
++
++```console
++mosquitto_sub -t 'ucl/by-unid/+/+/UnifySwitchColor/Attributes/Amber/+'
++
++# Example output
++
++ucl/by-unid/<UNID>/ep0/UnifySwitchColor/Attributes/Amber/Desired { "value": <DESIRED_AMBER>}
++ucl/by-unid/<UNID>/ep0/UnifySwitchColor/Attributes/Amber/Reported { "value": <REPORTED_AMBER>}
++
++```
++
++<br><br>
++
++\subsection unify_switch_color_attr_cyan UnifySwitchColor/Cyan Attribute
++
++**MQTT Topic Pattern:**
++
++```
++[PREFIX]/UnifySwitchColor/Attributes/Cyan/Reported
++[PREFIX]/UnifySwitchColor/Attributes/Cyan/Desired
++```
++
++**MQTT Payload JSON Schema:**
++
++```json
++{
++  "$schema": "http://json-schema.org/draft-07/schema#",
++  "title": "UnifySwitchColor Cluster Cyan Attribute Properties",
++  "type": "object",
++  "properties": {
++    "value": {
++      "type": "integer"
++    }
++  },
++  "required": [
++    "value"
++  ]
++}
++```
++
++
++**Example Mosquitto CLI Tool Usage**
++
++To see desired/reported value for Cyan attribute under the by-unid topic space:
++
++```console
++mosquitto_sub -t 'ucl/by-unid/+/+/UnifySwitchColor/Attributes/Cyan/+'
++
++# Example output
++
++ucl/by-unid/<UNID>/ep0/UnifySwitchColor/Attributes/Cyan/Desired { "value": <DESIRED_CYAN>}
++ucl/by-unid/<UNID>/ep0/UnifySwitchColor/Attributes/Cyan/Reported { "value": <REPORTED_CYAN>}
++
++```
++
++<br><br>
++
++\subsection unify_switch_color_attr_purple UnifySwitchColor/Purple Attribute
++
++**MQTT Topic Pattern:**
++
++```
++[PREFIX]/UnifySwitchColor/Attributes/Purple/Reported
++[PREFIX]/UnifySwitchColor/Attributes/Purple/Desired
++```
++
++**MQTT Payload JSON Schema:**
++
++```json
++{
++  "$schema": "http://json-schema.org/draft-07/schema#",
++  "title": "UnifySwitchColor Cluster Purple Attribute Properties",
++  "type": "object",
++  "properties": {
++    "value": {
++      "type": "integer"
++    }
++  },
++  "required": [
++    "value"
++  ]
++}
++```
++
++
++**Example Mosquitto CLI Tool Usage**
++
++To see desired/reported value for Purple attribute under the by-unid topic space:
++
++```console
++mosquitto_sub -t 'ucl/by-unid/+/+/UnifySwitchColor/Attributes/Purple/+'
++
++# Example output
++
++ucl/by-unid/<UNID>/ep0/UnifySwitchColor/Attributes/Purple/Desired { "value": <DESIRED_PURPLE>}
++ucl/by-unid/<UNID>/ep0/UnifySwitchColor/Attributes/Purple/Reported { "value": <REPORTED_PURPLE>}
++
++```
++
++<br><br>
++
++
++\subsection unify_switch_color_attr_cluster_revision UnifySwitchColor/ClusterRevision Attribute
++
++**MQTT Topic Pattern:**
++
++```
++[PREFIX]/UnifySwitchColor/Attributes/ClusterRevision/Reported
++[PREFIX]/UnifySwitchColor/Attributes/ClusterRevision/Desired
++```
++
++**MQTT Payload JSON Schema:**
++
++```json
++{
++  "$schema": "http://json-schema.org/draft-07/schema#",
++  "title": "UnifySwitchColor Cluster ClusterRevision Attribute Properties",
++  "type": "object",
++  "properties": {
++    "value": {
++      "type": "integer"
++    }
++  },
++  "required": [
++    "value"
++  ]
++}
++```
++
++**Example Mosquitto CLI Tool Usage**
++
++To see desired/reported value for ClusterRevision attribute under the by-unid topic space:
++
++```console
++mosquitto_sub -t 'ucl/by-unid/<UNID>/<EP>/UnifySwitchColor/Attributes/ClusterRevision/+'
++# Example output
++ucl/by-unid/<UNID>/<EP>/UnifySwitchColor/Attributes/ClusterRevision/Desired { "value": <DESIRED_CLUSTER_REVISION> }
++ucl/by-unid/<UNID>/<EP>/UnifySwitchColor/Attributes/ClusterRevision/Reported { "value": <REPORTED_CLUSTER_REVISION> }
++```
++
++<!-- -->
++<!--  END OF UnifySwitchColor Attributes Section -->
++<!-- -->
++
++<br><br>
++
++<!-- -->
++<!-- START OF UnifySwitchColor Supported Commands Section -->
++<!-- -->
++\section unify_switch_color_recv_cmd_support UnifySwitchColor Command Support
++
++**MQTT Topic Pattern:**
++
++```
++[PREFIX]/UnifySwitchColor/SupportedCommands
++[PREFIX]/UnifySwitchColor/SupportedGeneratedCommands
++```
++
++**MQTT Payload JSON Schema:**
++
++```json
++{
++  "$schema": "http://json-schema.org/draft-07/schema#",
++  "title": "UnifySwitchColor Command Support Properties",
++  "type": "object",
++  "properties": {
++      "value": {
++          "type": "array",
++          "items" : {
++            "type": "string",
++            "enum": [
++              "SetColor",
++              "StartStopChange",
++              "WriteAttributes",
++              "ForceReadAttributes"
++            ]
++          }
++        }
++      }
++  },
++  "required": [
++    "value"
++  ]
++}
++```
++
++**Example Mosquitto CLI Tool Usage**
++
++To see supported commands for UnifySwitchColor cluster under the by-unid topic space:
++
++```console
++mosquitto_sub -t 'ucl/by-unid/<UNID>/<EP>/UnifySwitchColor/SupportedCommands'
++# Example output
++ucl/by-unid/<UNID>/<EP>/UnifySwitchColor/SupportedCommands { "value": ["SetColor","StartStopChange","WriteAttributes", "ForceReadAttributes"] }
++```
++
++To see supported generated commands for UnifySwitchColor cluster under the by-unid topic space:
++
++```console
++mosquitto_sub -t 'ucl/by-unid/<UNID>/<EP>/UnifySwitchColor/SupportedGeneratedCommands'
++# Example output
++ucl/by-unid/<UNID>/<EP>/UnifySwitchColor/SupportedGeneratedCommands { "value": [] }
++```
++
++<!-- -->
++<!-- END OF UnifySwitchColor Supported Commands Section -->
++<!-- -->
++
++<br><br>
++
++<!-- -->
++<!-- START OF UnifySwitchColor Commands Section -->
++<!-- -->
++\section unify_switch_color_cmds UnifySwitchColor Commands
++
++<br><br>
++
++\subsection unify_switch_color_set_color_cmd UnifySwitchColor/SetColor Command
++
++**MQTT Topic Pattern:**
++
++```
++[PREFIX]/UnifySwitchColor/Commands/SetColor
++[PREFIX]/UnifySwitchColor/GeneratedCommands/SetColor
++```
++
++**MQTT Payload JSON Schema:**
++
++```json
++{
++  "$schema": "http://json-schema.org/draft-07/schema#",
++  "title": "UnifySwitchColor Cluster SetColor Command Properties",
++  "type": "object",
++  "properties": {
++    "ColorComponentId": {
++      "type": "integer"
++    },
++    "Value": {
++      "type": "integer"
++    },
++    "Duration": {
++      "type": "integer"
++    }
++  },
++  "required": [
++    "ColorComponentId",
++    "Value",
++    "Duration"
++  ]
++}
++```
++
++**Example Mosquitto CLI Tool Usage**
++
++To send a UnifySwitchColor/SetColor command under the by-unid topic space:
++
++```console
++mosquitto_pub -t 'ucl/by-unid/<UNID>/<EP>/UnifySwitchColor/Commands/SetColor' -m  '{ "ColorComponentId": <COLOR_COMPONENT_ID_VALUE>,"Value": <VALUE_VALUE>,"Duration": <DURATION_VALUE> }'
++```
++
++To receive a UnifySwitchColor/SetColor generated command from a UNID/endpoint:
++
++```console
++mosquitto_sub -t 'ucl/by-unid/<UNID>/<EP>/UnifySwitchColor/GeneratedCommands/SetColor'
++```
++
++<br><br>
++
++\subsection unify_switch_color_start_stop_change_cmd UnifySwitchColor/StartStopChange Command
++
++**MQTT Topic Pattern:**
++
++```
++[PREFIX]/UnifySwitchColor/Commands/StartStopChange
++[PREFIX]/UnifySwitchColor/GeneratedCommands/StartStopChange
++```
++
++**MQTT Payload JSON Schema:**
++
++```json
++{
++  "$schema": "http://json-schema.org/draft-07/schema#",
++  "title": "UnifySwitchColor Cluster StartStopChange Command Properties",
++  "type": "object",
++  "properties": {
++    "StartStop": {
++      "type": "boolean"
++    },
++    "UpDown": {
++      "type": "boolean"
++    },
++    "IgnorStartLevel": {
++      "type": "boolean"
++    },
++    "ColorComponentId": {
++      "type": "integer"
++    },
++    "StartLevel": {
++      "type": "integer"
++    },
++    "Duration": {
++      "type": "integer"
++    }
++  },
++  "required": [
++    "StartStop",
++    "UpDown",
++    "IgnorStartLevel",
++    "ColorComponentId",
++    "StartLevel",
++    "Duration"
++  ]
++}
++```
++
++**Example Mosquitto CLI Tool Usage**
++
++To send a UnifySwitchColor/StartStopChange command under the by-unid topic space:
++
++```console
++mosquitto_pub -t 'ucl/by-unid/<UNID>/<EP>/UnifySwitchColor/Commands/StartStopChange' -m  '{ "StartStop": <START_STOP_VALUE>,"UpDown": <UP_DOWN_VALUE>,"IgnorStartLevel": <IGNOR_START_LEVEL_VALUE>,"ColorComponentId": <COLOR_COMPONENT_ID_VALUE>,"StartLevel": <START_LEVEL_VALUE>,"Duration": <DURATION_VALUE> }'
++```
++
++To receive a UnifySwitchColor/StartStopChange generated command from a UNID/endpoint:
++
++```console
++mosquitto_sub -t 'ucl/by-unid/<UNID>/<EP>/UnifySwitchColor/GeneratedCommands/StartStopChange'
++```
++
++<br><br>
++
++\subsection unify_switch_color_write_attr_cmd UnifySwitchColor/WriteAttributes Command
++
++**MQTT Topic Pattern:**
++
++```
++[PREFIX]/UnifySwitchColor/Commands/WriteAttributes
++```
++
++**MQTT Payload JSON Schema:**
++
++```json
++{
++  "$schema": "http://json-schema.org/draft-07/schema#",
++  "title": "UnifySwitchColor Cluster WriteAttributes Command Properties",
++  "type": "object",
++  "properties": {
++  },
++  "required": [
++    "value"
++  ]
++}
++```
++
++**Example Mosquitto CLI Tool Usage**
++
++To update all UnifySwitchColor attributes under the by-unid topic space:
++
++```console
++mosquitto_pub -t 'ucl/by-unid/<UNID>/<EP>/UnifySwitchColor/Commands/WriteAttributes' -m  '{  }'
++```
++
++> NOTE: Specify only the list of attributes to write in this command.
++> Unspecified attributes will not be updated.
++
++<br><br>
++
++\subsection unify_switch_color_force_read_attr_cmd UnifySwitchColor/ForceReadAttributes Command
++
++**MQTT Topic Pattern:**
++
++```
++[PREFIX]/UnifySwitchColor/Commands/ForceReadAttributes
++```
++
++**MQTT Payload JSON Schema:**
++
++```json
++{
++  "$schema": "http://json-schema.org/draft-07/schema#",
++  "title": "UnifySwitchColor Cluster ForceReadAttributes Command Properties",
++  "type": "object",
++  "properties": {
++    "value": {
++      "type": "array"
++      "items": {
++        "type": "string",
++        "enum": [
++          "WarmWhite",
++          "ColdWhite",
++          "Red",
++          "Green",
++          "Blue",
++          "Amber",
++          "Cyan",
++          "Purple"
++        ]
++      }
++    }
++  },
++  "required": [
++    "value"
++  ]
++}
++```
++
++**Example Mosquitto CLI Tool Usage**
++
++To force read all UnifySwitchColor attributes under the by-unid topic space (by sending an empty array):
++
++```console
++mosquitto_pub -t 'ucl/by-unid/<UNID>/<EP>/UnifySwitchColor/Commands/ForceReadAttributes' -m  '{ "value": [] }'
++```
++
++To force read one of the UnifySwitchColor attributes under the by-unid topic space:
++
++```console
++mosquitto_pub -t 'ucl/by-unid/<UNID>/<EP>/UnifySwitchColor/Commands/ForceReadAttributes' -m  '{ "value": ["WarmWhite"] }'
++```
++
++<!-- -->
++<!-- END OF UnifySwitchColor Commands Section -->
++<!-- -->
++
+ 
+ <br><br><br>
+ 
+diff --git a/components/uic_dotdot/zap-generated/src/dotdot_attribute_id_definitions.c b/components/uic_dotdot/zap-generated/src/dotdot_attribute_id_definitions.c
+index 372b67422a..500dd55f11 100644
+--- a/components/uic_dotdot/zap-generated/src/dotdot_attribute_id_definitions.c
++++ b/components/uic_dotdot/zap-generated/src/dotdot_attribute_id_definitions.c
+@@ -2127,6 +2127,31 @@ const char *uic_dotdot_get_attribute_name(dotdot_cluster_id_t cluster_id,
+           return "Unknown";
+       }
+       // clang-format off
++    case DOTDOT_UNIFY_SWITCH_COLOR_CLUSTER_ID:
++      // clang-format on
++      switch (attribute_id) {
++        // clang-format off
++        case DOTDOT_UNIFY_SWITCH_COLOR_WARM_WHITE_ATTRIBUTE_ID:
++          return "WarmWhite";
++        case DOTDOT_UNIFY_SWITCH_COLOR_COLD_WHITE_ATTRIBUTE_ID:
++          return "ColdWhite";
++        case DOTDOT_UNIFY_SWITCH_COLOR_RED_ATTRIBUTE_ID:
++          return "Red";
++        case DOTDOT_UNIFY_SWITCH_COLOR_GREEN_ATTRIBUTE_ID:
++          return "Green";
++        case DOTDOT_UNIFY_SWITCH_COLOR_BLUE_ATTRIBUTE_ID:
++          return "Blue";
++        case DOTDOT_UNIFY_SWITCH_COLOR_AMBER_ATTRIBUTE_ID:
++          return "Amber";
++        case DOTDOT_UNIFY_SWITCH_COLOR_CYAN_ATTRIBUTE_ID:
++          return "Cyan";
++        case DOTDOT_UNIFY_SWITCH_COLOR_PURPLE_ATTRIBUTE_ID:
++          return "Purple";
++          // clang-format on
++        default:
++          return "Unknown";
++      }
++      // clang-format off
+       // clang-format on
+     default:
+       return "Unknown";
+@@ -4618,6 +4643,32 @@ dotdot_attribute_id_t
+         return DOTDOT_UNIFY_HUMIDITY_CONTROL_AUTO_SETPOINT_PRECISION_ATTRIBUTE_ID;
+       }
+     break;
++    case DOTDOT_UNIFY_SWITCH_COLOR_CLUSTER_ID:
++      if (strcmp ("WarmWhite", attribute_name) == 0) {
++        return DOTDOT_UNIFY_SWITCH_COLOR_WARM_WHITE_ATTRIBUTE_ID;
++      }
++      if (strcmp ("ColdWhite", attribute_name) == 0) {
++        return DOTDOT_UNIFY_SWITCH_COLOR_COLD_WHITE_ATTRIBUTE_ID;
++      }
++      if (strcmp ("Red", attribute_name) == 0) {
++        return DOTDOT_UNIFY_SWITCH_COLOR_RED_ATTRIBUTE_ID;
++      }
++      if (strcmp ("Green", attribute_name) == 0) {
++        return DOTDOT_UNIFY_SWITCH_COLOR_GREEN_ATTRIBUTE_ID;
++      }
++      if (strcmp ("Blue", attribute_name) == 0) {
++        return DOTDOT_UNIFY_SWITCH_COLOR_BLUE_ATTRIBUTE_ID;
++      }
++      if (strcmp ("Amber", attribute_name) == 0) {
++        return DOTDOT_UNIFY_SWITCH_COLOR_AMBER_ATTRIBUTE_ID;
++      }
++      if (strcmp ("Cyan", attribute_name) == 0) {
++        return DOTDOT_UNIFY_SWITCH_COLOR_CYAN_ATTRIBUTE_ID;
++      }
++      if (strcmp ("Purple", attribute_name) == 0) {
++        return DOTDOT_UNIFY_SWITCH_COLOR_PURPLE_ATTRIBUTE_ID;
++      }
++    break;
+     default:
+     return DOTDOT_INVALID_ATTRIBUTE_ID;
+   }
+@@ -6737,6 +6788,31 @@ dotdot_attribute_json_type_t
+           return JSON_TYPE_UNKNOWN;
+       }
+       // clang-format off
++    case DOTDOT_UNIFY_SWITCH_COLOR_CLUSTER_ID:
++      // clang-format on
++      switch (attribute_id) {
++        // clang-format off
++        case DOTDOT_UNIFY_SWITCH_COLOR_WARM_WHITE_ATTRIBUTE_ID:
++          return JSON_TYPE_NUMBER;
++                case DOTDOT_UNIFY_SWITCH_COLOR_COLD_WHITE_ATTRIBUTE_ID:
++          return JSON_TYPE_NUMBER;
++                case DOTDOT_UNIFY_SWITCH_COLOR_RED_ATTRIBUTE_ID:
++          return JSON_TYPE_NUMBER;
++                case DOTDOT_UNIFY_SWITCH_COLOR_GREEN_ATTRIBUTE_ID:
++          return JSON_TYPE_NUMBER;
++                case DOTDOT_UNIFY_SWITCH_COLOR_BLUE_ATTRIBUTE_ID:
++          return JSON_TYPE_NUMBER;
++                case DOTDOT_UNIFY_SWITCH_COLOR_AMBER_ATTRIBUTE_ID:
++          return JSON_TYPE_NUMBER;
++                case DOTDOT_UNIFY_SWITCH_COLOR_CYAN_ATTRIBUTE_ID:
++          return JSON_TYPE_NUMBER;
++                case DOTDOT_UNIFY_SWITCH_COLOR_PURPLE_ATTRIBUTE_ID:
++          return JSON_TYPE_NUMBER;
++                  // clang-format on
++        default:
++          return JSON_TYPE_UNKNOWN;
++      }
++      // clang-format off
+       // clang-format on
+     default:
+       return JSON_TYPE_UNKNOWN;
+@@ -7103,5 +7179,8 @@ bool uic_dotdot_attribute_is_enum(dotdot_cluster_id_t cluster_id,
+     }
+   }
+ 
++  if (65441 == cluster_id) {
++  }
++
+   return false;
+ }
+diff --git a/components/uic_dotdot/zap-generated/src/dotdot_cluster_id_definitions.c b/components/uic_dotdot/zap-generated/src/dotdot_cluster_id_definitions.c
+index a5c8e4d09b..48d521edc8 100644
+--- a/components/uic_dotdot/zap-generated/src/dotdot_cluster_id_definitions.c
++++ b/components/uic_dotdot/zap-generated/src/dotdot_cluster_id_definitions.c
+@@ -136,6 +136,8 @@ const char* uic_dotdot_get_cluster_name(dotdot_cluster_id_t cluster_id) {
+     return "UnifyThermostat";
+   case DOTDOT_UNIFY_HUMIDITY_CONTROL_CLUSTER_ID:
+     return "UnifyHumidityControl";
++  case DOTDOT_UNIFY_SWITCH_COLOR_CLUSTER_ID:
++    return "UnifySwitchColor";
+   default:
+     return "Unknown";
+   }
+@@ -319,6 +321,9 @@ dotdot_cluster_id_t uic_dotdot_get_cluster_id(const char* cluster_name) {
+  if (strcmp ("UnifyHumidityControl", cluster_name) == 0) {
+    return DOTDOT_UNIFY_HUMIDITY_CONTROL_CLUSTER_ID;
+  }
++ if (strcmp ("UnifySwitchColor", cluster_name) == 0) {
++   return DOTDOT_UNIFY_SWITCH_COLOR_CLUSTER_ID;
++ }
+ 
+   // Return an invalid ID if we did not get any match.
+   return DOTDOT_INVALID_CLUSTER_ID;
+-- 
+2.39.5
+
