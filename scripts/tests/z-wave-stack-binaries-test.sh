@@ -606,6 +606,92 @@ play_node_soc_door_lock_keypad_()
     json='{"value":"'$value'"}'
     expect="$sub $json"
     pubsub_ "$pub" "$message" "$sub" "$expect"
+
+    type="UserCredential"
+    command="AddUser"
+    ep="ep0/$type/Commands/$command"
+    pub="ucl/by-unid/$nodeunid/$ep"
+    local userid=1
+    local usertype='ProgrammingUser'
+
+    message='
+{
+      "UserUniqueID": '$userid',
+      "UserType": "'$usertype'",
+      "UserActiveState": false,
+      "CredentialRule": "Single",
+      "UserName": "Admin",
+      "ExpiringTimeoutMinutes": 0,
+      "UserNameEncoding": "ASCII"
+}
+'
+    sub="ucl/by-unid/$nodeunid/ep0/$type/Attributes/User/$userid/UserName/Reported"
+    expect='{"value":"Admin"}'
+    expect="$sub $expect"
+    pubsub_ "$pub" "$message" "$sub" "$expect"
+
+    userid=2
+    usertype='GeneralUser'
+    message='
+{
+      "UserUniqueID": '$userid',
+      "UserType": "'$usertype'",
+      "UserActiveState": false,
+      "CredentialRule": "Single",
+      "UserName": "",
+      "ExpiringTimeoutMinutes": 0,
+      "UserNameEncoding": "ASCII"
+}
+'
+    sub="ucl/by-unid/$nodeunid/ep0/$type/Attributes/User/$userid/UserName/Reported"
+    expect='{"value":"User-'$userid'"}'
+    expect="$sub $expect"
+    pubsub_ "$pub" "$message" "$sub" "$expect"
+
+    command='AddCredential'
+    ep="ep0/$type/Commands/$command"
+    pub="ucl/by-unid/$nodeunid/$ep"
+    value=1234
+    message='{
+      "UserUniqueID": '$userid',
+      "CredentialType": "PINCode",
+      "CredentialSlot": 5,
+      "CredentialData": "'$value'"
+}'
+    ep="ep0/UserCredential/Attributes/User/2/Credential/PINCode/5/CredentialData/Reported"
+    sub="ucl/by-unid/$nodeunid/$ep"
+    expect='{"value":"'$value'"}'
+    expect="$sub $expect"
+    pubsub_ "$pub" "$message" "$sub" "$expect"
+
+    command='ModifyCredential'
+    ep="ep0/$type/Commands/$command"
+    pub="ucl/by-unid/$nodeunid/$ep"
+    value=5678
+    message='{
+      "UserUniqueID": '$userid',
+      "CredentialType": "PINCode",
+      "CredentialSlot": 5,
+      "CredentialData": "'$value'"
+}'
+    expect='{"value":"'$value'"}'
+    expect="$sub $expect"
+    pubsub_ "$pub" "$message" "$sub"  "$expect"
+
+    command='DeleteAllCredentials'
+    ep="ep0/$type/Commands/$command"
+    pub="ucl/by-unid/$nodeunid/$ep"
+    message='{}'
+    sub="ucl/by-unid/$nodeunid/ep0/$type/Attributes/User/+/Credential/PINCode/+/CredentialModifierNodeId/Reported"
+    expect="$sub (null)"
+    pub_ "$pub" "$message" # Not retained ?
+
+    command="DeleteAllUsers"
+    ep="ep0/$type/Commands/$command"
+    pub="ucl/by-unid/$nodeunid/$ep"
+    message='{}'
+    sub="ucl/by-unid/$nodeunid/ep0/UserCredential/Attributes/User/1/UserName/Reported"
+    pub_ "$pub" "$message" # Not retained ?
 }
 
 
